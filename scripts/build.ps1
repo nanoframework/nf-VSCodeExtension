@@ -57,7 +57,8 @@ Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extens
 Expand-Archive "$extName.zip" -Force
 
 Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object { 
-    Copy-Item -Path $PSItem.FullName -Destination "out/utils/" -Recurse -Container:$false -Force
+    $SDKPath = Join-Path -Path $PSItem.FullName -ChildPath "nanoFramework"
+    Copy-Item -Path $SDKPath -Destination "out/utils/" -Recurse -Force
 }
 
 #clean nanoFramework SDK resources
