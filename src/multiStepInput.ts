@@ -240,22 +240,27 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 
 	window.showInformationMessage(`Flashing '${state.targetBoard}' device on ${state.devicePath}`);
 
+	let cliArguments: string;
+
 	switch (state.targetBoard?.substring(0,3)) {
-		case 'ST_':
-			Dotnet.flash(nanoFrameworkExtensionPath, 
-				`--target ${state.targetBoard} --fwversion ${state.imageVersion.description} ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`);
+		case 'ST_': 
+			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description} ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
 			break;
 
 		case 'TI_':
-			Dotnet.flash(nanoFrameworkExtensionPath, 
-				`--target ${state.targetBoard} --fwversion ${state.imageVersion.description}`);
+			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description}`;
 			break;
 
 		default:
-			Dotnet.flash(nanoFrameworkExtensionPath, 
-				`--target ${state.targetBoard} --serialport ${state.devicePath} --fwversion ${state.imageVersion.description} --baud ${state.baudrate}`);
+			cliArguments = `--target ${state.targetBoard} --serialport ${state.devicePath} --fwversion ${state.imageVersion.description} --baud ${state.baudrate}`;
 			break;
 	}
+
+	if(state.imageVersion.description && state.imageVersion.description.includes("preview")) {
+		cliArguments += " --preview";
+	}
+
+	Dotnet.flash(nanoFrameworkExtensionPath, cliArguments);
 }
 
 

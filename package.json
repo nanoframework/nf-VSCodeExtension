@@ -2,7 +2,8 @@
   "name": "nanoframeworkextension",
   "displayName": "nanoFrameworkExtension",
   "description": "Build, deploy and flash your nanoFramework solutions.",
-  "version": "0.0.1",
+  "publisher": "nanoFramework",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.61.0"
   },
@@ -33,13 +34,13 @@
     "menus": {
       "explorer/context": [
         {
-          "when": "resourceExtname == .csproj",
+          "when": "resourceExtname == .nfproj",
           "command": "nanoframeworkextension.nfbuild",
           "group": "navigation@1"
         },
         {
           "when": "resourceExtname == .nfproj",
-          "command": "nanoframeworkextension.nfbuild",
+          "command": "nanoframeworkextension.nfdeploy",
           "group": "navigation@1"
         },
         {

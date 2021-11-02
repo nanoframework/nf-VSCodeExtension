@@ -261,3 +261,4 @@ dist
 .vscode-test/
 *.vsix
 .DS_Store
+*.zip
