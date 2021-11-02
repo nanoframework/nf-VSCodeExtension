@@ -22,9 +22,11 @@ function BuildDotnet ($repo, $fileName, $dotnet5)
         nuget restore $PSItem.FullName ;
         
         if ($dotnet5) {
+            Write-Host "Using dotnet build";
             dotnet build $PSItem.FullName -o $outFolder
         }
         else {
+            Write-Host "Using msbuild"
             msbuild $PSItem.FullName /p:OutDir=$outFolder; 
         }
     }
@@ -33,7 +35,6 @@ function BuildDotnet ($repo, $fileName, $dotnet5)
     Remove-Item "$fileName.zip"
     Remove-Item $fileName -Recurse -Force
 }
-
 
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
@@ -61,6 +62,11 @@ Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object {
     Copy-Item -Path $SDKPath -Destination "out/utils/" -Recurse -Force
 }
 
-#clean nanoFramework SDK resources
+# Clean nanoFramework SDK resources
 Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
+
+if ($IsMacOS || $IsLinux) {
+    Write-Output "Adding executable rights to utils folder on Unix"
+    chmod -R +x ./out/utils/
+}
