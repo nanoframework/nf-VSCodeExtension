@@ -1,70 +1,74 @@
-# nanoframeworkextension README
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![#yourfirstpr](https://img.shields.io/badge/first--timers--only-friendly-blue.svg)](https://github.com/nanoframework/Home/blob/main/CONTRIBUTING.md) [![Discord](https://img.shields.io/discord/478725473862549535.svg?logo=discord&logoColor=white&label=Discord&color=7289DA)](https://discord.gg/gCyBu8T)
 
-This is the README for your extension "nanoframeworkextension". After writing up a brief description, we recommend including the following sections.
+![nanoFramework logo](https://github.com/nanoframework/Home/blob/main/resources/logo/nanoFramework-repo-logo.png)
+
+-----
+
+# .NET nanoFramework VS Code Extension
+
+This extension allows you to use VS Code to flash, build and deploy your C# code for .NET nanoFramework on your device regardless of the platform you're using. This has been tested on Mac, Linux (64 bits) and Windows (64 bits).
+
+![vs code gif](docs/nano-vs-code.gif)
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+This .NET nanoFramework VS Code extension allow you to flash, build and deploy your C# .NET nanoFramework application on an ESP32 or STM32 MCU.
 
-For example if there is an image subfolder under your extension project workspace:
+### Flashing the device
 
-\!\[feature X\]\(images/feature-x.png\)
+Select `nanoFramework: Flash device` and follow the steps.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+![nanoFramework: Flash device](docs/step-by-step6.png)
+
+Based on the target you will select, the menus will automatically adjust to help you finding the correct version, DFU or Serial Port.
+
+![select options](docs/step-by-step8.png)
+
+Once all options has been selected, you'll see the flashing happening:
+
+![flash happening](docs/step-by-step12.png)
+
+### Building your code
+
+Select `nanoFramework: Build Project` and follow the steps.
+
+![select options](docs/step-by-step2.png)
+
+If you have multiple solutions in the open folder, you'll be able to select the one to build:
+
+![select options](docs/step-by-step3.png)
+
+Build result will be display in the Terminal:
+
+![select options](docs/step-by-step5.png)
+
+### Deploy to your device
+
+Select `nanoFramework: Build Project` and follow the steps.
+
+![select options](docs/step-by-step14.png)
+
+Similar as building the project, you'll have to select the project to deploy. The code will be built and the deployment will start:
+
+![select options](docs/step-by-step17.png)
+
+You'll get as well the status of the deployment happening in the Terminal.
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+You will need to make sure you'll have the following elements installed:
 
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: enable/disable this extension
-* `myExtension.thing`: set to `blah` to do something
+- [.NET 5.0 or greater](https://dotnet.microsoft.com/download/dotnet)
+- [Visual Studio build tools](https://visualstudio.microsoft.com/en/thank-you-downloading-visual-studio/?sku=BuildTools&rel=16) on Windows, `mono-complete` on [Linux/macOS](https://www.mono-project.com/docs/getting-started/install/)
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+This extension will **not** allow you to debug the device. Debug is only available on Windows with [Visual Studio](https://visualstudio.microsoft.com/downloads/) (any edition) and the [.NET nanoFramework Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2022-Extension) installed.
+
+This extension will work on any Mac version (x64 or M1), works only on Linux x64 and Windows x64. Other 32 bits OS or ARM platforms are not supported.
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
-
 ### 1.0.0
 
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
------------------------------------------------------------------------------------------------------------
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-**Note:** You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+CMD+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux) or `Cmd+Space` (macOS) to see a list of Markdown snippets
-
-### For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+Initial version.
