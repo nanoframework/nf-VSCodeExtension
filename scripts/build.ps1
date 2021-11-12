@@ -66,7 +66,7 @@ Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object {
 Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
 
-if ($IsMacOS || $IsLinux) {
+if ($IsMacOS -or $IsLinux) {
     Write-Output "Adding executable rights to utils folder on Unix"
     chmod -R +x ./out/utils/
 }
