@@ -39,7 +39,7 @@ function BuildDotnet ($repo, $fileName, $dotnet5)
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
 $repo = "nanoFirmwareFlasher"
-$fileName = "v1.28.1"
+$fileName = "v1.28.2"
 
 DownloadArtifact $project $repo "$fileName.zip"
 BuildDotnet $repo $fileName $true
@@ -65,6 +65,10 @@ Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object {
 # Clean nanoFramework SDK resources
 Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
+
+## Setup nuget
+$nugetFolder = (New-Item -Name "out/utils/nuget" -ItemType Directory -Force).ToString();
+Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -Out "$nugetFolder/nuget.exe"
 
 if ($IsMacOS -or $IsLinux) {
     Write-Output "Adding executable rights to utils folder on Unix"

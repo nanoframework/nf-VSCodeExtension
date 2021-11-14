@@ -7,8 +7,6 @@ import { Executor } from "./executor";
 import { multiStepInput } from './multiStepInput';
 import { getDocumentWorkspaceFolder, solvePath } from './utils';
 
-
-
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {	

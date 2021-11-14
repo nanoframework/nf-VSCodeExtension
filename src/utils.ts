@@ -1,13 +1,11 @@
 
 import globby = require('globby');
 import * as vscode from 'vscode';
+import * as os from 'os';
 
 export function getDocumentWorkspaceFolder(): string | undefined {
-    const fileName = vscode.window.activeTextEditor?.document.fileName;
     return vscode.workspace.workspaceFolders
-      ?.map((folder) => folder.uri.fsPath)
-      .filter((fsPath) => fileName?.startsWith(fsPath))[0]
-	  .replace(/\\/g, "/"); 
+      ?.map((folder) => folder.uri.fsPath)[0];
 }
 
 export async function chooseSolution(workspaceFolder: string) {
@@ -16,7 +14,6 @@ export async function chooseSolution(workspaceFolder: string) {
 	const result = await vscode.window.showQuickPick(paths, {
 		placeHolder: 'Select the solution you would like to build/deploy',
 	});
-	// vscode.window.showInformationMessage(`Got: ${result}`);
 
     return result || '';
 }
@@ -24,8 +21,10 @@ export async function chooseSolution(workspaceFolder: string) {
 export async function solvePath(fileUri: vscode.Uri, workspaceFolder: string) {
 	let path = fileUri ? fileUri.fsPath: '';
 	if(!path && workspaceFolder) {
-		
-		path = await chooseSolution(workspaceFolder);         
+		path = await chooseSolution(
+			os.platform() === 'win32' ? 
+				workspaceFolder.replace(/\\/g, "/") : 
+				workspaceFolder);         
 	}
 	
 	return path;
