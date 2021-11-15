@@ -34,16 +34,6 @@
     "menus": {
       "explorer/context": [
         {
-          "when": "resourceExtname == .nfproj",
-          "command": "nanoframeworkextension.nfbuild",
-          "group": "navigation@1"
-        },
-        {
-          "when": "resourceExtname == .nfproj",
-          "command": "nanoframeworkextension.nfdeploy",
-          "group": "navigation@1"
-        },
-        {
           "when": "resourceExtname == .sln",
           "command": "nanoframeworkextension.nfbuild",
           "group": "navigation@1"
