@@ -39,7 +39,7 @@ function BuildDotnet ($repo, $fileName, $dotnet5)
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
 $repo = "nanoFirmwareFlasher"
-$fileName = "v1.28.2"
+$fileName = "v1.29.1"
 
 DownloadArtifact $project $repo "$fileName.zip"
 BuildDotnet $repo $fileName $true

@@ -4,7 +4,7 @@
   "description": "Build, deploy and flash your nanoFramework solutions.",
   "icon": "nanoFramework-logo.png",
   "publisher": "nanoFramework",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "engines": {
     "vscode": "^1.61.0"
   },
@@ -18,7 +18,8 @@
   "activationEvents": [
     "onCommand:nanoframeworkextension.nfbuild",
     "onCommand:nanoframeworkextension.nfdeploy",
-    "onCommand:nanoframeworkextension.nfflash"
+    "onCommand:nanoframeworkextension.nfflash",
+    "onCommand:nanoframeworkextension.nfdeployalt"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -34,6 +35,10 @@
       {
         "command": "nanoframeworkextension.nfflash",
         "title": "nanoFramework: Flash device"
+      },
+      {
+        "command": "nanoframeworkextension.nfdeployalt",
+        "title": "nanoFramework: Deploy Project (alternative method)"
       }
     ],
     "menus": {
@@ -46,6 +51,11 @@
         {
           "when": "resourceExtname == .sln",
           "command": "nanoframeworkextension.nfdeploy",
+          "group": "navigation@1"
+        },
+        {
+          "when": "resourceExtname == .sln",
+          "command": "nanoframeworkextension.nfdeployalt",
           "group": "navigation@1"
         }
       ]

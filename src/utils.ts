@@ -1,6 +1,7 @@
 
 import globby = require('globby');
 import { SerialPortCtrl } from "./serialportctrl";
+const axios = require('axios');
 
 import * as vscode from 'vscode';
 import * as os from 'os';
@@ -29,10 +30,44 @@ export async function chooseSerialPort(nanoFrameworkExtensionPath: string) {
 	const selectedPort = await vscode.window.showQuickPick(devicePaths, {
 		placeHolder: 'Select the ports you would like to build/deploy',
 	});
-
-	return '';
 	
-	// return selectedPort ? selectedPort.label : '';
+	return selectedPort ? selectedPort.label : '';
+}
+
+export async function chooseTarget(nanoFrameworkExtensionPath: string) {
+	const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
+
+	const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
+		.map(repo => axios.get(apiUrl + repo));
+
+	let imageArray:string[] = [];
+
+	await Promise
+		.all(apiRepos)
+		.then((responses: any)=>{
+			responses.forEach((res: { data: { name: string; }[]; }) => {
+				res.data.forEach((resData: { name: string; }) => {
+					imageArray.push(resData.name);
+				});
+			});
+		})
+		.catch((err: any) => {
+			vscode.window.showErrorMessage(`Couldn't retrieve live boards from API: ${JSON.stringify(err)}`);
+
+			// return default options if (one) of the HTTP requests fails
+			imageArray = ['ESP32_WROOM_32', 'ESP32_PICO'];
+		});
+
+	const targetImages = imageArray
+		.filter((v, i, a) => a.indexOf(v) === i) // remove duplicates
+		.sort() //sort
+		.map((label) => label);
+
+	const selectedTarget = await vscode.window.showQuickPick(targetImages, {
+		placeHolder: 'Select the target for your device',
+	});
+
+	return selectedTarget ? selectedTarget : '';
 }
 
 export async function solvePath(fileUri: vscode.Uri, workspaceFolder: string) {

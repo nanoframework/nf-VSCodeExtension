@@ -5,7 +5,7 @@ import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
 
 import { multiStepInput } from './multiStepInput';
-import { getDocumentWorkspaceFolder, solvePath, chooseSerialPort } from './utils';
+import { getDocumentWorkspaceFolder, solvePath, chooseSerialPort, chooseTarget } from './utils';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -24,6 +24,13 @@ export async function activate(context: vscode.ExtensionContext) {
         const path = await solvePath(fileUri, workspaceFolder);
         const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
         Dotnet.deploy(path, serialPath, nanoFrameworkExtensionPath);
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("nanoframeworkextension.nfdeployalt", async (fileUri: vscode.Uri, ) => {
+        const path = await solvePath(fileUri, workspaceFolder);
+        const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
+        const target = await chooseTarget(nanoFrameworkExtensionPath);
+        Dotnet.deployAlternative(path, serialPath, target, nanoFrameworkExtensionPath);
     }));
 
 	context.subscriptions.push(vscode.window.onDidCloseTerminal((closedTerminal: vscode.Terminal) => {
