@@ -1,14 +1,19 @@
 {
   "name": "nanoframeworkextension",
-  "displayName": "nanoFrameworkExtension",
+  "displayName": "nanoFramework",
   "description": "Build, deploy and flash your nanoFramework solutions.",
+  "icon": "nanoFramework-logo.png",
   "publisher": "nanoFramework",
   "version": "0.0.4",
   "engines": {
     "vscode": "^1.61.0"
   },
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/nanoframework/nf-VSCodeExtension.git"
+	},
   "categories": [
-    "Other"
+    "Debuggers"
   ],
   "activationEvents": [
     "onCommand:nanoframeworkextension.nfbuild",
