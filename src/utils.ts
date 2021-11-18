@@ -1,5 +1,7 @@
 
 import globby = require('globby');
+import { SerialPortCtrl } from "./serialportctrl";
+
 import * as vscode from 'vscode';
 import * as os from 'os';
 
@@ -16,6 +18,21 @@ export async function chooseSolution(workspaceFolder: string) {
 	});
 
     return result || '';
+}
+
+export async function chooseSerialPort(nanoFrameworkExtensionPath: string) {
+	const ports = await SerialPortCtrl.list(nanoFrameworkExtensionPath);
+
+	const devicePaths = ports
+			.map((label) => ({ label: label.port, description: label.desc }));
+
+	const selectedPort = await vscode.window.showQuickPick(devicePaths, {
+		placeHolder: 'Select the ports you would like to build/deploy',
+	});
+
+	return '';
+	
+	// return selectedPort ? selectedPort.label : '';
 }
 
 export async function solvePath(fileUri: vscode.Uri, workspaceFolder: string) {

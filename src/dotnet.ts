@@ -18,21 +18,22 @@ export class Dotnet {
         }
     }
 
-    public static deploy(fileUri: string, nanoFrameworkExtensionPath: String) {
+    public static deploy(fileUri: string, serialPath: string, nanoFrameworkExtensionPath: String) {
         if (fileUri) {
-            let outputDir = path.dirname(fileUri) + '/OutputDir/';
-            let cliArguments = `/p:NanoFrameworkProjectSystemPath=${nanoFrameworkExtensionPath}/nanoFramework/v1.0/ /p:OutDir=${outputDir}`;
+            const outputDir = path.dirname(fileUri) + '/OutputDir/';
+            const cliBuildArguments = `/p:NanoFrameworkProjectSystemPath=${nanoFrameworkExtensionPath}/nanoFramework/v1.0/ /p:OutDir=${outputDir}`;
+            const cliDeployArguments = `${nanoFrameworkExtensionPath}/nanoFrameworkDeployer/nanoFrameworkDeployer.exe -v ${serialPath ? '-c '+ serialPath : ''} -d ${outputDir}`;
 
             if(os.platform() === "win32") {
                 Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     nanoFrameworkExtensionPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
-                    '& $path ' + fileUri + ' ' + cliArguments + '; '+ 
-                    nanoFrameworkExtensionPath + 'nanoFrameworkDeployer/nanoFrameworkDeployer.exe  -d ' + outputDir);            
+                    '& $path ' + fileUri + ' ' + cliBuildArguments + '; '+ 
+                    cliDeployArguments);            
             }
             else {
                 Executor.runInTerminal(`nuget restore "${fileUri}" && \
-                    msbuild "${fileUri}" ${cliArguments} && \
-                    mono ${nanoFrameworkExtensionPath}/nanoFrameworkDeployer/nanoFrameworkDeployer.exe -v -d ${outputDir}`);
+                    msbuild "${fileUri}" ${cliBuildArguments} && \
+                    mono ${cliDeployArguments}`);
             }
         }   
     }
