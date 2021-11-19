@@ -1,4 +1,4 @@
-import { spawnSync, execFileSync  } from "child_process";
+import { execFileSync } from "child_process";
 import * as os from "os";
 import * as path from "path";
 
@@ -13,8 +13,7 @@ interface ISerialPortDetail {
 export class SerialPortCtrl {
   
   public static list(extensionPath: String): Promise<ISerialPortDetail[]> {
-
-    const stdout =  execFileSync(SerialPortCtrl._serialCliPath(extensionPath), ["list-ports"]);
+    const stdout = execFileSync(SerialPortCtrl._serialCliPath(extensionPath), ["list-ports"]);
     const lists = JSON.parse(stdout.toString("utf-8"));
     lists.forEach((port: { [x: string]: any; }) => {
         const vidPid = this._parseVidPid(port["hwid"]);
@@ -23,7 +22,7 @@ export class SerialPortCtrl {
     });
     return lists;
   }
-  
+
   private static _parseVidPid(hwid: String): any {
     const result = hwid.match(/VID:PID=(?<vid>\w+):(?<pid>\w+)/i);
     return result !== null ? result["groups"] : [null, null];

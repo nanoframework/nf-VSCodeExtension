@@ -7,7 +7,6 @@ import { QuickPickItem, window, Disposable, QuickInputButton, QuickInput, Extens
 import { Dotnet } from './dotnet';
 
 const axios = require('axios');
-// const { SerialPort } = require('node-usb-native');
 import { SerialPortCtrl } from "./serialportctrl";
 
 /**
@@ -94,7 +93,6 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 
 	// step 3, only for ESP32 devices
 	async function pickDevicePath(input: MultiStepInput, state: Partial<State>) {
-
 		const devices = await getDevices();
 
 		const devicePath = await input.showQuickPick({
@@ -172,17 +170,14 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 				window.showErrorMessage(`Couldn't retrieve live boards from API: ${JSON.stringify(err)}`);
 
 				// return default options if (one) of the HTTP requests fails
-				targetImages = ['ESP32_WROOM_32', 'ESP32_PICO']
+				targetImages = ['ESP32_REV0', 'ESP32_PICO']
 					.map(label => ({ label }));
 			});		
 
 		return targetImages;
 	}
 
-
 	async function getImageVersions(targetBoard: string | undefined): Promise<QuickPickItem[]> {
-
-		console.log('targetboard: ' + targetBoard);
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
@@ -207,10 +202,10 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 					.map((label: any) => ({ label: label.filename, description: label.version }));
 			})
 			.catch((err: any) => {
-				window.showErrorMessage(`Couldn't retrieve live boards from API: ${JSON.stringify(err)}`);
+				window.showErrorMessage(`Couldn't retrieve live board versions from API: ${JSON.stringify(err)}`);
 
 				// return default options if (one) of the HTTP requests fails
-				targetImages = ['ESP32_WROOM_32', 'ESP32_PICO']
+				targetImages = ['latest']
 					.map(label => ({ label }));
 			});		
 
