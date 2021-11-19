@@ -28,7 +28,7 @@ steps:
 - task: NodeTool@0 
   displayName: Setup Node.js
   inputs:
-    versionSpec: 12.x
+    versionSpec: 14.x
 
 - script: npm ci
   displayName: npm ci
@@ -70,8 +70,8 @@ steps:
     .\SignClient "Sign" `
     --baseDirectory "$(Build.ArtifactStagingDirectory)" `
     --input "**/*.vsix" `
-    --config "$(Build.Repository.LocalPath)\config\SignClient.json" `
-    --filelist "$(Build.Repository.LocalPath)\config\filelist.txt" `
+    --config "$(Build.Repository.LocalPath)/config/signClient.json" `
+    --filelist "$(Build.Repository.LocalPath)/config/filelist.txt" `
     --user "$(SignClientUser)" `
     --secret '$(SignClientSecret)' `
     --name ".NET nanoFramework VS Code Extension" `
