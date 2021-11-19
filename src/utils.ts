@@ -1,5 +1,4 @@
-
-import globby = require('globby');
+var glob = require("glob")
 import { SerialPortCtrl } from "./serialportctrl";
 const axios = require('axios');
 
@@ -12,7 +11,7 @@ export function getDocumentWorkspaceFolder(): string | undefined {
 }
 
 export async function chooseSolution(workspaceFolder: string) {
-    const paths = await globby(`${workspaceFolder}/**/*.sln`);  
+    const paths = await glob(`${workspaceFolder}/**/*.sln`);  
 
 	const result = await vscode.window.showQuickPick(paths, {
 		placeHolder: 'Select the solution you would like to build/deploy',
