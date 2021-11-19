@@ -1,0 +1,123 @@
+# Copyright (c) .NET Foundation and Contributors
+# See LICENSE file in the project root for full license information.
+
+trigger:
+  branches:
+    include: [main, develop, "release-*" ]
+  paths:
+    exclude: [README.md, LICENSE.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md, .github_changelog_generator, .gitignore]
+  tags:
+    include: ["v*"]
+
+# PR always trigger build
+pr:
+  autoCancel: true
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+
+# need this here in order to persist GitHub credentials
+- checkout: self
+  persistCredentials: true
+
+- script: npm install
+  displayName: npm install
+  
+- task: NodeTool@0 
+  displayName: Setup Node.js
+  inputs:
+    versionSpec: 12.x
+
+- script: npm ci
+  displayName: npm ci
+  condition: succeeded()
+
+# we don't have unit tests
+# - script: npm run test
+#   displayName: Run unit tests
+#   condition: succeeded()
+  
+- script: npm run build:prod
+  displayName: Build for production
+  condition: succeeded()
+
+- script: npm run package
+  env:
+    PublicRelease: true
+  displayName: Package extension
+  condition: succeeded()
+
+- task: CopyFiles@2
+  displayName: Collecting deployable artifacts
+  condition: succeeded()
+  inputs:
+    contents: |-
+      *.vsix
+      version.txt
+    targetFolder: $(Build.ArtifactStagingDirectory)
+
+- task: DotNetCoreCLI@2
+  displayName: Install SignTool tool
+  condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), eq( variables['StartReleaseCandidate'], false ) )
+  inputs:
+    command: custom
+    custom: tool
+    arguments: install --tool-path . SignClient
+
+- pwsh: |
+    .\SignClient "Sign" `
+    --baseDirectory "$(Build.ArtifactStagingDirectory)" `
+    --input "**/*.vsix" `
+    --config "$(Build.Repository.LocalPath)\config\SignClient.json" `
+    --filelist "$(Build.Repository.LocalPath)\config\filelist.txt" `
+    --user "$(SignClientUser)" `
+    --secret '$(SignClientSecret)' `
+    --name ".NET nanoFramework VS Code Extension" `
+    --description ".NET nanoFramework VS Code Extension" `
+    --descriptionUrl "https://github.com/$env:Build_Repository_Name"
+  displayName: Sign packages
+  continueOnError: true
+  condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), eq( variables['StartReleaseCandidate'], false ) )
+
+# Publish files as an artifact
+- task: PublishPipelineArtifact@1
+  displayName: Publish deployables artifacts
+  condition: succeeded()
+  inputs:
+    artifact: git-mob-vs-code
+    targetPath: $(Build.ArtifactStagingDirectory)
+
+# create or update GitHub release
+- task: GithubRelease@1
+  condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), not( startsWith(variables['Build.SourceBranch'], 'refs/tags/v') ), ne( variables['StartReleaseCandidate'], true ) )
+  displayName: Create/Update GitHub PREVIEW release
+  inputs:
+    gitHubConnection: 'github.com_nano-$(System.TeamProject)'
+    tagSource: userSpecifiedTag
+    tag: v$(MY_NUGET_VERSION)
+    title: '.NET nanoFramework VS Code extension'
+    releaseNotesSource: inline
+    releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
+    assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
+    assetUploadMode: replace
+    isPreRelease: true
+    addChangeLog: false
+
+# create or update GitHub release ON tags from release or main branches
+- task: GithubRelease@1
+  condition: and( succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'), contains(variables['Build.SourceBranch'], 'vs2019'), or( eq(variables['Build.SourceBranchName'], 'master'), contains(variables['Build.SourceBranchName'], 'release') ) )
+  displayName: Create/Update GitHub stable release
+  inputs:
+    action: edit
+    gitHubConnection: 'github.com_nano-$(System.TeamProject)'
+    tagSource: userSpecifiedTag
+    tag: v$(NBGV_AssemblyVersion)
+    title: '.NET nanoFramework VS Code extension'
+    releaseNotesSource: inline
+    releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
+    assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
+    assetUploadMode: replace
+    isPreRelease: false
+    addChangeLog: false
