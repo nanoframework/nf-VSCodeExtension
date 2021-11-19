@@ -5,6 +5,11 @@ import * as os from 'os';
 import { Executor } from "./executor";
 
 export class Dotnet {
+    /**
+     * Builds the nanoFramework solution in a Terminal using MSBuild.exe (win32) or msbuild from mono (linux/macOS)
+     * @param fileUri absolute path to *.sln
+     * @param nanoFrameworkExtensionPath absolute path to root of nanoFramework extension 
+     */
     public static build(fileUri: string, nanoFrameworkExtensionPath: String) {
         if (fileUri) {
             if(os.platform() === "win32") {
@@ -18,6 +23,12 @@ export class Dotnet {
         }
     }
 
+    /**
+     * First builds nanoFramework solution, then deploys this built solution to selected device
+     * @param fileUri absolute path to *.sln 
+     * @param serialPath path to connected nanoFramework device (e.g. COM4 or /dev/tty.usbserial*)
+     * @param nanoFrameworkExtensionPath absolute path to root of nanoFramework extension 
+     */
     public static deploy(fileUri: string, serialPath: string, nanoFrameworkExtensionPath: String) {
         if (fileUri) {
             const outputDir = path.dirname(fileUri) + '/OutputDir/';
@@ -38,6 +49,14 @@ export class Dotnet {
         }   
     }
 
+    /**
+     * Alternative deploy method, which uses the nanoFrameworkDeployer to create a deploy.bin, which is then 'deployed' through the nanoFrameworkFlasher
+     * This deploy method solves compatibility issues that sometimes occur on Linux/macOS when using the nanoFrameworkDeployer
+     * @param fileUri absolute path to *.sln 
+     * @param serialPath path to connected nanoFramework device (e.g. COM4 or /dev/tty.usbserial*)
+     * @param targetImage the type of device connected (e.g. ESP32_REV0, ESP32_PICO)
+     * @param nanoFrameworkExtensionPath absolute path to root of nanoFramework extension 
+     */
     public static deployAlternative(fileUri: string, serialPath: string, targetImage: string, nanoFrameworkExtensionPath: String) {
         if (fileUri && targetImage) {
             const outputDir = path.dirname(fileUri) + '/OutputDir/';
@@ -61,6 +80,11 @@ export class Dotnet {
         }   
     }
 
+    /**
+     * Flashes the selected device to new firmware using nanoFirmwareFlasher
+     * @param nanoFrameworkExtensionPath absolute path to root of nanoFramework extension 
+     * @param cliArguments CLI arguments passed to nanoff.dll
+     */
     public static flash(nanoFrameworkExtensionPath: String, cliArguments: String) {
         if(nanoFrameworkExtensionPath && cliArguments) {
             Executor.runInTerminal(`dotnet ${nanoFrameworkExtensionPath}/nanoFirmwareFlasher/nanoff.dll --update ${cliArguments}`);
