@@ -26,28 +26,28 @@
     "Debuggers"
   ],
   "activationEvents": [
-    "onCommand:nanoframeworkextension.nfbuild",
-    "onCommand:nanoframeworkextension.nfdeploy",
-    "onCommand:nanoframeworkextension.nfflash",
-    "onCommand:nanoframeworkextension.nfdeployalt"
+    "onCommand:vscode-nanoframework.nfbuild",
+    "onCommand:vscode-nanoframework.nfdeploy",
+    "onCommand:vscode-nanoframework.nfflash",
+    "onCommand:vscode-nanoframework.nfdeployalt"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "nanoframeworkextension.nfbuild",
+        "command": "vscode-nanoframework.nfbuild",
         "title": "nanoFramework: Build Project"
       },
       {
-        "command": "nanoframeworkextension.nfdeploy",
+        "command": "vscode-nanoframework.nfdeploy",
         "title": "nanoFramework: Deploy Project"
       },
       {
-        "command": "nanoframeworkextension.nfflash",
+        "command": "vscode-nanoframework.nfflash",
         "title": "nanoFramework: Flash device"
       },
       {
-        "command": "nanoframeworkextension.nfdeployalt",
+        "command": "vscode-nanoframework.nfdeployalt",
         "title": "nanoFramework: Deploy Project (alternative method)"
       }
     ],
@@ -55,17 +55,17 @@
       "explorer/context": [
         {
           "when": "resourceExtname == .sln",
-          "command": "nanoframeworkextension.nfbuild",
+          "command": "vscode-nanoframework.nfbuild",
           "group": "navigation@1"
         },
         {
           "when": "resourceExtname == .sln",
-          "command": "nanoframeworkextension.nfdeploy",
+          "command": "vscode-nanoframework.nfdeploy",
           "group": "navigation@1"
         },
         {
           "when": "resourceExtname == .sln",
-          "command": "nanoframeworkextension.nfdeployalt",
+          "command": "vscode-nanoframework.nfdeployalt",
           "group": "navigation@1"
         }
       ]

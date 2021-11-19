@@ -10,23 +10,23 @@ import { getDocumentWorkspaceFolder, solvePath, chooseSerialPort, chooseTarget }
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {	
-	console.log('The "nanoframeworkextension" is now active!');
+	console.log('The "vscode-nanoframework" is now active!');
     
     const workspaceFolder = getDocumentWorkspaceFolder() || '';
     const nanoFrameworkExtensionPath = context.extensionPath + '/out/utils/';
 
-	context.subscriptions.push(vscode.commands.registerCommand("nanoframeworkextension.nfbuild", async (fileUri: vscode.Uri, ) => {
+	context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfbuild", async (fileUri: vscode.Uri, ) => {
         const path = await solvePath(fileUri, workspaceFolder);
         Dotnet.build(path, nanoFrameworkExtensionPath);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand("nanoframeworkextension.nfdeploy", async (fileUri: vscode.Uri, ) => {
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfdeploy", async (fileUri: vscode.Uri, ) => {
         const path = await solvePath(fileUri, workspaceFolder);
         const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
         Dotnet.deploy(path, serialPath, nanoFrameworkExtensionPath);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand("nanoframeworkextension.nfdeployalt", async (fileUri: vscode.Uri, ) => {
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfdeployalt", async (fileUri: vscode.Uri, ) => {
         const path = await solvePath(fileUri, workspaceFolder);
         const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
         const target = await chooseTarget(nanoFrameworkExtensionPath);
@@ -37,7 +37,7 @@ export async function activate(context: vscode.ExtensionContext) {
         Executor.onDidCloseTerminal(closedTerminal);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand('nanoframeworkextension.nfflash', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('vscode-nanoframework.nfflash', async () => {
 		multiStepInput(context, nanoFrameworkExtensionPath);
 	}));
 }
