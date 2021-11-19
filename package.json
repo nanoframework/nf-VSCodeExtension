@@ -1,10 +1,15 @@
 {
-  "name": "nanoframeworkextension",
-  "displayName": "nanoFramework",
-  "description": "Build, deploy and flash your nanoFramework solutions.",
-  "publisher": "nanoFramework",
+  "name": "vscode-nanoframework",
+  "displayName": ".NET nanoFramework",
+  "description": "Build, deploy and flash your .NET nanoFramework solutions",
   "icon": "assets/nF-logo-128.png",
+  "galleryBanner": {
+		"color": "#4CB48C",
+		"theme": "dark"
+	},
+  "publisher": "nanoframework",
   "license": "MIT",
+  "preview": true,
   "version": "0.0.0-placeholder",
   "engines": {
     "vscode": "^1.61.0"
@@ -12,6 +17,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/nanoframework/nf-VSCodeExtension.git"
+  },
+  "homepage": "https://nanoframework.net",
+  "bugs": {
+    "url": "https://github.com/nanoframework/Home/issues"
   },
   "categories": [
     "Debuggers"
