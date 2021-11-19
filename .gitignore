@@ -255,10 +255,11 @@ paket-files/
 *.sonarqube/
 .sonarlint
 
-# VS coide
+# VS Code
 out
 dist
 .vscode-test/
 *.vsix
 .DS_Store
 *.zip
+.vscode/
