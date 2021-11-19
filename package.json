@@ -4,6 +4,7 @@
   "description": "Build, deploy and flash your nanoFramework solutions.",
   "icon": "nanoFramework-logo.png",
   "publisher": "nanoFramework",
+  "license": "MIT",
   "version": "0.0.0-placeholder",
   "engines": {
     "vscode": "^1.61.0"
