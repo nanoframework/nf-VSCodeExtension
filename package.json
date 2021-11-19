@@ -2,8 +2,8 @@
   "name": "nanoframeworkextension",
   "displayName": "nanoFramework",
   "description": "Build, deploy and flash your nanoFramework solutions.",
-  "icon": "nanoFramework-logo.png",
   "publisher": "nanoFramework",
+  "icon": "assets/nF-logo-128.png",
   "license": "MIT",
   "version": "0.0.0-placeholder",
   "engines": {
