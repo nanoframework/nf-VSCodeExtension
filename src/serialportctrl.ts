@@ -23,6 +23,7 @@ export class SerialPortCtrl {
     });
     return lists;
   }
+  
   private static _parseVidPid(hwid: String): any {
     const result = hwid.match(/VID:PID=(?<vid>\w+):(?<pid>\w+)/i);
     return result !== null ? result["groups"] : [null, null];

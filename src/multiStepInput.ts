@@ -50,8 +50,6 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 			totalSteps: 4,
 			placeholder: 'Choose a target board',
 			items: targetImages,
-			// activeItem: typeof state.resourceGroup !== 'string' ? state.resourceGroup : undefined,
-			// buttons: [createResourceGroupButton],
 			shouldResume: shouldResume
 		});
 
@@ -87,8 +85,6 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 			shouldResume: shouldResume
 		});
 
-		console.log(imageVersion);
-
 		state.imageVersion = imageVersion;
 
 		if(state.targetBoardType !== 'TI') {
@@ -115,7 +111,6 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 		return (input: MultiStepInput) => pickBaudrate(input, state);
 	}
 
-
 	// step 4, only for ESP32 devices
 	async function pickBaudrate(input: MultiStepInput, state: Partial<State>) {
 		const baudrate = await input.showQuickPick({
@@ -141,7 +136,6 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 			shouldResume: shouldResume
 		});
 	}
-	
 
 	function shouldResume() {
 		// Could show a notification with the option to resume.
@@ -202,8 +196,6 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 			.then((responses: any)=>{
 				responses.forEach((res: { data: { filename: string; version: string; }[]; }) => {
 					res.data.forEach((resData: { filename: string; version: string; }) => {
-
-						console.log(resData);
 						imageVersions.push({
 							filename: resData.filename,
 							version: resData.version
@@ -212,8 +204,6 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 				});
 
 				targetImages = imageVersions
-					// .filter((value: any, index: any, self: string | any[]) => self.indexOf(value) === index)
-					// .sort((a,b) => (a.version > b.version) ? 1 : ((b.version > a.version) ? -1 : 0))
 					.map((label: any) => ({ label: label.filename, description: label.version }));
 			})
 			.catch((err: any) => {
@@ -263,11 +253,9 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 	Dotnet.flash(nanoFrameworkExtensionPath, cliArguments);
 }
 
-
 // -------------------------------------------------------
 // Helper code that wraps the API for the multi-step case.
 // -------------------------------------------------------
-
 
 class InputFlowAction {
 	static back = new InputFlowAction();
@@ -300,14 +288,13 @@ interface InputBoxParameters {
 }
 
 class MultiStepInput {
+	private current?: QuickInput;
+	private steps: InputStep[] = [];
 
 	static async run<T>(start: InputStep) {
 		const input = new MultiStepInput();
 		return input.stepThrough(start);
 	}
-
-	private current?: QuickInput;
-	private steps: InputStep[] = [];
 
 	private async stepThrough<T>(start: InputStep) {
 		let step: InputStep | void = start;
