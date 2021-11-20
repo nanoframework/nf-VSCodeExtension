@@ -12,7 +12,7 @@
   "preview": true,
   "version": "0.0.0-placeholder",
   "engines": {
-    "vscode": "^1.61.0"
+    "vscode": "^1.62.0"
   },
   "repository": {
     "type": "git",

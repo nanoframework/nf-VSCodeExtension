@@ -47,14 +47,15 @@ BuildDotnet $repo $fileName $true
 ## Setup nanoFrameworkDeployer
 $project = "nanoframework"
 $repo = "nanoFrameworkDeployer"
-$fileName = "v1.0.14"
+$fileName = "v1.0.19"
 
 DownloadArtifact $project $repo "$fileName.zip"
 BuildDotnet $repo $fileName $false
 
 ## Setup nanoFrameworkSDK
 $extName = "VS2019ext"
-Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extension/releases/download/v2019.8.0.1/nanoFramework.Tools.VS2019.Extension.vsix" -Out "$extName.zip"
+$version = "v2019.8.0.1"
+Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extension/releases/download/$version/nanoFramework.Tools.VS2019.Extension.vsix" -Out "$extName.zip"
 Expand-Archive "$extName.zip" -Force
 
 Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object { 
