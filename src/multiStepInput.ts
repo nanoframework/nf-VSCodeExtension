@@ -1,18 +1,19 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright (c) Microsoft Corporation. All rights reserved.
- *  Licensed under the MIT License. See License.txt in the project root for license information.
+ * Copyright (c) .NET Foundation and Contributors.
+ * Portions Copyright (c) Microsoft Corporation.  All rights reserved.
+ * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
 import { QuickPickItem, window, Disposable, QuickInputButton, QuickInput, ExtensionContext, QuickInputButtons } from 'vscode';
 import { Dotnet } from './dotnet';
+import { SerialPortCtrl } from "./serialportctrl";
 
 const axios = require('axios');
-import { SerialPortCtrl } from "./serialportctrl";
 
 /**
  * A multi-step input using window.createQuickPick() and window.createInputBox().
- * 
- * This first part uses the helper class `MultiStepInput` that wraps the API for the multi-step case.
+ * @param context 
+ * @param nanoFrameworkExtensionPath 
  */
 export async function multiStepInput(context: ExtensionContext, nanoFrameworkExtensionPath: String) {
 	const dfuJtagOptions: QuickPickItem[] = ['DFU mode','JTAG mode']

@@ -1,5 +1,9 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) .NET Foundation and Contributors.
+ * Portions Copyright (c) Microsoft Corporation.  All rights reserved.
+ * See LICENSE file in the project root for full license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import * as vscode from 'vscode';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";

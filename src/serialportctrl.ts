@@ -1,3 +1,9 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) .NET Foundation and Contributors.
+ * Portions Copyright (c) Microsoft Corporation.  All rights reserved.
+ * See LICENSE file in the project root for full license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import { execFileSync } from "child_process";
 import * as os from "os";
 import * as path from "path";
