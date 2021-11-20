@@ -1,9 +1,9 @@
-import globby = require('globby');
-import { SerialPortCtrl } from "./serialportctrl";
-const axios = require('axios');
-
 import * as vscode from 'vscode';
 import * as os from 'os';
+import { SerialPortCtrl } from "./serialportctrl";
+
+const globby = require('globby');
+const axios = require('axios');
 
 export function getDocumentWorkspaceFolder(): string | undefined {
     return vscode.workspace.workspaceFolders
