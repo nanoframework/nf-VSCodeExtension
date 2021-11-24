@@ -96,7 +96,7 @@ steps:
   inputs:
     gitHubConnection: 'github.com_nano-$(System.TeamProject)'
     tagSource: userSpecifiedTag
-    tag: v$(MY_NUGET_VERSION)
+    tag: v$(NBGV_Version)
     title: '.NET nanoFramework VS Code extension'
     releaseNotesSource: inline
     releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
@@ -107,13 +107,13 @@ steps:
 
 # create or update GitHub release ON tags from release or main branches
 - task: GithubRelease@1
-  condition: and( succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'), contains(variables['Build.SourceBranch'], 'vs2019'), or( eq(variables['Build.SourceBranchName'], 'master'), contains(variables['Build.SourceBranchName'], 'release') ) )
+  condition: and( succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'), or( eq(variables['Build.SourceBranchName'], 'main'), contains(variables['Build.SourceBranchName'], 'release') ) )
   displayName: Create/Update GitHub stable release
   inputs:
     action: edit
     gitHubConnection: 'github.com_nano-$(System.TeamProject)'
     tagSource: userSpecifiedTag
-    tag: v$(NBGV_AssemblyVersion)
+    tag: v$(NBGV_Version)
     title: '.NET nanoFramework VS Code extension'
     releaseNotesSource: inline
     releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
