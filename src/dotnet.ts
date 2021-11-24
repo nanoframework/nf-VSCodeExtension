@@ -17,11 +17,13 @@ export class Dotnet {
      */
     public static build(fileUri: string, nanoFrameworkExtensionPath: String) {
         if (fileUri) {
+            // using dynamicly-solved MSBuild.exe when ran from win32
             if(os.platform() === "win32") {
                 Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     nanoFrameworkExtensionPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
                     '& $path ' + fileUri + ' -p:NanoFrameworkProjectSystemPath=' + nanoFrameworkExtensionPath + '/nanoFramework/v1.0/');
             }
+            // using msbuild (comes with mono-complete) on unix 
             else {
                 Executor.runInTerminal(`nuget restore "${fileUri}" && msbuild "${fileUri}" -p:NanoFrameworkProjectSystemPath=${nanoFrameworkExtensionPath}/nanoFramework/v1.0/`);
             }

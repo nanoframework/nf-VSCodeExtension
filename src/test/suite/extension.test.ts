@@ -1,3 +1,7 @@
+/**
+ * These tests serve as a placeholder for future tests that will need to be added
+ */
+
 import * as assert from 'assert';
 
 // You can import and use all API from the 'vscode' module

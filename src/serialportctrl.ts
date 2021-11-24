@@ -16,8 +16,12 @@ interface ISerialPortDetail {
   productId: string;
 }
 
+/**
+ * Cross-platform SerialPort class that returns all connected serial ports
+ * For Windows these are usually hosted on COM ports (e.g. COM3/COM4/etc)
+ * For macOS/Linux they are usally hosted under e.g. /dev/tty.usbserial-xxxxxx
+ */
 export class SerialPortCtrl {
-  
   public static list(extensionPath: String): Promise<ISerialPortDetail[]> {
     const stdout = execFileSync(SerialPortCtrl._serialCliPath(extensionPath), ["list-ports"]);
     const lists = JSON.parse(stdout.toString("utf-8"));

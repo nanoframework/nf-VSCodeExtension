@@ -11,11 +11,21 @@ import { SerialPortCtrl } from "./serialportctrl";
 const globby = require('globby');
 const axios = require('axios');
 
+/**
+ * Gets absolute path of current open workspace in VSCode
+ * @returns (first) absolute path of the workspace folder
+ */
 export function getDocumentWorkspaceFolder(): string | undefined {
-    return vscode.workspace.workspaceFolders
-      ?.map((folder) => folder.uri.fsPath)[0];
+    return vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath)[0];
 }
 
+/**
+ * Finds all *.sln files in your VSCode Workspace
+ * Shows a QuickPick window that lets the user select one of these solutions
+ * Returns the absolute path to the selected solution
+ * @param workspaceFolder absolute path to workspace
+ * @returns absolute path to selected *.sln
+ */
 export async function chooseSolution(workspaceFolder: string) {
     const paths = await globby(`${workspaceFolder}/**/*.sln`);  
 
@@ -26,6 +36,11 @@ export async function chooseSolution(workspaceFolder: string) {
     return result || '';
 }
 
+/**
+ * Dynamically gets all connected serial ports and lets the user select the port they would like to flash
+ * @param nanoFrameworkExtensionPath absolute path to nanoFramework extension
+ * @returns selected serial port to flash
+ */
 export async function chooseSerialPort(nanoFrameworkExtensionPath: string) {
 	const ports = await SerialPortCtrl.list(nanoFrameworkExtensionPath);
 
@@ -39,6 +54,11 @@ export async function chooseSerialPort(nanoFrameworkExtensionPath: string) {
 	return selectedPort ? selectedPort.label : '';
 }
 
+/**
+ * Dynamically fetches all possible types of target boards and lets user select the appropriate one
+ * @param nanoFrameworkExtensionPath absolute path to nanoFramework extension
+ * @returns selected target board
+ */
 export async function chooseTarget(nanoFrameworkExtensionPath: string) {
 	const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
@@ -75,6 +95,13 @@ export async function chooseTarget(nanoFrameworkExtensionPath: string) {
 	return selectedTarget ? selectedTarget : '';
 }
 
+/**
+ * If a path to a specific .sln is given, this is used. 
+ * Otherwise, the user is prompted with a selection of all *.sln in workspace to choose from
+ * @param fileUri *.sln (can be empty)
+ * @param workspaceFolder absolute path to workspace
+ * @returns absolute path to selected *.sln file
+ */
 export async function solvePath(fileUri: vscode.Uri, workspaceFolder: string) {
 	let path = fileUri ? fileUri.fsPath: '';
 	if(!path && workspaceFolder) {

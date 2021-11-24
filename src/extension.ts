@@ -37,13 +37,13 @@ export async function activate(context: vscode.ExtensionContext) {
         Dotnet.deployAlternative(path, serialPath, target, nanoFrameworkExtensionPath);
     }));
 
-	context.subscriptions.push(vscode.window.onDidCloseTerminal((closedTerminal: vscode.Terminal) => {
-        Executor.onDidCloseTerminal(closedTerminal);
-    }));
-
     context.subscriptions.push(vscode.commands.registerCommand('vscode-nanoframework.nfflash', async () => {
 		multiStepInput(context, nanoFrameworkExtensionPath);
 	}));
+
+    context.subscriptions.push(vscode.window.onDidCloseTerminal((closedTerminal: vscode.Terminal) => {
+        Executor.onDidCloseTerminal(closedTerminal);
+    }));
 }
 
 // this method is called when your extension is deactivated

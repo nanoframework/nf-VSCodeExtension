@@ -143,7 +143,10 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 		});
 	}
 
-	// helper function getting different target images
+	/**
+	 * Helper function that dynamically gets all possible target images from different APIs
+	 * @returns QuickPickItem[] with distinct (unique), sorted (a-z) list of target boards
+	 */
 	async function getTargetImages(): Promise<QuickPickItem[]> {
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
@@ -178,6 +181,11 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 		return targetImages;
 	}
 
+	/**
+	 * Helper function that requests all versions for a given targetBoard from different APIs
+	 * @param targetBoard target board to get image versions for
+	 * @returns QuickPickItem[] with sorted (newest first) list of image versions
+	 */
 	async function getImageVersions(targetBoard: string | undefined): Promise<QuickPickItem[]> {
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
@@ -212,7 +220,11 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 
 		return targetImages;
 	}
-
+	
+	/**
+	 * Returns a list of all connected serial devices using SerialPortCtrl
+	 * @returns QuickPickItem[] with list of serial devices available
+	 */
 	async function getDevices() {
 		let ports = await SerialPortCtrl.list(nanoFrameworkExtensionPath);
 
@@ -228,6 +240,7 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 
 	let cliArguments: string;
 
+	// different CLI arguments are given to the nanoFrameworkFlasher based on type of targetBoard selected
 	switch (state.targetBoard?.substring(0,3)) {
 		case 'ST_': 
 			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description} ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
@@ -242,6 +255,7 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 			break;
 	}
 
+	// adds --preview for the nanoFrameworkFlasher when the imageVersion selected is in preview
 	if(state.imageVersion.description && state.imageVersion.description.includes("preview")) {
 		cliArguments += " --preview";
 	}

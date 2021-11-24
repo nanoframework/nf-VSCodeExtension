@@ -1,3 +1,7 @@
+/**
+ * These tests serve as a placeholder for future tests that will need to be added
+ */
+
 import * as path from 'path';
 
 import { runTests } from '@vscode/test-electron';
