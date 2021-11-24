@@ -254,3 +254,12 @@ paket-files/
 #SoundCloud
 *.sonarqube/
 .sonarlint
+
+# VS Code
+out
+dist
+.vscode-test/
+*.vsix
+.DS_Store
+*.zip
+.vscode/
