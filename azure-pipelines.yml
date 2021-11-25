@@ -7,7 +7,8 @@ trigger:
   paths:
     exclude: [README.md, LICENSE.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md, .github_changelog_generator, .gitignore]
   tags:
-    include: ["v*"]
+    include:
+    - refs/tags/v*
 
 # PR always trigger build
 pr:
@@ -95,6 +96,14 @@ steps:
   displayName: Sign packages
   continueOnError: true
   condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), eq( variables['StartReleaseCandidate'], false ) )
+
+- bash: |
+    echo ">>> Publish"
+    yarn deploy
+  displayName: Publish to marketplace
+  condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
+  env:
+    VSCE_PAT: $(VSCE_PAT)
 
 # Publish files as an artifact
 - task: PublishPipelineArtifact@1
