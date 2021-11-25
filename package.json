@@ -33,7 +33,8 @@
     "url": "https://github.com/nanoframework/Home/issues"
   },
   "categories": [
-    "Debuggers"
+    "Programming Languages",
+    "Other"
   ],
   "activationEvents": [
     "onCommand:vscode-nanoframework.nfbuild",
@@ -94,7 +95,7 @@
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
-    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix"
+    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv cloud -a -c"
   },
   "devDependencies": {
     "@types/glob": "^7.2.0",
