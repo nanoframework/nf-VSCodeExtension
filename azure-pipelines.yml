@@ -72,8 +72,10 @@ steps:
     contents: |-
       **\vscode-nanoframework.vsix
       **\package.json
-      **\vscode-marketplace-overview.md
+      assets/marketplace/vscode-marketplace-overview.md
+      docs/nano-vs-code.gif
     targetFolder: $(Build.ArtifactStagingDirectory)
+    flattenFolders: true
 
 - task: DotNetCoreCLI@2
   displayName: Install SignTool tool
@@ -113,7 +115,7 @@ steps:
   inputs:
     gitHubConnection: 'github.com_nano-$(System.TeamProject)'
     tagSource: userSpecifiedTag
-    tag: v$(NBGV_SimpleVersion)
+    tag: v$(NBGV_CloudBuildNumber)
     title: '.NET nanoFramework VS Code extension'
     releaseNotesSource: inline
     releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
@@ -130,7 +132,7 @@ steps:
     action: edit
     gitHubConnection: 'github.com_nano-$(System.TeamProject)'
     tagSource: userSpecifiedTag
-    tag: v$(NBGV_SimpleVersion)
+    tag: v$(NBGV_CloudBuildNumber)
     title: '.NET nanoFramework VS Code extension'
     releaseNotesSource: inline
     releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'

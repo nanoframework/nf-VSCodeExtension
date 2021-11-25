@@ -2,7 +2,7 @@
 
 This extension allows you to use VS Code to flash, build and deploy your C# code for .NET nanoFramework on your device regardless of the platform you're using. This has been tested on Mac, Linux (64 bits) and Windows (64 bits).
 
-![vs code gif](../../docs/nano-vs-code.gif)
+![vs code gif](nano-vs-code.gif)
 
 ## Features
 

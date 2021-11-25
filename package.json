@@ -10,11 +10,17 @@
   "license": "MIT",
   "preview": true,
   "version": "0.0.0-placeholder",
-  "overview": "vs2022-marketplace-overview.md",
+  "overview": "vscode-marketplace-overview.md",
   "priceCategory": "free",
   "publisher": "nanoframework",
   "private": false,
   "qna": "marketplace",
+  "assetFiles": [
+    {
+        "pathOnDisk": "nano-vs-code.gif",
+        "targetPath": "nano-vs-code.gif"
+    }
+  ],
   "engines": {
     "vscode": "^1.62.0"
   },
