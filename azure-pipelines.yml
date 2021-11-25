@@ -70,7 +70,7 @@ steps:
       **\vscode-nanoframework.vsix
       **\package.json
       assets/marketplace/vscode-marketplace-overview.md
-      docs/nano-vs-code.gif
+      assets/marketplace/nano-vs-code.gif
     targetFolder: $(Build.ArtifactStagingDirectory)
     flattenFolders: true
 

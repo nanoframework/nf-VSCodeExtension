@@ -3,24 +3,19 @@
   "displayName": ".NET nanoFramework",
   "description": "Build, deploy and flash your .NET nanoFramework solutions",
   "icon": "assets/nF-logo-128.png",
-  "galleryBanner": {
-    "color": "#4CB48C",
-    "theme": "dark"
-  },
   "license": "MIT",
   "preview": true,
   "version": "0.0.0-placeholder",
-  "overview": "vscode-marketplace-overview.md",
+  "overview": "assets/marketplace/vscode-marketplace-overview.md",
   "priceCategory": "free",
   "publisher": "nanoframework",
   "private": false,
-  "qna": true,
   "identity": {
     "internalName": "vscode-nanoframework"
   },
   "assetFiles": [
     {
-        "pathOnDisk": "nano-vs-code.gif",
+        "pathOnDisk": "assets/marketplace/nano-vs-code.gif",
         "targetPath": "nano-vs-code.gif"
     }
   ],
