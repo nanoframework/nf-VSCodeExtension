@@ -19,7 +19,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	const dfuJtagOptions: QuickPickItem[] = ['DFU mode','JTAG mode']
 		.map(label => ({ label }));
 
-    const baudRates: QuickPickItem[] = ['9600','19200','38400','57600','115200','230400','460800','921600','1288000']
+    const baudRates: QuickPickItem[] = ['1500000','115200']
 		.map(label => ({ label }));
 
 	interface State {
