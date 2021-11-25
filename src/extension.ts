@@ -17,7 +17,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	console.log('The "vscode-nanoframework" is now active!');
     
     const workspaceFolder = getDocumentWorkspaceFolder() || '';
-    const nanoFrameworkExtensionPath = context.extensionPath + '/dist/utils/';
+    const nanoFrameworkExtensionPath = context.extensionPath + '/dist/utils';
 
 	context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfbuild", async (fileUri: vscode.Uri, ) => {
         const path = await solvePath(fileUri, workspaceFolder);
