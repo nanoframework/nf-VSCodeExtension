@@ -12,10 +12,10 @@ function DownloadArtifact ($project, $repo, $fileName)
     Expand-Archive $fileName -Force
 }
 
-function BuildDotnet ($repo, $fileName, $dotnet5)
+function BuildDotnet ($repo, $fileName, $dotnet5, $outputDirectory)
 {
     # create folder
-    $outFolder = (New-Item -Name "out/utils/$repo" -ItemType Directory -Force).ToString();
+    $outFolder = (New-Item -Name "$outputDirectory/utils/$repo" -ItemType Directory -Force).ToString();
 
     # unpack in folder
     Get-ChildItem "$repo.sln" -Recurse | ForEach-Object { 
@@ -36,6 +36,9 @@ function BuildDotnet ($repo, $fileName, $dotnet5)
     Remove-Item $fileName -Recurse -Force
 }
 
+## Defining variables
+$outputDirectory = "dist" # dist for publishing, out for development
+
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
 $repo = "nanoFirmwareFlasher"
@@ -50,7 +53,7 @@ $repo = "nanoFrameworkDeployer"
 $fileName = "v1.0.19"
 
 DownloadArtifact $project $repo "$fileName.zip"
-BuildDotnet $repo $fileName $false
+BuildDotnet $repo $fileName $false $outputDirectory
 
 ## Setup nanoFrameworkSDK
 $extName = "VS2019ext"
@@ -60,7 +63,7 @@ Expand-Archive "$extName.zip" -Force
 
 Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object { 
     $SDKPath = Join-Path -Path $PSItem.FullName -ChildPath "nanoFramework"
-    Copy-Item -Path $SDKPath -Destination "out/utils/" -Recurse -Force
+    Copy-Item -Path $SDKPath -Destination "$outputDirectory/utils/" -Recurse -Force
 }
 
 # Clean nanoFramework SDK resources
@@ -68,10 +71,10 @@ Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
 
 ## Setup nuget
-$nugetFolder = (New-Item -Name "out/utils/nuget" -ItemType Directory -Force).ToString();
+$nugetFolder = (New-Item -Name "$outputDirectory/utils/nuget" -ItemType Directory -Force).ToString();
 Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -Out "$nugetFolder/nuget.exe"
 
 if ($IsMacOS -or $IsLinux) {
     Write-Output "Adding executable rights to utils folder on Unix"
-    chmod -R +x ./out/utils/
+    chmod -R +x ./$outputDirectory/utils/
 }
