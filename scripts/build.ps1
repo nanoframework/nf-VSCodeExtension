@@ -45,7 +45,7 @@ $repo = "nanoFirmwareFlasher"
 $fileName = "v1.29.1"
 
 DownloadArtifact $project $repo "$fileName.zip"
-BuildDotnet $repo $fileName $true
+BuildDotnet $repo $fileName $true $outputDirectory
 
 ## Setup nanoFrameworkDeployer
 $project = "nanoframework"
