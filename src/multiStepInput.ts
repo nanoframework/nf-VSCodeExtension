@@ -13,9 +13,9 @@ const axios = require('axios');
 /**
  * A multi-step input using window.createQuickPick() and window.createInputBox().
  * @param context 
- * @param nanoFrameworkExtensionPath 
+ * @param toolPath 
  */
-export async function multiStepInput(context: ExtensionContext, nanoFrameworkExtensionPath: String) {
+export async function multiStepInput(context: ExtensionContext, toolPath: String) {
 	const dfuJtagOptions: QuickPickItem[] = ['DFU mode','JTAG mode']
 		.map(label => ({ label }));
 
@@ -226,7 +226,7 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 	 * @returns QuickPickItem[] with list of serial devices available
 	 */
 	async function getDevices() {
-		let ports = await SerialPortCtrl.list(nanoFrameworkExtensionPath);
+		let ports = await SerialPortCtrl.list(toolPath);
 
 		const devicePaths: QuickPickItem[] = ports
 			.map((label) => ({ label: label.port, description: label.desc }));
@@ -260,7 +260,7 @@ export async function multiStepInput(context: ExtensionContext, nanoFrameworkExt
 		cliArguments += " --preview";
 	}
 
-	Dotnet.flash(nanoFrameworkExtensionPath, cliArguments);
+	Dotnet.flash(toolPath, cliArguments);
 }
 
 // -------------------------------------------------------

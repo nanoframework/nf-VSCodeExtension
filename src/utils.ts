@@ -38,11 +38,11 @@ export async function chooseSolution(workspaceFolder: string) {
 
 /**
  * Dynamically gets all connected serial ports and lets the user select the port they would like to flash
- * @param nanoFrameworkExtensionPath absolute path to nanoFramework extension
+ * @param toolPath absolute path to nanoFramework extension
  * @returns selected serial port to flash
  */
-export async function chooseSerialPort(nanoFrameworkExtensionPath: string) {
-	const ports = await SerialPortCtrl.list(nanoFrameworkExtensionPath);
+export async function chooseSerialPort(toolPath: string) {
+	const ports = await SerialPortCtrl.list(toolPath);
 
 	const devicePaths = ports
 			.map((label) => ({ label: label.port, description: label.desc }));
@@ -56,10 +56,10 @@ export async function chooseSerialPort(nanoFrameworkExtensionPath: string) {
 
 /**
  * Dynamically fetches all possible types of target boards and lets user select the appropriate one
- * @param nanoFrameworkExtensionPath absolute path to nanoFramework extension
+ * @param toolPath absolute path to nanoFramework extension
  * @returns selected target board
  */
-export async function chooseTarget(nanoFrameworkExtensionPath: string) {
+export async function chooseTarget(toolPath: string) {
 	const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 	const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
