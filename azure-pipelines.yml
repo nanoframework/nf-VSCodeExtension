@@ -115,7 +115,7 @@ steps:
   inputs:
     gitHubConnection: 'github.com_nano-$(System.TeamProject)'
     tagSource: userSpecifiedTag
-    tag: v$(NBGV_CloudBuildNumber)
+    tag: v$(NBGV_SimpleVersion)
     title: '.NET nanoFramework VS Code extension'
     releaseNotesSource: inline
     releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
@@ -132,7 +132,7 @@ steps:
     action: edit
     gitHubConnection: 'github.com_nano-$(System.TeamProject)'
     tagSource: userSpecifiedTag
-    tag: v$(NBGV_CloudBuildNumber)
+    tag: v$(NBGV_SimpleVersion)
     title: '.NET nanoFramework VS Code extension'
     releaseNotesSource: inline
     releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio Marketplace</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'

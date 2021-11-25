@@ -14,7 +14,7 @@
   "priceCategory": "free",
   "publisher": "nanoframework",
   "private": false,
-  "qna": "marketplace",
+  "qna": true,
   "assetFiles": [
     {
         "pathOnDisk": "nano-vs-code.gif",
@@ -94,7 +94,7 @@
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
-    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv-setversion --reset"
+    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix"
   },
   "devDependencies": {
     "@types/glob": "^7.2.0",
