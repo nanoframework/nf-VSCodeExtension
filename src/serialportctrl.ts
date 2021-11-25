@@ -4,7 +4,7 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { spawnSync, execFileSync  } from "child_process";
+import { execFileSync  } from "child_process";
 import * as os from "os";
 import * as path from "path";
 
