@@ -44,7 +44,7 @@ Build result will be display in the Terminal:
 
 ### Deploy to your device
 
-Select `nanoFramework: Build Project` and follow the steps.
+Select `nanoFramework: Deploy Project` and follow the steps.
 
 ![select options](docs/step-by-step14.png)
 
@@ -53,6 +53,9 @@ Similar as building the project, you'll have to select the project to deploy. Th
 ![select options](docs/step-by-step17.png)
 
 You'll get as well the status of the deployment happening in the Terminal.
+
+Some ESP32 devices have issues with the initial discovery process and require an alternative deployment method.
+If you're having issues with the deployment, you can use an _alternative_ method: you have to select `nanoFramework: Deploy Project (alternative method)` instead and follow the prompts, same as with the other steps.
 
 ## Requirements
 
@@ -67,8 +70,25 @@ This extension will **not** allow you to debug the device. Debug is only availab
 
 This extension will work on any Mac version (x64 or M1), works only on Linux x64 and Windows x64. Other 32 bits OS or ARM platforms are not supported.
 
-## Release Notes
+## Feedback and documentation
 
-### 1.0.0
+For documentation, providing feedback, issues and finding out how to contribute please refer to the [Home repo](https://github.com/nanoframework/Home).
 
-Initial version.
+Join our Discord community [here](https://discord.gg/gCyBu8T).
+
+## Credits
+
+The list of contributors to this project can be found at [CONTRIBUTORS](https://github.com/nanoframework/Home/blob/main/CONTRIBUTORS.md).
+
+## License
+
+The **nanoFramework** Class Libraries are licensed under the [MIT license](LICENSE.md).
+
+## Code of Conduct
+
+This project has adopted the code of conduct defined by the Contributor Covenant to clarify expected behaviour in our community.
+For more information see the [.NET Foundation Code of Conduct](https://dotnetfoundation.org/code-of-conduct).
+
+### .NET Foundation
+
+This project is supported by the [.NET Foundation](https://dotnetfoundation.org).
