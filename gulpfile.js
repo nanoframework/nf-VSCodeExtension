@@ -12,7 +12,7 @@ gulp.task("insert-serial-monitor-cli", async (done) => {
         "win32",
     ];
     const release = "latest";
-    const destDir = path.resolve("out", "utils", "serial-monitor-cli");
+    const destDir = path.resolve("dist", "utils", "serial-monitor-cli");
 
     async function downloadAndUnzip(platform) {
         const fileName = `${platform}.zip`;
