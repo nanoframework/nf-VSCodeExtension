@@ -68,8 +68,9 @@ steps:
   displayName: Collecting deployable artifacts
   condition: succeeded()
   inputs:
+    sourceFolder: $(Build.SourcesDirectory)
     contents: |-
-      *.vsix
+      **\vscode-nanoframework.vsix
       **\package.json
       **\vscode-marketplace-overview.md
     targetFolder: $(Build.ArtifactStagingDirectory)
