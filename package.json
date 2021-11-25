@@ -7,10 +7,14 @@
     "color": "#4CB48C",
     "theme": "dark"
   },
-  "publisher": "nanoframework",
   "license": "MIT",
   "preview": true,
   "version": "0.0.0-placeholder",
+  "overview": "vs2022-marketplace-overview.md",
+  "priceCategory": "free",
+  "publisher": "nanoframework",
+  "private": false,
+  "qna": "marketplace",
   "engines": {
     "vscode": "^1.62.0"
   },

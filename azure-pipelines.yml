@@ -70,7 +70,7 @@ steps:
   inputs:
     contents: |-
       *.vsix
-      version.txt
+      package.json
     targetFolder: $(Build.ArtifactStagingDirectory)
 
 - task: DotNetCoreCLI@2
