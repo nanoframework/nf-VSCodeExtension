@@ -15,6 +15,9 @@
   "publisher": "nanoframework",
   "private": false,
   "qna": true,
+  "identity": {
+    "internalName": "vscode-nanoframework"
+  },
   "assetFiles": [
     {
         "pathOnDisk": "nano-vs-code.gif",

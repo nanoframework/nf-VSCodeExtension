@@ -29,10 +29,6 @@ steps:
     command: custom
     custom: tool
     arguments: install -g nbgv
-
-- script: nbgv cloud -a -c
-  condition: succeeded()
-  displayName: Set build number
   
 - script: npm install
   displayName: npm install
