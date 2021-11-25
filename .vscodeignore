@@ -1,9 +1,8 @@
 .vscode/**
 .vscode-test/**
-assets/**
+assets/marketplace/**
 config/**
 docs/**
-scripts/**
 src/**
 .gitignore
 .yarnrc
