@@ -14,134 +14,257 @@ trigger:
 pr:
   autoCancel: true
 
-pool:
-  vmImage: ubuntu-latest
+# add nf-tools repo to resources (for Azure Pipelines templates)
+resources:
+  repositories:
+    - repository: templates
+      type: github
+      name: nanoframework/nf-tools
+      endpoint: nanoframework
 
-steps:
-
-# need this here in order to persist GitHub credentials
-- checkout: self
-  persistCredentials: true
-
-- task: DotNetCoreCLI@2  
-  displayName: Install NBGV tool
-  condition: succeeded()
-  inputs:
-    command: custom
-    custom: tool
-    arguments: install -g nbgv
+jobs:
   
-- script: npm install
-  displayName: npm install
+######################
+- job: Build_Extension
 
-- pwsh: scripts/build.ps1
-  displayName: Install dependencies for .NET nanoFramework
-  
-- task: NodeTool@0 
-  displayName: Setup Node.js
-  inputs:
-    versionSpec: 14.x
+  pool:
+    vmImage: ubuntu-latest
 
-- script: npm ci
-  displayName: npm ci
-  condition: succeeded()
+  steps:
 
-# we don't have unit tests
-# - script: npm run test
-#   displayName: Run unit tests
-#   condition: succeeded()
-  
-- script: npm run build:prod
-  displayName: Build for production
-  condition: succeeded()
+  # need this here in order to persist GitHub credentials
+  - checkout: self
+    persistCredentials: true
 
-- script: npm run package
-  env:
-    PublicRelease: true
-  displayName: Package extension
-  condition: succeeded()
+  - task: DotNetCoreCLI@2  
+    displayName: Install NBGV tool
+    condition: succeeded()
+    inputs:
+      command: custom
+      custom: tool
+      arguments: install -g nbgv
+    
+  - script: npm install
+    displayName: npm install
 
-- task: CopyFiles@2
-  displayName: Collecting deployable artifacts
-  condition: succeeded()
-  inputs:
-    sourceFolder: $(Build.SourcesDirectory)
-    contents: |-
-      **\vscode-nanoframework.vsix
-      **\package.json
-      assets/marketplace/vscode-marketplace-overview.md
-      assets/marketplace/nano-vs-code.gif
-    targetFolder: $(Build.ArtifactStagingDirectory)
-    flattenFolders: true
+  - pwsh: scripts/build.ps1
+    displayName: Install dependencies for .NET nanoFramework
+    
+  - task: NodeTool@0 
+    displayName: Setup Node.js
+    inputs:
+      versionSpec: 14.x
 
-- task: DotNetCoreCLI@2
-  displayName: Install SignTool tool
-  condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), eq( variables['StartReleaseCandidate'], false ) )
-  inputs:
-    command: custom
-    custom: tool
-    arguments: install --tool-path . SignClient
+  - script: npm ci
+    displayName: npm ci
+    condition: succeeded()
 
-- pwsh: |
-    .\SignClient "Sign" `
-    --baseDirectory "$(Build.ArtifactStagingDirectory)" `
-    --input "**/*.vsix" `
-    --config "$(Build.Repository.LocalPath)/config/signClient.json" `
-    --filelist "$(Build.Repository.LocalPath)/config/filelist.txt" `
-    --user "$(SignClientUser)" `
-    --secret '$(SignClientSecret)' `
-    --name ".NET nanoFramework VS Code Extension" `
-    --description ".NET nanoFramework VS Code Extension" `
-    --descriptionUrl "https://github.com/$env:Build_Repository_Name"
-  displayName: Sign packages
-  continueOnError: true
-  condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), eq( variables['StartReleaseCandidate'], false ) )
+  # we don't have unit tests
+  # - script: npm run test
+  #   displayName: Run unit tests
+  #   condition: succeeded()
+    
+  - script: npm run build:prod
+    displayName: Build for production
+    condition: succeeded()
 
-- bash: |
-    echo ">>> Publish"
-    yarn deploy
-  displayName: Publish to marketplace
-  condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
-  env:
-    VSCE_PAT: $(VSCE_PAT)
+  - script: npm run package
+    env:
+      PublicRelease: true
+    displayName: Package extension
+    condition: succeeded()
 
-# Publish files as an artifact
-- task: PublishPipelineArtifact@1
-  displayName: Publish deployables artifacts
-  condition: succeeded()
-  inputs:
-    artifact: git-mob-vs-code
-    targetPath: $(Build.ArtifactStagingDirectory)
+  - task: CopyFiles@2
+    displayName: Collecting deployable artifacts
+    condition: succeeded()
+    inputs:
+      sourceFolder: $(Build.SourcesDirectory)
+      contents: |-
+        **\vscode-nanoframework.vsix
+        **\package.json
+        assets/marketplace/vscode-marketplace-overview.md
+        assets/marketplace/nano-vs-code.gif
+      targetFolder: $(Build.ArtifactStagingDirectory)
+      flattenFolders: true
 
-# create or update GitHub release
-- task: GithubRelease@1
-  condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), not( startsWith(variables['Build.SourceBranch'], 'refs/tags/v') ), ne( variables['StartReleaseCandidate'], true ) )
-  displayName: Create/Update GitHub PREVIEW release
-  inputs:
-    gitHubConnection: 'github.com_nano-$(System.TeamProject)'
-    tagSource: userSpecifiedTag
-    tag: v$(NBGV_SimpleVersion)
-    title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
-    releaseNotesSource: inline
-    releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio [Marketplace](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework).</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
-    assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
-    assetUploadMode: replace
-    isPreRelease: true
-    addChangeLog: false
+  - task: DotNetCoreCLI@2
+    displayName: Install SignTool tool
+    condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), eq( variables['StartReleaseCandidate'], false ) )
+    inputs:
+      command: custom
+      custom: tool
+      arguments: install --tool-path . SignClient
 
-# create or update GitHub release ON tags from release or main branches
-- task: GithubRelease@1
-  condition: and( succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'), or( eq(variables['Build.SourceBranchName'], 'main'), contains(variables['Build.SourceBranchName'], 'release') ) )
-  displayName: Create/Update GitHub stable release
-  inputs:
-    action: edit
-    gitHubConnection: 'github.com_nano-$(System.TeamProject)'
-    tagSource: userSpecifiedTag
-    tag: v$(NBGV_SimpleVersion)
-    title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
-    releaseNotesSource: inline
-    releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio [Marketplace](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework).</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
-    assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
-    assetUploadMode: replace
-    isPreRelease: false
-    addChangeLog: false
+  - pwsh: |
+      .\SignClient "Sign" `
+      --baseDirectory "$(Build.ArtifactStagingDirectory)" `
+      --input "**/*.vsix" `
+      --config "$(Build.Repository.LocalPath)/config/signClient.json" `
+      --filelist "$(Build.Repository.LocalPath)/config/filelist.txt" `
+      --user "$(SignClientUser)" `
+      --secret '$(SignClientSecret)' `
+      --name ".NET nanoFramework VS Code Extension" `
+      --description ".NET nanoFramework VS Code Extension" `
+      --descriptionUrl "https://github.com/$env:Build_Repository_Name"
+    displayName: Sign packages
+    continueOnError: true
+    condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), eq( variables['StartReleaseCandidate'], false ) )
+
+  - bash: |
+      echo ">>> Publish"
+      yarn deploy
+    displayName: Publish to marketplace
+    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
+    env:
+      VSCE_PAT: $(VSCE_PAT)
+
+  # Publish files as an artifact
+  - task: PublishPipelineArtifact@1
+    displayName: Publish deployables artifacts
+    condition: succeeded()
+    inputs:
+      artifact: git-mob-vs-code
+      targetPath: $(Build.ArtifactStagingDirectory)
+
+  # create or update GitHub release
+  - task: GithubRelease@1
+    condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), not( startsWith(variables['Build.SourceBranch'], 'refs/tags/v') ), ne( variables['StartReleaseCandidate'], true ) )
+    displayName: Create/Update GitHub PREVIEW release
+    inputs:
+      gitHubConnection: 'github.com_nano-$(System.TeamProject)'
+      tagSource: userSpecifiedTag
+      tag: v$(NBGV_SimpleVersion)
+      title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
+      releaseNotesSource: inline
+      releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio [Marketplace](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework).</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
+      assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
+      assetUploadMode: replace
+      isPreRelease: true
+      addChangeLog: false
+
+  # create or update GitHub release ON tags from release or main branches
+  - task: GithubRelease@1
+    condition: and( succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'), or( eq(variables['Build.SourceBranchName'], 'main'), contains(variables['Build.SourceBranchName'], 'release') ) )
+    displayName: Create/Update GitHub stable release
+    inputs:
+      action: edit
+      gitHubConnection: 'github.com_nano-$(System.TeamProject)'
+      tagSource: userSpecifiedTag
+      tag: v$(NBGV_SimpleVersion)
+      title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
+      releaseNotesSource: inline
+      releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio [Marketplace](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework).</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
+      assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
+      assetUploadMode: replace
+      isPreRelease: false
+      addChangeLog: false
+
+#################################
+- job: Generate_Changelog
+  dependsOn:
+  - Build_Extension
+  condition: >-
+    and(
+      succeeded('Build_Extension'),
+      startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+    )
+
+  pool:
+    vmImage: ubuntu-latest
+
+  steps:
+    - checkout: self
+
+    - script: |
+        git config --global user.email 'nanoframework@outlook.com'
+        git config --global user.name 'nfbot'
+      displayName: Setup git identity
+
+    - task: UseRubyVersion@0
+      inputs:
+        versionSpec: '= 2.7'
+        addToPath: true
+      displayName: Setup Ruby
+
+    # install github_changelog_generator
+    - powershell: |
+        gem install github_changelog_generator --quiet --no-document
+      condition: succeeded()
+      displayName: Install github_changelog_generator
+
+    # generate VS2022 change log
+    - powershell: |
+          # need to call it passing both cache options with full path otherwise it won't work
+          github_changelog_generator --token $(GitHubToken) --cache-log  $(Agent.TempDirectory)/github-changelog-logger.log --cache-file $(Agent.TempDirectory)/github-changelog-http-cache --output CHANGELOG.md
+      displayName: Generate change log
+
+    # copy change log to artifacts directory
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)'
+        Contents: |
+          'CHANGELOG.md'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)'
+      condition: succeeded()
+      displayName: Copy Changelog
+
+    # publish artifacts (only possible if this is not a PR originated on a fork)
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: deployables
+        ArtifactType: Container
+      condition: succeeded()
+      displayName: Publish deployables artifacts
+
+    # Commit changelog changes
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        script: |
+          git add CHANGELOG.md
+          git commit -m "Update CHANGELOG v$(NBGV_SimpleVersion)" -m"***NO_CI***"
+      condition: succeeded()
+      displayName: Commit changelog changes
+
+    # push changelog to GitHub repo
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        script: |
+          git config user.email 'nanoframework@outlook.com'
+          git config user.name 'nfbot'
+
+          # compute authorization header in format "AUTHORIZATION: basic 'encoded token'"
+          # 'encoded token' is the Base64 of the string "nfbot:personal-token"
+          $auth = "basic $([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("nfbot:$(GitHubToken)"))))"
+
+          git -c http.extraheader="AUTHORIZATION: $auth" push origin "HEAD:$(Build.SourceBranchName)"
+      condition: succeeded()
+      displayName: Push changelog to GitHub
+
+##################################
+# report build failure to Discord
+- job: Report_Build_Failure
+  dependsOn:
+  - Build_Extension
+  - Generate_Changelog
+  condition: >-
+    or(
+      failed('Build_Extension'),
+      failed('Generate_Changelog')
+    )
+
+  pool:
+    vmImage: 'windows-2019'
+
+  steps:
+
+  - checkout: self
+
+  # step from template @ nf-tools repo
+  - template: azure-pipelines-templates/discord-webhook.yml@templates  
+    parameters:
+      status: 'failure'
+      webhookUrl: '$(DiscordWebhook)'
+      message: ''
