@@ -81,11 +81,8 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build:prod",
-    "build": "webpack --mode development",
-    "build:prod": "webpack --mode production && npm run compile",
-    "webpack": "webpack --mode development",
-    "webpack-dev": "webpack --mode development --watch",
+    "vscode:prepublish": "npm run compile",
+    "build:prod": "npm run compile",
     "postinstall": "gulp build",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",

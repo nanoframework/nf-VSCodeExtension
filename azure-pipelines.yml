@@ -166,7 +166,8 @@ jobs:
   condition: >-
     and(
       succeeded('Build_Extension'),
-      startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+      eq(variables['System.PullRequest.PullRequestId'], ''),
+      not(startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
     )
 
   pool:
