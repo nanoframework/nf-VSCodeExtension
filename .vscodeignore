@@ -1,6 +1,7 @@
 .gitattributes
 .gitignore
 .yarnrc
+.github_changelog_generator
 .vscode/**
 .vscode-test/**
 assets/marketplace/**
