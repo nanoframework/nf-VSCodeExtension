@@ -19,3 +19,7 @@ webpack.config.js
 **/.eslintrc.json
 **/*.map
 **/*.ts
+
+!node_modules/axios
+!node_modules/globby
+!node_modules/path
