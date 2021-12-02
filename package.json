@@ -34,6 +34,13 @@
     "Programming Languages",
     "Other"
   ],
+	"badges": [
+		{
+			"description": "Build Status",
+			"href": "https://github.com/nanoframework/nf-VSCodeExtension",
+			"url": "https://dev.azure.com/nanoframework/VSCodeExtension/_apis/build/status/nanoframework.nf-VSCodeExtension?branchName=develop"
+		}
+	],
   "activationEvents": [
     "onCommand:vscode-nanoframework.nfbuild",
     "onCommand:vscode-nanoframework.nfdeploy",
