@@ -42,7 +42,7 @@ $outputDirectory = "dist" # dist for publishing, out for development
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
 $repo = "nanoFirmwareFlasher"
-$fileName = "v1.29.1"
+$fileName = "v1.29.8"
 
 DownloadArtifact $project $repo "$fileName.zip"
 BuildDotnet $repo $fileName $true $outputDirectory
@@ -57,7 +57,7 @@ BuildDotnet $repo $fileName $false $outputDirectory
 
 ## Setup nanoFrameworkSDK
 $extName = "VS2019ext"
-$version = "v2019.8.0.1"
+$version = "v2019.10.0.2"
 Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extension/releases/download/$version/nanoFramework.Tools.VS2019.Extension.vsix" -Out "$extName.zip"
 Expand-Archive "$extName.zip" -Force
 
