@@ -43,17 +43,17 @@ jobs:
       command: custom
       custom: tool
       arguments: install -g nbgv
-    
+
+  - task: NodeTool@0 
+    displayName: Setup Node.js
+    inputs:
+      versionSpec: 14.x
+      
   - script: npm install
     displayName: npm install
 
   - pwsh: scripts/build.ps1
     displayName: Install dependencies for .NET nanoFramework
-    
-  - task: NodeTool@0 
-    displayName: Setup Node.js
-    inputs:
-      versionSpec: 14.x
 
   - script: npm ci
     displayName: npm ci
