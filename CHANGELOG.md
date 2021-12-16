@@ -1,5 +1,9 @@
 # Changelog
 
+## [v1.0.41](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.41) (2021-12-16)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.39...v1.0.41)
+
 ## [v1.0.39](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.39) (2021-12-16)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.37...v1.0.39)
