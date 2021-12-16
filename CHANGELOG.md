@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.39](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.39) (2021-12-16)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.37...v1.0.39)
+
+**Updated dependencies and other chores:**
+
+- Bumps nanoFrameworkDeployer to 1.1.1 [\#18](https://github.com/nanoframework/nf-VSCodeExtension/pull/18)
+
 ## [v1.0.37](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.37) (2021-12-16)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.35...v1.0.37)
