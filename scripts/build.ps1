@@ -1,40 +1,47 @@
 ﻿function DownloadArtifact ($project, $repo, $fileName) 
 {
-    Write-Host "Downloading Artifact..."
+    Write-Host "Downloading Artifact $repo..."
 
-    $url = "https://github.com/$project/$repo/archive/refs/tags/$fileName";
+    $url = "https://github.com/$project/$repo/archive/refs/tags/$fileName"
     Write-Host $url;
 
     Invoke-WebRequest -Uri $url -Out $fileName
 
     Write-Host Extracting release files
 
-    Expand-Archive $fileName -Force
+    Expand-Archive $fileName $repo -Force
 }
 
-function BuildDotnet ($repo, $fileName, $dotnet5, $outputDirectory)
+function BuildDotnet ($repo, $fileName, $dotnetBuild, $outputDirectory)
 {
+    Write-Host "Building $repo..."
+
     # create folder
-    $outFolder = (New-Item -Name "$outputDirectory/utils/$repo" -ItemType Directory -Force).ToString();
+    $outFolder = (New-Item -Name "$outputDirectory/utils/$repo" -ItemType Directory -Force).ToString()
 
     # unpack in folder
     Get-ChildItem "$repo.sln" -Recurse | ForEach-Object { 
-        nuget restore $PSItem.FullName ;
+        nuget restore $PSItem.FullName
         
-        if ($dotnet5) {
-            Write-Host "Using dotnet build";
+        if ($dotnetBuild)
+        {
+            Write-Host "Build with dotnet"
             dotnet build $PSItem.FullName -o $outFolder
         }
-        else {
-            Write-Host "Using msbuild"
-            msbuild $PSItem.FullName /p:OutDir=$outFolder; 
+        else
+        {
+            Write-Host "Build with msbuild"
+            msbuild $PSItem.FullName /p:OutDir=$outFolder
         }
     }
 
     #cleanup
     Remove-Item "$fileName.zip"
-    Remove-Item $fileName -Recurse -Force
+    Remove-Item $repo -Recurse -Force
 }
+
+# check if this is running on Azure Pipeline
+$IsAzurePipelines = $env:Agent_HomeDirectory -and $env:Build_BuildNumber
 
 ## Defining variables
 $outputDirectory = "dist" # dist for publishing, out for development
@@ -45,7 +52,12 @@ $repo = "nanoFirmwareFlasher"
 $nanoFlasherVersion = "v2.0.3"
 
 DownloadArtifact $project $repo "$nanoFlasherVersion.zip"
-BuildDotnet $repo $nanoFlasherVersion $true $outputDirectory
+
+# skip build if running on Azure Pipeline
+if($IsAzurePipelines -eq $null)
+{
+    BuildDotnet $repo $nanoFlasherVersion $true $outputDirectory
+}
 
 ## Setup nanoFrameworkDeployer
 $project = "nanoframework"
@@ -53,7 +65,12 @@ $repo = "nanoFrameworkDeployer"
 $nanoFrameworkDeployerVersion = "v1.1.1"
 
 DownloadArtifact $project $repo "$nanoFrameworkDeployerVersion.zip"
-BuildDotnet $repo $nanoFrameworkDeployerVersion $false $outputDirectory
+
+# skip build if running on Azure Pipeline
+if($IsAzurePipelines -eq $null)
+{
+    BuildDotnet $repo $nanoFrameworkDeployerVersion $false $outputDirectory
+}
 
 ## Setup nanoFrameworkSDK
 $extName = "VS2019ext"
@@ -71,10 +88,11 @@ Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
 
 ## Setup nuget
-$nugetFolder = (New-Item -Name "$outputDirectory/utils/nuget" -ItemType Directory -Force).ToString();
+$nugetFolder = (New-Item -Name "$outputDirectory/utils/nuget" -ItemType Directory -Force).ToString()
 Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -Out "$nugetFolder/nuget.exe"
 
-if ($IsMacOS -or $IsLinux) {
+if ($IsMacOS -or $IsLinux)
+{
     Write-Output "Adding executable rights to utils folder on Unix"
     chmod -R +x ./$outputDirectory/utils/
 }

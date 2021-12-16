@@ -30,11 +30,26 @@ jobs:
   pool:
     vmImage: ubuntu-latest
 
+  variables:
+    DOTNET_NOLOGO: true
+    
   steps:
 
   # need this here in order to persist GitHub credentials
   - checkout: self
     persistCredentials: true
+  
+  - task: NuGetToolInstaller@1
+    condition: succeeded()
+    displayName: 'Install specific version of NuGet'
+    inputs:
+      versionSpec: '>=5.10.0'
+  
+  - task: UseDotNet@2
+    displayName: Install .NET SDK
+    inputs:
+      packageType: sdk
+      version: 6.x
 
   - task: DotNetCoreCLI@2  
     displayName: Install NBGV tool
@@ -53,7 +68,39 @@ jobs:
     displayName: npm install
 
   - pwsh: scripts/build.ps1
-    displayName: Install dependencies for .NET nanoFramework
+    displayName: Download and build dependencies for .NET nanoFramework
+  
+  - pwsh: |
+      $nanoFirmwareFlasherSln = Get-ChildItem "nanoFirmwareFlasher.sln" -Recurse
+      echo "##vso[task.setvariable variable=NANOFF_LOCATION;isOutput=true]$nanoFirmwareFlasherSln"
+    displayName: Find nanoff location
+    name: FindNanoff
+
+  - task: DotNetCoreCLI@2
+    displayName: Build nanoff
+    inputs:
+      command: 'build'
+      projects: '$(FindNanoff.NANOFF_LOCATION)'
+      arguments: '-o $(Build.SourcesDirectory)/dist/utils/nanoFirmwareFlasher'
+
+  - task: NuGetCommand@2
+    displayName: NuGet restore nanoFrameworkDeployer
+    inputs:
+      restoreSolution: '**/nanoFrameworkDeployer.sln'
+
+  - task: MSBuild@1
+    displayName: Build nanoFrameworkDeployer
+    inputs:
+      solution: '**/nanoFrameworkDeployer.sln'
+      msbuildArguments: '/p:OutDir=$(Build.SourcesDirectory)/dist/utils/nanoFrameworkDeployer'
+  
+  - task: DeleteFiles@1
+    displayName: Remove source folders
+    inputs:
+      Contents: |
+        nanoFirmwareFlasher
+        nanoFrameworkDeployer
+        v*.zip
 
   - script: npm ci
     displayName: npm ci
