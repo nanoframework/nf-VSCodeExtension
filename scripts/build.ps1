@@ -42,18 +42,18 @@ $outputDirectory = "dist" # dist for publishing, out for development
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
 $repo = "nanoFirmwareFlasher"
-$fileName = "v1.29.8"
+$nanoFlasherVersion = "v1.29.8"
 
-DownloadArtifact $project $repo "$fileName.zip"
-BuildDotnet $repo $fileName $true $outputDirectory
+DownloadArtifact $project $repo "$nanoFlasherVersion.zip"
+BuildDotnet $repo $nanoFlasherVersion $true $outputDirectory
 
 ## Setup nanoFrameworkDeployer
 $project = "nanoframework"
 $repo = "nanoFrameworkDeployer"
-$fileName = "v1.0.19"
+$nanoFrameworkDeployerVersion = "v1.0.19"
 
-DownloadArtifact $project $repo "$fileName.zip"
-BuildDotnet $repo $fileName $false $outputDirectory
+DownloadArtifact $project $repo "$nanoFrameworkDeployerVersion.zip"
+BuildDotnet $repo $nanoFrameworkDeployerVersion $false $outputDirectory
 
 ## Setup nanoFrameworkSDK
 $extName = "VS2019ext"
