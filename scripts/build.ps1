@@ -1,4 +1,4 @@
-function DownloadArtifact ($project, $repo, $fileName) 
+﻿function DownloadArtifact ($project, $repo, $fileName) 
 {
     Write-Host "Downloading Artifact..."
 
@@ -42,7 +42,7 @@ $outputDirectory = "dist" # dist for publishing, out for development
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
 $repo = "nanoFirmwareFlasher"
-$nanoFlasherVersion = "v1.29.8"
+$nanoFlasherVersion = "2.0.4"
 
 DownloadArtifact $project $repo "$nanoFlasherVersion.zip"
 BuildDotnet $repo $nanoFlasherVersion $true $outputDirectory
