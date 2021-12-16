@@ -42,7 +42,7 @@ $outputDirectory = "dist" # dist for publishing, out for development
 ## Setup nanoFirmwareFlasher
 $project = "nanoframework"
 $repo = "nanoFirmwareFlasher"
-$nanoFlasherVersion = "v2.0.4"
+$nanoFlasherVersion = "v2.0.3"
 
 DownloadArtifact $project $repo "$nanoFlasherVersion.zip"
 BuildDotnet $repo $nanoFlasherVersion $true $outputDirectory
