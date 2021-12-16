@@ -50,7 +50,7 @@ BuildDotnet $repo $nanoFlasherVersion $true $outputDirectory
 ## Setup nanoFrameworkDeployer
 $project = "nanoframework"
 $repo = "nanoFrameworkDeployer"
-$nanoFrameworkDeployerVersion = "v1.0.19"
+$nanoFrameworkDeployerVersion = "v1.0.23"
 
 DownloadArtifact $project $repo "$nanoFrameworkDeployerVersion.zip"
 BuildDotnet $repo $nanoFrameworkDeployerVersion $false $outputDirectory
