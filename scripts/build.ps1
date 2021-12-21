@@ -62,7 +62,7 @@ if($IsAzurePipelines -eq $null)
 ## Setup nanoFrameworkDeployer
 $project = "nanoframework"
 $repo = "nanoFrameworkDeployer"
-$nanoFrameworkDeployerVersion = "v1.1.1"
+$nanoFrameworkDeployerVersion = "v1.1.5"
 
 DownloadArtifact $project $repo "$nanoFrameworkDeployerVersion.zip"
 
