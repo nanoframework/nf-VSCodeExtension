@@ -5,7 +5,7 @@ trigger:
   branches:
     include: [main, develop, "release-*" ]
   paths:
-    exclude: [README.md, LICENSE.md, CHANGELOG.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md, .github_changelog_generator, .gitignore]
+    exclude: [README.md, LICENSE.md, CHANGELOG.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md, .github_changelog_generator, .gitignore, .markdownlint.json, .vscodeignore, .gitmodules]
   tags:
     include:
     - refs/tags/v*
