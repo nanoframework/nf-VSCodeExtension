@@ -1,81 +1,73 @@
-﻿function DownloadArtifact ($project, $repo, $fileName) 
+﻿function BuildDotnet ($solution, $dotnetBuild, $outputDirectory)
 {
-    Write-Host "Downloading Artifact $repo..."
-
-    $url = "https://github.com/$project/$repo/archive/refs/tags/$fileName"
-    Write-Host $url;
-
-    Invoke-WebRequest -Uri $url -Out $fileName
-
-    Write-Host Extracting release files
-
-    Expand-Archive $fileName $repo -Force
-}
-
-function BuildDotnet ($repo, $fileName, $dotnetBuild, $outputDirectory)
-{
-    Write-Host "Building $repo..."
+    Write-Host "Building $solution..."
 
     # create folder
-    $outFolder = (New-Item -Name "$outputDirectory/utils/$repo" -ItemType Directory -Force).ToString()
+    $outFolder = (New-Item -Name "$outputDirectory/utils/$solution" -ItemType Directory -Force).ToString()
 
     # unpack in folder
-    Get-ChildItem "$repo.sln" -Recurse | ForEach-Object { 
+    Get-ChildItem "$solution.sln" -Recurse | ForEach-Object { 
         nuget restore $PSItem.FullName
         
         if ($dotnetBuild)
         {
-            Write-Host "Build with dotnet"
+            Write-Host "Building with dotnet"
             dotnet build $PSItem.FullName -o $outFolder
         }
         else
         {
-            Write-Host "Build with msbuild"
+            Write-Host "Building with msbuild"
             msbuild $PSItem.FullName /p:OutDir=$outFolder
         }
     }
-
-    #cleanup
-    Remove-Item "$fileName.zip"
-    Remove-Item $repo -Recurse -Force
 }
 
 # check if this is running on Azure Pipeline
-$IsAzurePipelines = $env:Agent_HomeDirectory -and $env:Build_BuildNumber
+$IsAzurePipelines = $env:Agent_HomeDirectory + $env:Build_BuildNumber
+
+# only need these modules if not running on Azure Pipeline
+if(-Not $env:TF_BUILD)
+{
+    "Installing VSSetup PS1 module" | Write-Host
+    Install-Module VSSetup -Scope CurrentUser -Force
+    "Installing BuildUtils PS1 module" | Write-Host
+    Install-Module BuildUtils -Scope CurrentUser -Force
+
+    # get location for msbuild and setup alias
+    $msbuildLocation = Get-LatestMsbuildLocation
+    set-alias msbuild $msbuildLocation 
+}
 
 ## Defining variables
-$outputDirectory = "dist" # dist for publishing, out for development
+$outputDirectory = "dist"
 
 ## Setup nanoFirmwareFlasher
-$project = "nanoframework"
-$repo = "nanoFirmwareFlasher"
-$nanoFlasherVersion = "v2.0.3"
-
-DownloadArtifact $project $repo "$nanoFlasherVersion.zip"
+$solution = "nanoFirmwareFlasher"
 
 # skip build if running on Azure Pipeline
-if($IsAzurePipelines -eq $null)
+if(-Not $env:TF_BUILD)
 {
-    BuildDotnet $repo $nanoFlasherVersion $true $outputDirectory
+    "Setup build for $solution" | Write-Host
+    BuildDotnet $solution $true $outputDirectory
 }
 
 ## Setup nanoFrameworkDeployer
-$project = "nanoframework"
-$repo = "nanoFrameworkDeployer"
-$nanoFrameworkDeployerVersion = "v1.1.5"
-
-DownloadArtifact $project $repo "$nanoFrameworkDeployerVersion.zip"
+$solution = "nanoFrameworkDeployer"
 
 # skip build if running on Azure Pipeline
-if($IsAzurePipelines -eq $null)
+if(-Not $env:TF_BUILD)
 {
-    BuildDotnet $repo $nanoFrameworkDeployerVersion $false $outputDirectory
+    "Setup build for $solution" | Write-Host
+    BuildDotnet $solution $false $outputDirectory
 }
 
 ## Setup nanoFrameworkSDK
 $extName = "VS2019ext"
-$version = "v2019.10.0.2"
-Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extension/releases/download/$version/nanoFramework.Tools.VS2019.Extension.vsix" -Out "$extName.zip"
+$vsExtensionVersion = "v2019.10.0.2"
+
+"Downloading VS2019 Extension..." | Write-Host
+
+Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extension/releases/download/$vsExtensionVersion/nanoFramework.Tools.VS2019.Extension.vsix" -Out "$extName.zip"
 Expand-Archive "$extName.zip" -Force
 
 Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object { 
@@ -89,6 +81,9 @@ Remove-Item $extName -Recurse -Force
 
 ## Setup nuget
 $nugetFolder = (New-Item -Name "$outputDirectory/utils/nuget" -ItemType Directory -Force).ToString()
+
+"Downloading nuget CLI..." | Write-Host
+
 Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -Out "$nugetFolder/nuget.exe"
 
 if ($IsMacOS -or $IsLinux)
