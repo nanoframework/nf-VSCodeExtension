@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.49](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.49) (2021-12-23)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.43...v1.0.49)
+
+**Implemented enhancements:**
+
+- Targets list now only contains valid and updated packages [\#22](https://github.com/nanoframework/nf-VSCodeExtension/pull/22)
+
 ## [v1.0.43](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.43) (2021-12-21)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.41...v1.0.43)
