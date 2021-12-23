@@ -151,7 +151,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
-			.map(repo => axios.get(apiUrl + repo));
+			.map(repo => axios.get(apiUrl + repo + '/?&q=uploaded:>\'2 months ago\''));
 
 		let imageArray:string[] = [];
 		let targetImages:QuickPickItem[] = [];
