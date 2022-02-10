@@ -52,14 +52,6 @@ jobs:
       packageType: sdk
       version: 6.x
 
-  - task: DotNetCoreCLI@2  
-    displayName: Install NBGV tool
-    condition: succeeded()
-    inputs:
-      command: custom
-      custom: tool
-      arguments: install -g nbgv
-
   - task: NodeTool@0 
     displayName: Setup Node.js
     inputs:
