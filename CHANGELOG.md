@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.56](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.56) (2022-03-30)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.53...v1.0.56)
+
+**Updated dependencies and other chores:**
+
+- Bump follow-redirects from 1.14.4 to 1.14.9 [\#24](https://github.com/nanoframework/nf-VSCodeExtension/pull/24)
+
 ## [v1.0.53](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.53) (2022-02-10)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.49...v1.0.53)
