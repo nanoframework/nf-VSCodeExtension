@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.58](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.58) (2022-04-18)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.56...v1.0.58)
+
+**Updated dependencies and other chores:**
+
+- Bump minimist from 1.2.5 to 1.2.6 [\#25](https://github.com/nanoframework/nf-VSCodeExtension/pull/25)
+
 ## [v1.0.56](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.56) (2022-03-30)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.53...v1.0.56)
