@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.60](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.60) (2022-04-18)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.58...v1.0.60)
+
+**Updated dependencies and other chores:**
+
+- Bump simple-get from 3.1.0 to 3.1.1 [\#26](https://github.com/nanoframework/nf-VSCodeExtension/pull/26)
+
 ## [v1.0.58](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.58) (2022-04-18)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.56...v1.0.58)
