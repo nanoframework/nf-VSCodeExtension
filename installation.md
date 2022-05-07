@@ -14,6 +14,13 @@ The following packages/tools/frameworks are required:
 - PowerShell core (`pwsh`) for Linux/macOS
 
 >Note: if you're running into a `langversion:9` error, try installing the latest mono-nightly
+  
+> **Note:** Do not use the `mono-complete` package provided by your Linux distribution  
+> as it may not include `msbuild` which is required for this extension to work.  
+>   
+> Instead install the `mono-complete` package provided by the Mono Project.  
+> The [preview](https://www.mono-project.com/download/preview/) version is recommended
+> as the [stable](https://www.mono-project.com/download/stable/) version is outdated.
 
 ## Install steps
 
