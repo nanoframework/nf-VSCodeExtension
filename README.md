@@ -64,6 +64,13 @@ You will need to make sure you'll have the following elements installed:
 - [.NET 6.0](https://dotnet.microsoft.com/download/dotnet)
 - [Visual Studio build tools](https://visualstudio.microsoft.com/en/thank-you-downloading-visual-studio/?sku=BuildTools&rel=16) on Windows, `mono-complete` on [Linux/macOS](https://www.mono-project.com/docs/getting-started/install/)
 
+> **Note:** Do not use the `mono-complete` package provided by your Linux distribution  
+> as it may not include `msbuild` which is required for this extension to work.  
+>   
+> Instead install the `mono-complete` package provided by the Mono Project.  
+> The [preview](https://www.mono-project.com/download/preview/) version is recommended
+> as the [stable](https://www.mono-project.com/download/stable/) version is outdated.
+
 ## Known Issues
 
 This extension will **not** allow you to debug the device. Debug is only available on Windows with [Visual Studio](https://visualstudio.microsoft.com/downloads/) (any edition) and the [.NET nanoFramework Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2022-Extension) installed.
