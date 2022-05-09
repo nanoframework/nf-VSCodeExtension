@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.75](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.75) (2022-05-09)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.72...v1.0.75)
+
+**Updated dependencies and other chores:**
+
+- Added documentation for the requirements on Linux [\#34](https://github.com/nanoframework/nf-VSCodeExtension/pull/34)
+
 ## [v1.0.72](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.72) (2022-04-27)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.69...v1.0.72)
