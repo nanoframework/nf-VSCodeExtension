@@ -86,7 +86,7 @@ $nugetFolder = (New-Item -Name "$outputDirectory/utils/nuget" -ItemType Director
 
 Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -Out "$nugetFolder/nuget.exe"
 
-if ($IsMacOS -or $IsLinux)
+if ((-Not $env:TF_BUILD) -And ($IsMacOS -Or $IsLinux))
 {
     Write-Output "Adding executable rights to utils folder on Unix"
     chmod -R +x ./$outputDirectory/utils/
