@@ -99,6 +99,9 @@ jobs:
       solution: '$(Build.SourcesDirectory)/nanoFrameworkDeployer/nanoFrameworkDeployer.sln'
       msbuildArguments: '/p:OutDir=$(Build.SourcesDirectory)/dist/utils/nanoFrameworkDeployer'
   
+  - script: chmod -R +x $(Build.SourcesDirectory)/dist/utils/
+    displayName: Adding executable rights to utils folder
+
   - task: DeleteFiles@1
     displayName: Remove source folders
     inputs:
