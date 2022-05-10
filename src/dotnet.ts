@@ -43,7 +43,7 @@ export class Dotnet {
             const cliDeployArguments = `${toolPath}/nanoFrameworkDeployer/nanoFrameworkDeployer.exe -v ${serialPath ? '-c '+ serialPath : ''} -d ${outputDir}`;
 
             if(os.platform() === "win32") {
-                Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
+                Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     toolPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
                     '& $path ' + fileUri + ' ' + cliBuildArguments + '; '+ 
                     cliDeployArguments);            
@@ -72,7 +72,7 @@ export class Dotnet {
             const cliDeploy = `dotnet ${toolPath}/nanoFirmwareFlasher/nanoff.dll --target ${targetImage} --serialport ${serialPath} --deploy --image ${outputDir}deploy.bin`;
 
             if(os.platform() === "win32") {
-                Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
+                Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     toolPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
                     '& $path ' + fileUri + ' ' + cliBuildArguments + '; '+ 
                     cliBuildBin + '; ' +
