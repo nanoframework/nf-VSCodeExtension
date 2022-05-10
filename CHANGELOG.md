@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.77](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.77) (2022-05-10)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.75...v1.0.77)
+
+**Fixed bugs:**
+
+- Fix for building solution on Windows in VS Code, when there's no Visual Studio any version installed [\#36](https://github.com/nanoframework/nf-VSCodeExtension/pull/36)
+
 ## [v1.0.75](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.75) (2022-05-09)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.72...v1.0.75)
