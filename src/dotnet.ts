@@ -19,7 +19,7 @@ export class Dotnet {
         if (fileUri) {
             // using dynamicly-solved MSBuild.exe when ran from win32
             if(os.platform() === "win32") {
-                Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
+                Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     toolPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
                     '& $path ' + fileUri + ' -p:NanoFrameworkProjectSystemPath=' + toolPath + '/nanoFramework/v1.0/');
             }
