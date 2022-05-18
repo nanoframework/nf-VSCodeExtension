@@ -62,12 +62,12 @@ if(-Not $env:TF_BUILD)
 }
 
 ## Setup nanoFrameworkSDK
-$extName = "VS2019ext"
-$vsExtensionVersion = "v2019.10.0.2"
+$extName = "VS2022ext"
+$vsExtensionVersion = "v2022.2.0.19"
 
-"Downloading VS2019 Extension..." | Write-Host
+"Downloading VS2022 Extension..." | Write-Host
 
-Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extension/releases/download/$vsExtensionVersion/nanoFramework.Tools.VS2019.Extension.vsix" -Out "$extName.zip"
+Invoke-WebRequest -Uri "https://github.com/nanoframework/nf-Visual-Studio-extension/releases/download/$vsExtensionVersion/nanoFramework.Tools.VS2022.Extension.vsix" -Out "$extName.zip"
 Expand-Archive "$extName.zip" -Force
 
 Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object { 
