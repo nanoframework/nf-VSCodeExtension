@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.0.101](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.101) (2022-08-18)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.98...v1.0.101)
+
+**Updated dependencies and other chores:**
+
+- Bumps nanoFramework.Tools.FirmwareFlasher to v2.1.11 [\#51](https://github.com/nanoframework/nf-VSCodeExtension/pull/51)
+- Bumps nanoFrameworkDeployer to v1.1.24 [\#50](https://github.com/nanoframework/nf-VSCodeExtension/pull/50)
+
 ## [v1.0.98](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.98) (2022-07-14)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.96...v1.0.98)
