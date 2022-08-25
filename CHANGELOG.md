@@ -1,5 +1,27 @@
 # Changelog
 
+## [v1.0.115](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.115) (2022-08-25)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.107...v1.0.115)
+
+**Updated dependencies and other chores:**
+
+- Bumps nanoFramework.Tools.FirmwareFlasher to v2.3.4 [\#61](https://github.com/nanoframework/nf-VSCodeExtension/pull/61)
+- Bump eslint from 7.32.0 to 8.22.0 [\#60](https://github.com/nanoframework/nf-VSCodeExtension/pull/60)
+- Bump @types/node from 14.18.26 to 18.7.13 [\#59](https://github.com/nanoframework/nf-VSCodeExtension/pull/59)
+- Bump axios from 0.24.0 to 0.27.2 [\#58](https://github.com/nanoframework/nf-VSCodeExtension/pull/58)
+- Bump @vscode/test-electron from 1.6.2 to 2.1.5 [\#57](https://github.com/nanoframework/nf-VSCodeExtension/pull/57)
+- Bump glob from 7.2.3 to 8.0.3 [\#56](https://github.com/nanoframework/nf-VSCodeExtension/pull/56)
+
+## [v1.0.107](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.107) (2022-08-25)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.103...v1.0.107)
+
+**Updated dependencies and other chores:**
+
+- Update dependencies [\#54](https://github.com/nanoframework/nf-VSCodeExtension/pull/54)
+- Bump terser from 5.14.0 to 5.15.0 [\#53](https://github.com/nanoframework/nf-VSCodeExtension/pull/53)
+
 ## [v1.0.103](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.103) (2022-08-19)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.101...v1.0.103)
