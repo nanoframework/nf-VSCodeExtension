@@ -85,7 +85,7 @@ jobs:
     displayName: Build nanoff
     inputs:
       command: 'build'
-      projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.sln'
+      projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.Tool/nanoFirmwareFlasher.Tool.csproj'
       arguments: '-o $(Build.SourcesDirectory)/dist/utils/nanoFirmwareFlasher'
 
   - task: NuGetCommand@2
