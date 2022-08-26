@@ -126,7 +126,7 @@
     "@types/node": "18.x",
     "axios": "^0.27.2",
     "extract-zip": "^2.0.1",
-    "globby": "^11.0.4",
+    "globby": "^13.1.2",
     "node-usb-native": "^0.0.20"
   }
 }
