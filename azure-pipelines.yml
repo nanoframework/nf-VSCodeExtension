@@ -81,6 +81,12 @@ jobs:
   - pwsh: scripts/build.ps1
     displayName: Download and build dependencies for .NET nanoFramework
 
+  - task: NuGetCommand@2
+    displayName: NuGet restore nanoff
+    inputs:
+      command: 'custom'
+      arguments: 'restore $(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.sln -MSBuildVersion 17.0'
+
   - task: DotNetCoreCLI@2
     displayName: Build nanoff
     inputs:

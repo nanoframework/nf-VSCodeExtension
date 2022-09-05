@@ -7,7 +7,7 @@
 
     # unpack in folder
     Get-ChildItem "$solution.sln" -Recurse | ForEach-Object { 
-        nuget restore $PSItem.FullName
+        nuget restore $PSItem.FullName -UseLockFile
         
         if ($dotnetBuild)
         {
