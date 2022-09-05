@@ -1,5 +1,30 @@
 # Changelog
 
+## [v1.0.127](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.127) (2022-09-05)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.121...v1.0.127)
+
+**Updated dependencies and other chores:**
+
+- Bump @typescript-eslint/eslint-plugin from 5.35.1 to 5.36.2 [\#76](https://github.com/nanoframework/nf-VSCodeExtension/pull/76)
+- Bump @types/node from 18.7.13 to 18.7.15 [\#72](https://github.com/nanoframework/nf-VSCodeExtension/pull/72)
+- Bump @typescript-eslint/parser from 4.33.0 to 5.36.1 [\#71](https://github.com/nanoframework/nf-VSCodeExtension/pull/71)
+- Bump @types/glob from 7.2.0 to 8.0.0 [\#70](https://github.com/nanoframework/nf-VSCodeExtension/pull/70)
+- Bump vsce from 2.10.2 to 2.11.0 [\#68](https://github.com/nanoframework/nf-VSCodeExtension/pull/68)
+- Bump eslint from 8.22.0 to 8.23.0 [\#67](https://github.com/nanoframework/nf-VSCodeExtension/pull/67)
+
+## [v1.0.121](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.121) (2022-09-05)
+
+[Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.115...v1.0.121)
+
+**Updated dependencies and other chores:**
+
+- Bumps nanoFramework.Tools.FirmwareFlasher to v2.3.7 [\#73](https://github.com/nanoframework/nf-VSCodeExtension/pull/73)
+- Bump mocha from 9.2.2 to 10.0.0 [\#65](https://github.com/nanoframework/nf-VSCodeExtension/pull/65)
+- Bump @typescript-eslint/eslint-plugin from 4.33.0 to 5.35.1 [\#64](https://github.com/nanoframework/nf-VSCodeExtension/pull/64)
+- Bump typescript from 4.7.4 to 4.8.2 [\#63](https://github.com/nanoframework/nf-VSCodeExtension/pull/63)
+- Bump globby from 11.1.0 to 13.1.2 [\#62](https://github.com/nanoframework/nf-VSCodeExtension/pull/62)
+
 ## [v1.0.115](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.115) (2022-08-25)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.107...v1.0.115)
