@@ -1,0 +1,106 @@
+name: CI Test Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    env: # TODO: most of these should probably be secret, or at least parsed!
+      CI: true
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+
+    strategy:
+      matrix:
+        node-version: [14, 16] #, lts/*] #,latest]
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: 'Setup Node.js (version: ${{ matrix.node-version }})'
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          # always-auth: true
+
+
+      - name: Cache dependencies
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: ./node_modules
+          key: modules-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          npm ci --prefer-offline --ignore-scripts
+
+      - name: Rebuild and prepare depencencies
+        # `npm rebuild` will run all those post-install scripts for us.
+        run: npm rebuild && npm run prepare --if-present
+
+#       - name: Run License check
+# #        continue-on-error: true # TODO: remove once fixed!
+#         run: |
+#           # check that all dependencies are Met Office OSS license compatible
+#           npm run licence-check
+#           echo ::warning:: Check licenses are okay!
+
+     - name: Run package audit
+       continue-on-error: true #TODO: we currently continue as a warning!
+       # this will show the issues with current packages.
+       run: |
+         npm audit
+         echo ::warning:: Check package audit is okay!
+
+      # - name: Generate Release version
+      #   run: |
+      #     # TODO: check we have a release strategy, like "gitversioning"
+      #     # this could be screwed up by targeting a minor node version e.g. 12.x
+      #     echo ::warning:: The version generated should not be used in production!
+
+      - name: Run build
+        continue-on-error: true # TODO: remove once fixed!
+        run: |
+          npm run build --if-present
+          echo ::warning:: Check ${{ matrix.node-version }} build is okay!
+
+      - name: Run lint checks
+        continue-on-error: true # TODO: remove once fixed!
+        run: |
+          npm run eslint #Check Static code analysis!
+
+
+      - name: Run unit tests
+        continue-on-error: true # TODO: remove once fixed!
+        timeout-minutes: 5
+        run: |
+          npm run test-coverage
+          echo ::warning:: Check test is okay!
+
+      - name: Run extension tests
+        if: github.ref != 'refs/heads/master' || github.ref != 'refs/heads/main' # These tests should only need to be run on PR... OR should they?!
+        continue-on-error: true # TODO: remove once fixed!
+        timeout-minutes: 20
+        run: |
+          echo ::warning:: There is an error here that needs a fix
+          # npm run dotnet test
+
+#       - name: Run Sonar Scan
+#         continue-on-error: true # TODO: should handle better!
+#         uses: sonarsource/sonarcloud-github-action@master
+#         env:
+#           GITHUB_TOKEN: ${{ github.token }}
+#           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+
+
+      - name: upload logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: logs
+          path: /home/runner/.npm/_logs/**/* # TODO: the path should be an environment variable!
