@@ -7,7 +7,7 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     env: # TODO: most of these should probably be secret, or at least parsed!
-      CI: true
+      CI: false
 
 
     strategy:
@@ -38,6 +38,7 @@ jobs:
           npm ci --prefer-offline --ignore-scripts
 
       - name: Rebuild and prepare depencencies
+        continue-on-error: true #TODO: we currently continue as a warning!
         # `npm rebuild` will run all those post-install scripts for us.
         run: npm rebuild && npm run prepare --if-present
 
