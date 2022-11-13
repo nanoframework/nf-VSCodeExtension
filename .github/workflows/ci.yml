@@ -56,13 +56,6 @@ jobs:
         # this will show the issues with current packages.
         run: |
           npm audit
-          echo ::warning:: Check package audit is okay!
-
-      # - name: Generate Release version
-      #   run: |
-      #     # TODO: check we have a release strategy, like "gitversioning"
-      #     # this could be screwed up by targeting a minor node version e.g. 12.x
-      #     echo ::warning:: The version generated should not be used in production!
 
       - name: Run build
         continue-on-error: true # TODO: remove once fixed!
@@ -73,7 +66,7 @@ jobs:
       - name: Run lint checks
         continue-on-error: true # TODO: remove once fixed!
         run: |
-          npm run eslint #Check Static code analysis!
+          npm run lint #Check Static code analysis!
 
 
       - name: Run unit tests
@@ -97,6 +90,12 @@ jobs:
 #         env:
 #           GITHUB_TOKEN: ${{ github.token }}
 #           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+
+      # - name: Generate Release version
+      #   run: |
+      #     # TODO: check we have a release strategy, like "gitversioning"
+      #     # this could be screwed up by targeting a minor node version e.g. 12.x
+      #     echo ::warning:: The version generated should not be used in production!
 
 
       - name: upload logs
