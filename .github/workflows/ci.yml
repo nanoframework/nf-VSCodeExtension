@@ -51,12 +51,12 @@ jobs:
 #           npm run licence-check
 #           echo ::warning:: Check licenses are okay!
 
-     - name: Run package audit
-       continue-on-error: true #TODO: we currently continue as a warning!
-       # this will show the issues with current packages.
-       run: |
-         npm audit
-         echo ::warning:: Check package audit is okay!
+      - name: Run package audit
+        continue-on-error: true #TODO: we currently continue as a warning!
+        # this will show the issues with current packages.
+        run: |
+          npm audit
+          echo ::warning:: Check package audit is okay!
 
       # - name: Generate Release version
       #   run: |
