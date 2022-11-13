@@ -45,28 +45,26 @@ jobs:
       #   continue-on-error: true # TODO: remove once fixed!
       #   run: |
       #     # check that all dependencies are .NET nanoFramework OSS license compatible
-      #     npm run licence-check
-      #     echo ::warning:: Check licenses are okay!
+      #     npm run licence-check --if-present
 
       - name: Run package audit
         continue-on-error: true #TODO: we currently continue as a warning!
         # this will show the issues with current packages.
         run: |
-          npm audit
+          npm audit --if-present
+
+      - name: Run lint checks
+        run: |
+          npm run lint --if-present
 
       - name: Run build
         run: |
           npm run build --if-present
 
-      - name: Run lint checks
-        run: |
-          npm run lint
-
-
       - name: Run unit tests for extension
         continue-on-error: true # TODO: remove once fixed!
         run: |
-          npm run test
+          npm run test --if-present
 
 #       - name: Run Sonar Scan
 #         continue-on-error: true # TODO: should handle better!
