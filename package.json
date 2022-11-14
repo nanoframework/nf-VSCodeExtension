@@ -15,8 +15,8 @@
   },
   "assetFiles": [
     {
-        "pathOnDisk": "assets/marketplace/nano-vs-code.gif",
-        "targetPath": "nano-vs-code.gif"
+      "pathOnDisk": "assets/marketplace/nano-vs-code.gif",
+      "targetPath": "nano-vs-code.gif"
     }
   ],
   "engines": {
@@ -34,13 +34,13 @@
     "Programming Languages",
     "Other"
   ],
-	"badges": [
-		{
-			"description": "Build Status",
-			"href": "https://github.com/nanoframework/nf-VSCodeExtension",
-			"url": "https://dev.azure.com/nanoframework/VSCodeExtension/_apis/build/status/nanoframework.nf-VSCodeExtension?branchName=develop"
-		}
-	],
+  "badges": [
+    {
+      "description": "Build Status",
+      "href": "https://github.com/nanoframework/nf-VSCodeExtension",
+      "url": "https://dev.azure.com/nanoframework/VSCodeExtension/_apis/build/status/nanoframework.nf-VSCodeExtension?branchName=develop"
+    }
+  ],
   "sponsor": {
     "url": "https://github.com/sponsors/nanoframework"
   },
@@ -115,7 +115,8 @@
     "glob": "^8.0.3",
     "gulp": "^4.0.2",
     "mocha": "^10.0.0",
-    "nerdbank-gitversioning": "^3.4.244",
+    "nerdbank-gitversioning": "^3.5.119",
+    "npm-check-updates": "^16.3.25",
     "ts-loader": "^9.2.6",
     "typescript": "^4.8.2",
     "vsce": "^2.11.0",
