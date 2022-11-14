@@ -6,7 +6,7 @@ jobs:
   build:
     timeout-minutes: 60
     runs-on: ubuntu-latest
-    env: # TODO: most of these should probably be secret, or at least parsed!
+    env:
       CI: true
 
 
@@ -68,7 +68,7 @@ jobs:
           npm run build --if-present
 
       - name: Run smoke tests for VSCode extension
-        continue-on-error: true # TODO: remove once fixed!
+        continue-on-error: true # TODO: remove once improved!
         run: |
           # enable the display for XWindows
           # export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2; exit;}'):0.0
