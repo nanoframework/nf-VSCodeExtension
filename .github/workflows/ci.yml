@@ -48,11 +48,11 @@ jobs:
       #     # check that all dependencies are .NET nanoFramework OSS license compatible
       #     npm run licence-check --if-present
 
-      - name: Run package audit
-        continue-on-error: true #TODO: we currently continue as a warning!
-        # this will show the issues with current packages.
-        run: |
-          npm audit --if-present
+      # - name: Run package audit
+      #   continue-on-error: true #TODO: we currently continue as a warning!
+      #   # this will show the issues with current packages.
+      #   run: |
+      #     npm audit --if-present
 
       - name: Run lint checks
         run: |
