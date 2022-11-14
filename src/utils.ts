@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import { SerialPortCtrl } from "./serialportctrl";
 
-const globby = require('globby');
+import {globby} from 'globby';
 const axios = require('axios');
 
 /**
