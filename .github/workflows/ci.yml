@@ -7,7 +7,7 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     env: # TODO: most of these should probably be secret, or at least parsed!
-      CI: false
+      CI: true
 
 
     strategy:
