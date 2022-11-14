@@ -101,11 +101,12 @@
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
     "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv cloud -a -c",
-    "deploy": "vsce publish"
+    "deploy": "vsce publish",
+    "check-outdated": "npx --yes -- check-outdated --ignore-pre-releases --columns name,type,current,latest,changes --types major,minor,patch,reverted"
   },
   "devDependencies": {
     "@types/glob": "^8.0.0",
-    "@types/mocha": "^9.0.0",
+    "@types/mocha": "^10.0.0",
     "@types/vscode": "^1.62.0",
     "@typescript-eslint/eslint-plugin": "^5.36.2",
     "@typescript-eslint/parser": "^5.36.1",
