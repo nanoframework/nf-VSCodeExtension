@@ -52,7 +52,8 @@ jobs:
         continue-on-error: true #TODO: we currently continue as a warning!
         run: |
           if npm run check-package-outdated --if-present ; then
-            echo "::warning:: Package check required!"
+            # ensure it is a warning
+            echo "::warning:: Package check required!" >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
 
