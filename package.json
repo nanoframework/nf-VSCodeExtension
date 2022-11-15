@@ -102,7 +102,8 @@
     "clean": "rimraf ./out ./coverage",
     "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv cloud -a -c",
     "deploy": "vsce publish",
-    "check-outdated": "npx --yes -- check-outdated --ignore-pre-releases --columns name,type,current,latest,changes --types major,minor,patch,reverted"
+    "check-package-outdated": "npx --yes -- check-outdated --ignore-pre-releases --columns name,type,current,latest,changes --types major,minor,patch,reverted",
+    "check-package-licence-compatible": "npx license-checker --summary"
   },
   "devDependencies": {
     "@types/glob": "^8.0.0",
@@ -115,6 +116,7 @@
     "eslint": "^8.23.0",
     "glob": "^8.0.3",
     "gulp": "^4.0.2",
+    "license-checker": "^25.0.1",
     "mocha": "^10.0.0",
     "nerdbank-gitversioning": "^3.5.119",
     "npm-check-updates": "^16.3.25",
