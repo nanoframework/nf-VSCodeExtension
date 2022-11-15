@@ -40,10 +40,7 @@ jobs:
         continue-on-error: true #TODO: we currently continue as a warning!
         # `npm rebuild` will run all those post-install scripts for us.
         run: |
-          if npm rebuild && npm run prepare --if-present ; then
-            # ensure it is a warning, rather than an error, as GH workflow does not support it!
-            echo '### :warning: issues encountered with `npm rebuild && npm run prepare`' >> $GITHUB_STEP_SUMMARY
-          fi
+          npm rebuild && npm run prepare --if-present >> $GITHUB_STEP_SUMMARY
 
       - name: Run License check
         continue-on-error: true #TODO: we currently continue as a warning!
