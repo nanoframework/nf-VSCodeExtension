@@ -52,17 +52,19 @@ jobs:
         continue-on-error: true #TODO: we currently continue as a warning!
         run: |
           if npm run check-package-outdated --if-present ; then
-            # ensure it is a warning
-            echo "::warning:: Package check required!" >> $GITHUB_STEP_SUMMARY
+            # ensure it is a warning, rather than an error!
+            echo '### :warning: Package check required!' >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
 
       - name: Run audit package check
         continue-on-error: true #TODO: we currently continue as a warning!
-        # this will show the vunerabilities with current packages.
         run: |
-          # Only cause error if the package has a critical error.
-          npm audit --dry-run --audit-level=critical --if-present
+          if npm run npm audit --dry-run --if-present ; then
+            # ensure it is a warning, rather than an error!
+            echo '### :warning: Package check required!' >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
 
       - name: Run lint checks
         run: |
