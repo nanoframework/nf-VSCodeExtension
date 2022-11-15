@@ -63,7 +63,7 @@ if(-Not $env:TF_BUILD)
 
 ## Setup nanoFrameworkSDK
 $extName = "VS2022ext"
-$vsExtensionVersion = "v2022.2.0.19"
+$vsExtensionVersion = "v2022.2.0.48"
 
 "Downloading VS2022 Extension..." | Write-Host
 
