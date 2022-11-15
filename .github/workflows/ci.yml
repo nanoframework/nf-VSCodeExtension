@@ -57,7 +57,8 @@ jobs:
         continue-on-error: true #TODO: we currently continue as a warning!
         # this will show the vunerabilities with current packages.
         run: |
-          npm audit --dry-run --if-present
+          # Only cause error if the package has a critical error.
+          npm audit --dry-run --audit-level=critical --if-present
 
       - name: Run lint checks
         run: |
