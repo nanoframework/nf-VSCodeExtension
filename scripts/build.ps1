@@ -23,7 +23,7 @@
 }
 
 # check if this is running on Azure Pipeline
-$IsAzurePipelines = $env:Agent_HomeDirectory + $env:Build_BuildNumber
+$IsAzurePipelines = $env:Agent_HomeDirectory + $env:Build_BuildNumber #FIXME: This is not used...
 
 # only need these modules if not running on Azure Pipeline
 if(-Not $env:TF_BUILD)
