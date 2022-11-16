@@ -47,7 +47,7 @@ you would then need to return to the root folder
 ```cmd
 cd ..
 ```
-Then (after yoy have commited your changes) to update `nanoFrameworkDeployer` to version `v1.1.26`.
+Then (after you have commited your changes) to update `nanoFrameworkDeployer` to version `v1.1.26`.
 ```cmd
 cd nanoFrameworkDeployer
 git checkout tags/v1.1.26
