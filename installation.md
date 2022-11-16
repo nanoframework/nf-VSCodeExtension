@@ -32,11 +32,27 @@ The following packages/tools/frameworks are required:
 
 ## Updating the dependencies
 
-The extension depends on two .NET **nanoFramework** tools: [nanoFirmwareFlasher](https://github.com/nanoframework/nanoFirmwareFlasher) and [nanoFrameworkDeployer](https://github.com/nanoframework/nanoFrameworkDeployer). These are made available as git sub-modules in their respective folders. To update them manually, you have to `cd` into each folder and use the following git command to update to the desired tag. For example to update `nanoFirmwareFlasher` to version `v2.0.3`.
+The extension depends on two .NET **nanoFramework** tools: [nanoFirmwareFlasher](https://github.com/nanoframework/nanoFirmwareFlasher/tags) and [nanoFrameworkDeployer](https://github.com/nanoframework/nanoFrameworkDeployer/tags). 
 
+These are made available as git sub-modules in their respective folders. To update them manually, you have to `cd` into each folder and use the following git command to update to the desired tag. 
+
+***Make sure to commit these update changes in a individual commit to the upstream repository.***
+
+i.e to update `nanoFirmwareFlasher` to version `v2.3.12`.
 ```cmd
 cd nanoFirmwareFlasher
-git checkout tags/v2.0.3
+git checkout tags/v2.3.12
 ```
-
-Make sure to commit these update changes in a individual commit to the upstream repository.
+you would then need to return to the root folder
+```cmd
+cd ..
+```
+Then (after yoy have commited your changes) to update `nanoFrameworkDeployer` to version `v1.1.26`.
+```cmd
+cd nanoFrameworkDeployer
+git checkout tags/v1.1.26
+```
+you would then need to return to the root folder
+```cmd
+cd ..
+```
