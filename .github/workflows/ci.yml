@@ -53,12 +53,13 @@ jobs:
         continue-on-error: true #TODO: we currently continue as a warning!
         # check that all dependencies are .NET nanoFramework OSS license compatible
         run: |
-          npm run check-package-licence-compatible --if-present
+          # TODO: we dont yet specify allowed licensed, just list them!
+          npx  --yes -- license-checker --summary
 
       - name: Run outdated package check
         continue-on-error: true #TODO: we currently continue as a warning!
         run: |
-          npm run check-package-outdated --if-present
+          npx --yes -- check-outdated --ignore-pre-releases --ignore-packages vscode-nanoframework --ignore-dev-dependencies --columns name,type,current,latest,changes --types major,minor,patch,reverted
           # result=`npm run check-package-outdated --if-present`
           # if $result ; then
           #   # ensure it is a warning, rather than an error, as GH workflow does not support it!

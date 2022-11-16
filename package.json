@@ -101,9 +101,7 @@
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
     "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv cloud -a -c",
-    "deploy": "vsce publish",
-    "check-package-outdated": "npx --yes -- check-outdated --ignore-pre-releases --ignore-packages vscode-nanoframework --ignore-dev-dependencies --columns name,type,current,latest,changes --types major,minor,patch,reverted",
-    "check-package-licence-compatible": "npx  --yes -- license-checker --summary"
+    "deploy": "vsce publish"
   },
   "devDependencies": {
     "@types/glob": "^8.0.0",
