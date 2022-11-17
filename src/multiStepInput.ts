@@ -3,6 +3,8 @@
  * Portions Copyright (c) Microsoft Corporation.  All rights reserved.
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
+//TODO: there is probably a better way to stop issues with thenable, and the vscode lib seems to be deprecated!
+/// <reference path="../node_modules/vscode/vscode.d.ts" />
 
 import { QuickPickItem, window, Disposable, QuickInputButton, QuickInput, ExtensionContext, QuickInputButtons } from 'vscode';
 import { Dotnet } from './dotnet';
