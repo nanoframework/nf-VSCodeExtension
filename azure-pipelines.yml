@@ -69,6 +69,7 @@ jobs:
     inputs:
       packageType: sdk
       version: 6.x
+      performMultiLevelLookup: true
 
   - task: NodeTool@0 
     displayName: Setup Node.js
