@@ -87,7 +87,7 @@ jobs:
     inputs:
       command: 'build'
       projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.Tool/nanoFirmwareFlasher.Tool.csproj'
-      arguments: '-o $(Build.SourcesDirectory)/dist/utils/nanoFirmwareFlasher /p:DefineConstants=VS_CODE_EXTENSION_BUILD /p:RestoreLockedMode=false /p:VSCodeExtensionBuild=True'
+      arguments: '-o $(Build.SourcesDirectory)/dist/utils/nanoFirmwareFlasher /p:RestoreLockedMode=false'
 
   - task: NuGetCommand@2
     displayName: NuGet restore nanoFrameworkDeployer
