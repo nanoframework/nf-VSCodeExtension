@@ -56,36 +56,7 @@ export class Dotnet {
         }   
     }
 
-    /**
-     * Alternative deploy method, which uses the nanoFrameworkDeployer to create a deploy.bin, which is then 'deployed' through the nanoFrameworkFlasher
-     * This deploy method solves compatibility issues that sometimes occur on Linux/macOS when using the nanoFrameworkDeployer
-     * @param fileUri absolute path to *.sln 
-     * @param serialPath path to connected nanoFramework device (e.g. COM4 or /dev/tty.usbserial*)
-     * @param targetImage the type of device connected (e.g. ESP32_REV0, ESP32_PICO)
-     * @param toolPath absolute path to root of nanoFramework extension 
-     */
-    public static deployAlternative(fileUri: string, serialPath: string, targetImage: string, toolPath: String) {
-        if (fileUri && targetImage) {
-            const outputDir = path.dirname(fileUri) + '/OutputDir/';
-            const cliBuildArguments = `/p:NanoFrameworkProjectSystemPath=${toolPath}/nanoFramework/v1.0/ /p:OutDir=${outputDir}`;
-            const cliBuildBin = `${toolPath}/nanoFrameworkDeployer/nanoFrameworkDeployer.exe -v -d ${outputDir} -b`;
-            const cliDeploy = `dotnet ${toolPath}/nanoFirmwareFlasher/nanoff.dll --target ${targetImage} --serialport ${serialPath} --deploy --image ${outputDir}deploy.bin`;
 
-            if(os.platform() === "win32") {
-                Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
-                    toolPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
-                    '& $path ' + fileUri + ' ' + cliBuildArguments + '; '+ 
-                    cliBuildBin + '; ' +
-                    cliDeploy);            
-            }
-            else {
-                Executor.runInTerminal(`nuget restore "${fileUri}" && \
-                    msbuild "${fileUri}" ${cliBuildArguments} && \
-                    mono ${cliBuildBin}; \
-                    ${cliDeploy}`);
-            }
-        }   
-    }
 
     /**
      * Flashes the selected device to new firmware using nanoFirmwareFlasher
