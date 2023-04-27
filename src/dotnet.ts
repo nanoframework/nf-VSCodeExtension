@@ -40,18 +40,18 @@ export class Dotnet {
         if (fileUri) {
             const outputDir = path.dirname(fileUri) + '/OutputDir/';
             const cliBuildArguments = `/p:NanoFrameworkProjectSystemPath=${toolPath}/nanoFramework/v1.0/ /p:OutDir=${outputDir}`;
-            const cliDeployArguments = `${toolPath}/nanoFrameworkDeployer/nanoFrameworkDeployer.exe -v ${serialPath ? '-c '+ serialPath : ''} -d ${outputDir}`;
+            const cliDeployArguments = `${toolPath}/nanoFirmwareFlasher/nanoff.exe --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
 
             if(os.platform() === "win32") {
                 Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     toolPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
                     '& $path ' + fileUri + ' ' + cliBuildArguments + '; '+ 
-                    cliDeployArguments);            
+                    'dotnet ' + cliDeployArguments);            
             }
             else {
                 Executor.runInTerminal(`nuget restore "${fileUri}" && \
                     msbuild "${fileUri}" ${cliBuildArguments} && \
-                    mono ${cliDeployArguments}`);
+                    dotnet ${cliDeployArguments}`);
             }
         }   
     }
@@ -90,11 +90,11 @@ export class Dotnet {
     /**
      * Flashes the selected device to new firmware using nanoFirmwareFlasher
      * @param toolPath absolute path to root of nanoFramework extension 
-     * @param cliArguments CLI arguments passed to nanoff.dll
+     * @param cliArguments CLI arguments passed to nanoff
      */
     public static flash(toolPath: String, cliArguments: String) {
         if(toolPath && cliArguments) {
-            Executor.runInTerminal(`dotnet ${toolPath}/nanoFirmwareFlasher/nanoff.dll --update ${cliArguments}`);
+            Executor.runInTerminal(`dotnet ${toolPath}/nanoFirmwareFlasher/nanoff.exe --update ${cliArguments}`);
         }
     }
 }
