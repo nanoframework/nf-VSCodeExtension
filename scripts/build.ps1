@@ -22,14 +22,12 @@
     }
 }
 
-# check if this is running on Azure Pipeline
-$IsAzurePipelines = $env:Agent_HomeDirectory + $env:Build_BuildNumber
-
 # only need these modules if not running on Azure Pipeline
 if(-Not $env:TF_BUILD)
 {
     "Installing VSSetup PS1 module" | Write-Host
     Install-Module VSSetup -Scope CurrentUser -Force
+
     "Installing BuildUtils PS1 module" | Write-Host
     Install-Module BuildUtils -Scope CurrentUser -Force
 
@@ -49,16 +47,6 @@ if(-Not $env:TF_BUILD)
 {
     "Setup build for $solution" | Write-Host
     BuildDotnet $solution $true $outputDirectory
-}
-
-## Setup nanoFrameworkDeployer
-$solution = "nanoFrameworkDeployer"
-
-# skip build if running on Azure Pipeline
-if(-Not $env:TF_BUILD)
-{
-    "Setup build for $solution" | Write-Host
-    BuildDotnet $solution $false $outputDirectory
 }
 
 ## Setup nanoFrameworkSDK
