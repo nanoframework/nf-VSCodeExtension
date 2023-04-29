@@ -21,7 +21,7 @@ export class Dotnet {
             if(os.platform() === "win32") {
                 Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     toolPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
-                    '& $path ' + fileUri + ' -p:NanoFrameworkProjectSystemPath=' + toolPath + '/nanoFramework/v1.0/');
+                    '& $path ' + fileUri + ' -p:NanoFrameworkProjectSystemPath=' + toolPath + '\\nanoFramework\\v1.0\\');
             }
             // using msbuild (comes with mono-complete) on unix 
             else {
@@ -39,19 +39,21 @@ export class Dotnet {
     public static deploy(fileUri: string, serialPath: string, toolPath: String) {
         if (fileUri) {
             const outputDir = path.dirname(fileUri) + '/OutputDir/';
-            const cliBuildArguments = `/p:NanoFrameworkProjectSystemPath=${toolPath}/nanoFramework/v1.0/ /p:OutDir=${outputDir}`;
-            const cliDeployArguments = `${toolPath}/nanoFirmwareFlasher/nanoff.exe --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
+            const cliBuildArgumentsLinux = `/p:NanoFrameworkProjectSystemPath=${toolPath}/nanoFramework/v1.0/ /p:OutDir=${outputDir}`;
+            const cliBuildArgumentsWindows = `/p:NanoFrameworkProjectSystemPath=`+ toolPath + `\\nanoFramework\\v1.0\\ /p:OutDir=${outputDir}`;
+            const cliDeployArgumentsLinux = `${toolPath}/nanoFirmwareFlasher/nanoff.exe --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
+            const cliDeployArgumentsWindows = toolPath + `\\nanoFirmwareFlasher\\nanoff.exe --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
 
             if(os.platform() === "win32") {
                 Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1; ' +
                     toolPath + '/nuget/nuget.exe restore ' + fileUri + '; ' +
-                    '& $path ' + fileUri + ' ' + cliBuildArguments + '; '+ 
-                    'dotnet ' + cliDeployArguments);            
+                    '& $path ' + fileUri + ' ' + cliBuildArgumentsWindows + '; '+ 
+                    cliDeployArgumentsWindows);            
             }
             else {
                 Executor.runInTerminal(`nuget restore "${fileUri}" && \
-                    msbuild "${fileUri}" ${cliBuildArguments} && \
-                    dotnet ${cliDeployArguments}`);
+                    msbuild "${fileUri}" ${cliBuildArgumentsLinux} && \
+                    ${cliDeployArgumentsLinux}`);
             }
         }   
     }
@@ -65,7 +67,7 @@ export class Dotnet {
      */
     public static flash(toolPath: String, cliArguments: String) {
         if(toolPath && cliArguments) {
-            Executor.runInTerminal(`dotnet ${toolPath}/nanoFirmwareFlasher/nanoff.exe --update ${cliArguments}`);
+            Executor.runInTerminal(`${toolPath}/nanoFirmwareFlasher/nanoff.exe --update ${cliArguments}`);
         }
     }
 }
