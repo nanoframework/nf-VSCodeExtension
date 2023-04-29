@@ -57,6 +57,13 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 		switch (state.targetBoard?.substring(0,3)) {
 			case 'ST_':
+			case 'MBN':
+			case 'NET':
+			case 'GHI':
+			case 'Ing':
+			case 'WeA':
+			case 'ORG':
+			case 'Pyb':
 				state.targetBoardType = 'STM32';
 				state.totalSteps = 3;
 				break;
@@ -243,6 +250,13 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	// different CLI arguments are given to the nanoFrameworkFlasher based on type of targetBoard selected
 	switch (state.targetBoard?.substring(0,3)) {
 		case 'ST_': 
+		case 'MBN':
+		case 'NET':
+		case 'GHI':
+		case 'Ing':
+		case 'WeA':
+		case 'ORG':
+		case 'Pyb':
 			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description} ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
 			break;
 
