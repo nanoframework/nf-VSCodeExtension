@@ -41,7 +41,7 @@ export class Dotnet {
             const outputDir = path.dirname(fileUri) + '/OutputDir/';
             const cliBuildArgumentsLinux = `/p:NanoFrameworkProjectSystemPath=${toolPath}/nanoFramework/v1.0/ /p:OutDir=${outputDir}`;
             const cliBuildArgumentsWindows = `/p:NanoFrameworkProjectSystemPath=`+ toolPath + `\\nanoFramework\\v1.0\\ /p:OutDir=${outputDir}`;
-            const cliDeployArgumentsLinux = `${toolPath}/nanoFirmwareFlasher/nanoff.exe --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
+            const cliDeployArgumentsLinux = `${toolPath}/nanoFirmwareFlasher/nanoff.dll --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
             const cliDeployArgumentsWindows = toolPath + `\\nanoFirmwareFlasher\\nanoff.exe --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
 
             if(os.platform() === "win32") {
@@ -53,7 +53,7 @@ export class Dotnet {
             else {
                 Executor.runInTerminal(`nuget restore "${fileUri}" && \
                     msbuild "${fileUri}" ${cliBuildArgumentsLinux} && \
-                    ${cliDeployArgumentsLinux}`);
+                    dotnet ${cliDeployArgumentsLinux}`);
             }
         }   
     }
@@ -67,7 +67,13 @@ export class Dotnet {
      */
     public static flash(toolPath: String, cliArguments: String) {
         if(toolPath && cliArguments) {
-            Executor.runInTerminal(`${toolPath}/nanoFirmwareFlasher/nanoff.exe --update ${cliArguments}`);
+            if(os.platform() === "win32") {
+                Executor.runInTerminal(`${toolPath}\\nanoFirmwareFlasher\\nanoff.exe --update ${cliArguments}`);
+            }
+            else
+            {
+                Executor.runInTerminal(`dotnet ${toolPath}/nanoFirmwareFlasher/nanoff.dll --update ${cliArguments}`);
+            }
         }
     }
 }
