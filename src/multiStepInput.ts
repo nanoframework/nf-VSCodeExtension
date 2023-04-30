@@ -71,6 +71,10 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 				state.targetBoardType = 'TI';
 				state.totalSteps = 2;
 				break;
+			case 'SL_':
+					state.targetBoardType = 'SL';
+					state.totalSteps = 2;
+					break;
 			default:
 				state.targetBoardType = 'ESP32';
 				state.totalSteps = 4;
@@ -94,7 +98,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 		state.imageVersion = imageVersion;
 
-		if(state.targetBoardType !== 'TI') {
+		if((state.targetBoardType !== 'TI') && (state.targetBoardType !== 'SL')) {
 			return (input: MultiStepInput) => state.targetBoardType === 'ESP32' ? pickDevicePath(input, state) : pickJTAGOrDFU(input, state);
 		}
 	}
@@ -261,6 +265,8 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 			break;
 
 		case 'TI_':
+		case 'SL_':
+			// SL and TI only requires the target and version
 			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description}`;
 			break;
 
