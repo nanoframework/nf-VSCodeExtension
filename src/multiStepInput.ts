@@ -7,6 +7,7 @@
 import { QuickPickItem, window, Disposable, QuickInputButton, QuickInput, ExtensionContext, QuickInputButtons } from 'vscode';
 import { Dotnet } from './dotnet';
 import { SerialPortCtrl } from "./serialportctrl";
+import { debug } from 'console';
 
 const axios = require('axios');
 
@@ -229,6 +230,26 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 					.map(label => ({ label }));
 			});		
 
+		// sort versions descending, versions are not sorted properly as string
+		targetImages = targetImages.sort((a, b) => {
+			var a1 = a.description!.split('.');
+			var b1 = b.description!.split('.');
+			var len = Math.max(a1.length, b1.length);
+			
+			for(var i = 0; i< len; i++){
+				var _a = +a1[i] || 0;
+				var _b = +b1[i] || 0;
+				if(_a === _b) 
+				{ 
+					continue;
+				}
+				else
+				{
+					return _a < _b ? 1 : -1
+				}
+			}
+			return 0;
+		  });
 		return targetImages;
 	}
 	
