@@ -48,7 +48,8 @@
     "onCommand:vscode-nanoframework.nfbuild",
     "onCommand:vscode-nanoframework.nfdeploy",
     "onCommand:vscode-nanoframework.nfflash",
-    "onCommand:vscode-nanoframework.nfdeployalt"
+    "onCommand:vscode-nanoframework.nfdeployalt",
+    "onCommand:vscode-nanoframework.nfcreate"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -68,6 +69,14 @@
       {
         "command": "vscode-nanoframework.nfdeployalt",
         "title": "nanoFramework: Deploy Project (alternative method)"
+      },
+      {
+        "command": "vscode-nanoframework.nfcreate",
+        "title": "nanoFramework: Create New Solution"
+      },
+      {
+        "command": "vscode-nanoframework.nfadd",
+        "title": "nanoFramework: Add a Project to existing Solution"
       }
     ],
     "menus": {
@@ -85,6 +94,16 @@
         {
           "when": "resourceExtname == .sln",
           "command": "vscode-nanoframework.nfdeployalt",
+          "group": "navigation@1"
+        },
+        {
+          "when": "resourceExtname == ",
+          "command": "vscode-nanoframework.nfcreate",
+          "group": "navigation@1"
+        },
+        {
+          "when": "resourceExtname == .sln",
+          "command": "vscode-nanoframework.nfadd",
           "group": "navigation@1"
         }
       ]

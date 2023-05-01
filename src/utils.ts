@@ -113,3 +113,41 @@ export async function solvePath(fileUri: vscode.Uri, workspaceFolder: string) {
 	
 	return path;
 }
+
+/**
+ * Pick a folder where to put the solution
+ * Shows a workspace folder picker
+ * Returns the absolute path to the selected folder
+ * @returns absolute path to the selected folder
+ */
+export async function chooseSolutionWorkspace(fileUri: vscode.Uri, workspaceFolder: string) {
+	let path = fileUri ? fileUri.fsPath: '';
+	if(!path && workspaceFolder) {
+		const result = await vscode.window.showWorkspaceFolderPick();
+		path = result?.uri.path || workspaceFolder;
+	}
+	path = os.platform() === 'win32' ? path.replace(/\//g, "\\") : path;
+    return path;
+}
+
+/**
+ * Choose the name of the solution.
+ * @returns the name of the solution
+ */
+export async function chooseName() {
+	const result = await vscode.window.showInputBox({
+		placeHolder: 'Enter the name of the solution/project',
+	});
+	return result || '';
+}
+
+/**
+ * Choose one of the available project types.
+ * @returns the type of the project
+ */
+export async function chooseProjectType() {
+	const result = await vscode.window.showQuickPick(['Blank Application', 'Class Library', 'Unit Test'], {
+		placeHolder: 'Select the type of project',
+	});
+	return result || '';
+}
