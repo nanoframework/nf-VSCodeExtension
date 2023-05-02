@@ -75,6 +75,20 @@ Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object {
     Copy-Item -Path $SDKPath -Destination "$outputDirectory/utils/" -Recurse -Force
 }
 
+## move the templates
+
+Get-ChildItem 'CS.BlankApplication-vs2022' -Directory -Recurse | ForEach-Object { 
+    Copy-Item -Path $PSItem.FullName -Destination "$outputDirectory/utils" -Recurse -Force
+}
+
+Get-ChildItem 'CS.ClassLibrary-vs2022' -Directory -Recurse | ForEach-Object { 
+    Copy-Item -Path $PSItem.FullName -Destination "$outputDirectory/utils" -Recurse -Force
+}
+
+Get-ChildItem 'CS.TestApplication-vs2022' -Directory -Recurse | ForEach-Object { 
+    Copy-Item -Path $PSItem.FullName -Destination "$outputDirectory/utils" -Recurse -Force
+}
+
 # Clean nanoFramework SDK resources
 Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
