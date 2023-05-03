@@ -75,7 +75,10 @@ jobs:
     displayName: Setup Node.js
     inputs:
       versionSpec: 14.x
-      
+  
+  - script: sudo apt-get install -y libudev-dev
+    displayName: install libudev
+
   - script: npm install
     displayName: npm install
 
