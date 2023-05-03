@@ -77,7 +77,7 @@ jobs:
       versionSpec: 14.x
   
   - script: sudo apt-get install -y libudev-dev
-    displayName: install libudev
+    displayName: libudev install
 
   - script: npm install
     displayName: npm install
