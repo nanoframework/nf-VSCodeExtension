@@ -7,6 +7,7 @@
 import { QuickPickItem, window, Disposable, QuickInputButton, QuickInput, ExtensionContext, QuickInputButtons } from 'vscode';
 import { Dotnet } from './dotnet';
 import { SerialPortCtrl } from "./serialportctrl";
+import { debug } from 'console';
 
 const axios = require('axios');
 
@@ -16,10 +17,10 @@ const axios = require('axios');
  * @param toolPath 
  */
 export async function multiStepInput(context: ExtensionContext, toolPath: String) {
-	const dfuJtagOptions: QuickPickItem[] = ['DFU mode','JTAG mode']
+	const dfuJtagOptions: QuickPickItem[] = ['DFU mode', 'JTAG mode']
 		.map(label => ({ label }));
 
-    const baudRates: QuickPickItem[] = ['1500000','115200']
+	const baudRates: QuickPickItem[] = ['1500000', '115200']
 		.map(label => ({ label }));
 
 	interface State {
@@ -55,13 +56,24 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 		state.targetBoard = pick.label || '';
 
-		switch (state.targetBoard?.substring(0,3)) {
+		switch (state.targetBoard?.substring(0, 3)) {
 			case 'ST_':
+			case 'MBN':
+			case 'NET':
+			case 'GHI':
+			case 'Ing':
+			case 'WeA':
+			case 'ORG':
+			case 'Pyb':
 				state.targetBoardType = 'STM32';
 				state.totalSteps = 3;
 				break;
 			case 'TI_':
 				state.targetBoardType = 'TI';
+				state.totalSteps = 2;
+				break;
+			case 'SL_':
+				state.targetBoardType = 'SL';
 				state.totalSteps = 2;
 				break;
 			default:
@@ -87,7 +99,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 		state.imageVersion = imageVersion;
 
-		if(state.targetBoardType !== 'TI') {
+		if ((state.targetBoardType !== 'TI') && (state.targetBoardType !== 'SL')) {
 			return (input: MultiStepInput) => state.targetBoardType === 'ESP32' ? pickDevicePath(input, state) : pickJTAGOrDFU(input, state);
 		}
 	}
@@ -153,12 +165,12 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
 			.map(repo => axios.get(apiUrl + repo + '/?&q=uploaded:>\'2 months ago\''));
 
-		let imageArray:string[] = [];
-		let targetImages:QuickPickItem[] = [];
-	
+		let imageArray: string[] = [];
+		let targetImages: QuickPickItem[] = [];
+
 		await Promise
 			.all(apiRepos)
-			.then((responses: any)=>{
+			.then((responses: any) => {
 				responses.forEach((res: { data: { name: string; }[]; }) => {
 					res.data.forEach((resData: { name: string; }) => {
 						imageArray.push(resData.name);
@@ -176,7 +188,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 				// return default options if (one) of the HTTP requests fails
 				targetImages = ['ESP32_REV0', 'ESP32_PICO']
 					.map(label => ({ label }));
-			});		
+			});
 
 		return targetImages;
 	}
@@ -192,12 +204,12 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
 			.map(repo => axios.get(apiUrl + repo + '/?query=' + targetBoard));
 
-		let imageVersions:object[] = [];
-		let targetImages:QuickPickItem[] = [];
-	
+		let imageVersions: object[] = [];
+		let targetImages: QuickPickItem[] = [];
+
 		await Promise
 			.all(apiRepos)
-			.then((responses: any)=>{
+			.then((responses: any) => {
 				responses.forEach((res: { data: { filename: string; version: string; }[]; }) => {
 					res.data.forEach((resData: { filename: string; version: string; }) => {
 						imageVersions.push({
@@ -216,11 +228,30 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 				// return default options if (one) of the HTTP requests fails
 				targetImages = ['latest']
 					.map(label => ({ label }));
-			});		
+			});
 
+		// sort versions descending, versions are not sorted properly as string
+		targetImages = targetImages.sort((a, b) => {
+			var a1 = a.description!.split('.');
+			var b1 = b.description!.split('.');
+			var len = Math.max(a1.length, b1.length);
+
+			for (var i = 0; i < len; i++) {
+				var _a = +a1[i] || 0;
+				var _b = +b1[i] || 0;
+				if (_a === _b) {
+					continue;
+				}
+				else {
+					return _a < _b ? 1 : -1
+				}
+			}
+			return 0;
+		});
+		
 		return targetImages;
 	}
-	
+
 	/**
 	 * Returns a list of all connected serial devices using SerialPortCtrl
 	 * @returns QuickPickItem[] with list of serial devices available
@@ -241,12 +272,21 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	let cliArguments: string;
 
 	// different CLI arguments are given to the nanoFrameworkFlasher based on type of targetBoard selected
-	switch (state.targetBoard?.substring(0,3)) {
-		case 'ST_': 
+	switch (state.targetBoard?.substring(0, 3)) {
+		case 'ST_':
+		case 'MBN':
+		case 'NET':
+		case 'GHI':
+		case 'Ing':
+		case 'WeA':
+		case 'ORG':
+		case 'Pyb':
 			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description} ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
 			break;
 
 		case 'TI_':
+		case 'SL_':
+			// SL and TI only requires the target and version
 			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description}`;
 			break;
 
@@ -256,7 +296,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	}
 
 	// adds --preview for the nanoFrameworkFlasher when the imageVersion selected is in preview
-	if(state.imageVersion.description && state.imageVersion.description.includes("preview")) {
+	if (state.imageVersion.description && state.imageVersion.description.includes("preview")) {
 		cliArguments += " --preview";
 	}
 

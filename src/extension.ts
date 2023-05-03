@@ -33,13 +33,6 @@ export async function activate(context: vscode.ExtensionContext) {
         Dotnet.deploy(path, serialPath, nanoFrameworkExtensionPath);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfdeployalt", async (fileUri: vscode.Uri, ) => {
-        const path = await solvePath(fileUri, workspaceFolder);
-        const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
-        const target = await chooseTarget(nanoFrameworkExtensionPath);
-        Dotnet.deployAlternative(path, serialPath, target, nanoFrameworkExtensionPath);
-    }));
-
     context.subscriptions.push(vscode.commands.registerCommand('vscode-nanoframework.nfflash', async () => {
 		multiStepInput(context, nanoFrameworkExtensionPath);
 	}));

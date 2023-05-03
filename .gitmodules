@@ -1,6 +1,3 @@
 [submodule "nanoFirmwareFlasher"]
 	path = nanoFirmwareFlasher
 	url = https://github.com/nanoframework/nanoFirmwareFlasher.git
-[submodule "nanoFrameworkDeployer"]
-	path = nanoFrameworkDeployer
-	url = https://github.com/nanoframework/nanoFrameworkDeployer.git
