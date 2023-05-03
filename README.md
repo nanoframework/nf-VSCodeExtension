@@ -54,9 +54,6 @@ Similar as building the project, you'll have to select the project to deploy. Th
 
 You'll get as well the status of the deployment happening in the Terminal.
 
-Some ESP32 devices have issues with the initial discovery process and require an alternative deployment method.
-If you're having issues with the deployment, you can use an _alternative_ method: you have to select `nanoFramework: Deploy Project (alternative method)` instead and follow the prompts, same as with the other steps.
-
 ## Requirements
 
 You will need to make sure you'll have the following elements installed:

@@ -75,7 +75,12 @@ jobs:
     displayName: Setup Node.js
     inputs:
       versionSpec: 14.x
-      
+  
+  - script: |
+      sudo apt-get update
+      sudo apt-get install libudev-dev --yes
+    displayName: install libudev-dev
+
   - script: npm install
     displayName: npm install
 
@@ -88,17 +93,6 @@ jobs:
       command: 'build'
       projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.Tool/nanoFirmwareFlasher.Tool.csproj'
       arguments: '-o $(Build.SourcesDirectory)/dist/utils/nanoFirmwareFlasher /p:DefineConstants=VS_CODE_EXTENSION_BUILD /p:RestoreLockedMode=false /p:VSCodeExtensionBuild=True'
-
-  - task: NuGetCommand@2
-    displayName: NuGet restore nanoFrameworkDeployer
-    inputs:
-      restoreSolution: '$(Build.SourcesDirectory)/nanoFrameworkDeployer/nanoFrameworkDeployer.sln'
-
-  - task: MSBuild@1
-    displayName: Build nanoFrameworkDeployer
-    inputs:
-      solution: '$(Build.SourcesDirectory)/nanoFrameworkDeployer/nanoFrameworkDeployer.sln'
-      msbuildArguments: '/p:OutDir=$(Build.SourcesDirectory)/dist/utils/nanoFrameworkDeployer'
   
   - script: chmod -R +x $(Build.SourcesDirectory)/dist/utils/
     displayName: Adding executable rights to utils folder

@@ -14,10 +14,9 @@ The following packages/tools/frameworks are required:
 - PowerShell core (`pwsh`) for Linux/macOS
 
 >Note: if you're running into a `langversion:9` error, try installing the latest mono-nightly
-  
-> **Note:** Do not use the `mono-complete` package provided by your Linux distribution  
+>Note: Do not use the `mono-complete` package provided by your Linux distribution  
 > as it may not include `msbuild` which is required for this extension to work.  
->   
+>
 > Instead install the `mono-complete` package provided by the Mono Project.  
 > The [preview](https://www.mono-project.com/download/preview/) version is recommended
 > as the [stable](https://www.mono-project.com/download/stable/) version is outdated.
@@ -32,7 +31,7 @@ The following packages/tools/frameworks are required:
 
 ## Updating the dependencies
 
-The extension depends on two .NET **nanoFramework** tools: [nanoFirmwareFlasher](https://github.com/nanoframework/nanoFirmwareFlasher) and [nanoFrameworkDeployer](https://github.com/nanoframework/nanoFrameworkDeployer). These are made available as git sub-modules in their respective folders. To update them manually, you have to `cd` into each folder and use the following git command to update to the desired tag. For example to update `nanoFirmwareFlasher` to version `v2.0.3`.
+The extension depends on a .NET **nanoFramework** tool: [nanoFirmwareFlasher](https://github.com/nanoframework/nanoFirmwareFlasher). This is made available as git sub-module in the respective folder. To it manually, you have to `cd` into the folder and use the following git command to update to the desired tag. For example to update `nanoFirmwareFlasher` to version `v2.0.3`.
 
 ```cmd
 cd nanoFirmwareFlasher
