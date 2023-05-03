@@ -76,10 +76,10 @@ jobs:
     inputs:
       versionSpec: 14.x
   
-  - displayName: Add libudev package
-    script: |
+  - script: |
       sudo apt-get update
       sudo apt-get install libudev-dev --yes
+    displayName: install libudev-dev
 
   - script: npm install
     displayName: npm install
