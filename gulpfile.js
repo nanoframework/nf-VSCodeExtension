@@ -11,9 +11,7 @@ gulp.task("insert-serial-monitor-cli", async (done) => {
         "darwin",
         "win32",
     ];
-    // This is the last know working version of serial-monitor-cli
-    // The repository is archived and no longer maintained
-    const release = "v0.0.7";
+    const release = "latest";
     const destDir = path.resolve("dist", "utils", "serial-monitor-cli");
 
     async function downloadAndUnzip(platform) {
