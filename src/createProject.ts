@@ -17,11 +17,36 @@ export class NfProject {
      * @param toolPath the path to the dotnet tool and templates
      */
     public static CreateSolution(fileUri: string, toolPath: String) {
-        // TODO: create the SLN file
-        console.log("Creating project in " + fileUri);
+        Executor.runInTerminal("dotnet new sln -o " + fileUri);
     }
 
-    public static async AddProject(fileUri: string, projectName : string, projectType : string, toolPath: String) {
+    public static async AddProject(fileUri: string, projectName: string, projectType: string, toolPath: String) {
         //TODO : Add the project
+        var fs = require('fs');
+        const nodePath = require('path');
+        switch (projectType) {
+            default:
+            case "Blank Application":
+                // First open the nfproj template file
+                var filePath = nodePath.join(toolPath, 'CS.BlankApplication-vs2022', 'CS.BlankApplication-vs2022.vstemplate');
+                fs.readFile(filePath, 'utf8', function (err: any, data: any) {
+                    if (err) {
+                        return console.log(err);
+                    }
+        
+                    // Replace the tokens
+                    var result = data.replace(/string to be replaced/g, 'replacement');
+        
+                    fs.writeFile(fileUri, result, 'utf8', function (err: any) {
+                        if (err) return console.log(err);
+                    });
+                });
+
+                break;
+            case "Class Library":
+                break;
+            case "Unit Test":
+                break;
+        }
     }
 }

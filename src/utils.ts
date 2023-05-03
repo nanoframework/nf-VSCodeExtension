@@ -124,7 +124,7 @@ export async function chooseSolutionWorkspace(fileUri: vscode.Uri, workspaceFold
 	let path = fileUri ? fileUri.fsPath: '';
 	if(!path && workspaceFolder) {
 		const result = await vscode.window.showWorkspaceFolderPick();
-		path = result?.uri.path || workspaceFolder;
+		path = result?.uri.fsPath || workspaceFolder;
 	}
 	path = os.platform() === 'win32' ? path.replace(/\//g, "\\") : path;
     return path;

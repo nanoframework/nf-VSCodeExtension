@@ -51,7 +51,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfcreate", async (fileUri: vscode.Uri, ) => {
         const path = await chooseSolutionWorkspace(fileUri, workspaceFolder);
         const solution = await chooseName();
-        NfProject.CreateSolution(path + (os.platform() === 'win32' ? "\\" : "/") + solution + ".sln", nanoFrameworkExtensionPath);
+        NfProject.CreateSolution(path + (os.platform() === 'win32' ? "\\" : "/") + solution, nanoFrameworkExtensionPath);
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfadd", async (fileUri: vscode.Uri, ) => {
