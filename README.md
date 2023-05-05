@@ -54,6 +54,26 @@ Similar as building the project, you'll have to select the project to deploy. Th
 
 You'll get as well the status of the deployment happening in the Terminal.
 
+### Create solutions and projects
+
+To create a solution, you can select any folder on your workspace, right click and select the create solution option.
+
+![create solution](docs/create-solution-step1.png)
+
+You then need to place a valid name and your solution is created.
+
+On the solution, right click and select `Add project to existing Solution`
+
+![Add project to existing solution](docs/create-solution-step2.png)
+
+ Place a valid name like in this example `MyApplication`.
+
+![project name](docs/create-solution-step3.png)
+
+Then select the type of project you want to add.
+
+![type of project](docs/create-solution-step4.png)
+
 ## Requirements
 
 You will need to make sure you'll have the following elements installed:

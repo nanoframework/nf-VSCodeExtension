@@ -81,6 +81,10 @@ Get-ChildItem 'CS.TestApplication-vs2022' -Directory -Recurse | ForEach-Object {
 Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
 
+# Copy the packages.config file
+$ScriptDirectory = Get-ChildItem -Path $PSScriptRoot
+Copy-Item (Join-Path $PSScriptRoot packages.config) (Join-Path $outputDirectory utils) -Force
+
 ## Setup nuget
 $nugetFolder = (New-Item -Name "$outputDirectory/utils/nuget" -ItemType Directory -Force).ToString()
 

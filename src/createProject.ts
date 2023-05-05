@@ -5,12 +5,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as path from "path";
-import * as os from 'os';
-
 import { Executor } from "./executor";
-import { Console, debug } from "console";
 import * as crypto from "crypto";
-import *  as fs from "fs";
+import * as fs from "fs";
 
 export class NfProject {
     /**
@@ -37,7 +34,7 @@ export class NfProject {
             case "Blank Application":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.BlankApplication-vs2022', 'NFApp.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -69,7 +66,7 @@ export class NfProject {
             case "Class Library":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.ClassLibrary-vs2022', 'NFClassLibrary.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -100,7 +97,7 @@ export class NfProject {
             case "Unit Test":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.TestApplication-vs2022', 'NFUnitTest.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -131,7 +128,7 @@ export class NfProject {
         }
     }
 
-    private static async CreateProject(solutionPath: string, filePath: string, projectName: string) {
+    private static async CreateProject(solutionPath: string, filePath: string, projectName: string, toolPath: string) {
         await fs.readFile(filePath, 'utf8', async function (err: any, data: any) {
             if (err) {
                 return err;
@@ -151,12 +148,18 @@ export class NfProject {
                     return err;
                 }
 
-                await fs.writeFile(filePath, result, 'utf8', function (err: any) {
+                await fs.writeFile(filePath, result, 'utf8', async function (err: any) {
                     if (err) {
                         return err;
                     }
 
-                    return null;
+                    await NfProject.AddCoreLib(filePath, toolPath).then(function (err: any) {
+                        if (err) {
+                            return err;
+                        }
+
+                        return null;
+                    });
                 });
             });
         });
@@ -218,6 +221,65 @@ export class NfProject {
 
                     return null;
                 });
+            });
+        });
+    }
+
+    private static async AddCoreLib(fileUri: string, toolPath: string) {
+        let reference = `    <Reference Include="mscorlib">
+        <HintPath>..\\packages\\nanoFramework.CoreLibrary.$version$\\lib\\mscorlib.dll</HintPath>
+    </Reference>
+    <None Include="packages.config" />`;
+
+        // Get the version of the core library from the template
+        var filePath = path.join(toolPath, 'CS.BlankApplication-vs2022', 'CS.BlankApplication-vs2022.vstemplate');
+        await fs.readFile(filePath, 'utf8', async function (err: any, data: any) {
+            if (err) {
+                return console.log(err);
+            }
+
+            // Get the version of the core library
+            const regExp = new RegExp('(id=\"nanoFramework.CoreLibrary\" version=\"(.*)\")', 'g');
+            let version = regExp.exec(data);
+            if (!version) {
+                return console.log(`Error: Unable to find the version of the core library in the template file ${filePath}`);
+            }
+
+            filePath = path.join(fileUri);
+            await fs.readFile(filePath, 'utf8', async function (err: any, data: any) {
+                if (err) {
+                    return console.log(err);
+                }
+
+                // Replace the tokens
+                reference = reference.replace(/\$version\$/g, version![2]);
+
+                // Add the reference to the project
+                var result = data.replace(/<ItemGroup>/g, '<ItemGroup>\r\n' + reference);
+
+                // Write back the nfproj file
+                await fs.writeFile(filePath, result, 'utf8', async function (err: any) {
+                    if (err) {
+                        return console.log(err);
+                    }
+
+                    // Add the packages.config file
+                    await fs.readFile(path.join(toolPath, 'packages.config'), 'utf8', async function (err: any, data: any) {
+                        if (err) {
+                            return console.log(err);
+                        }
+
+                        var result = data.replace(/\$version\$/g, version![2]);
+                        await fs.writeFile(path.join(path.dirname(fileUri), 'packages.config'), result, 'utf8', async function (err: any) {
+                            if (err) {
+                                return console.log(err);
+                            }
+
+                            return null;
+                        });
+                    });
+                });
+
             });
         });
     }
