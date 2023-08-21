@@ -7,9 +7,12 @@
 import * as vscode from 'vscode';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
+import { NfProject } from "./createProject";
 
 import { multiStepInput } from './multiStepInput';
-import { getDocumentWorkspaceFolder, solvePath, chooseSerialPort, chooseTarget } from './utils';
+import { getDocumentWorkspaceFolder, solvePath, chooseSerialPort, chooseTarget, chooseSolutionWorkspace,
+    chooseName, chooseProjectType } from './utils';
+import * as os from 'os';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -30,19 +33,25 @@ export async function activate(context: vscode.ExtensionContext) {
         Dotnet.deploy(path, serialPath, nanoFrameworkExtensionPath);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfdeployalt", async (fileUri: vscode.Uri, ) => {
-        const path = await solvePath(fileUri, workspaceFolder);
-        const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
-        const target = await chooseTarget(nanoFrameworkExtensionPath);
-        Dotnet.deployAlternative(path, serialPath, target, nanoFrameworkExtensionPath);
-    }));
-
     context.subscriptions.push(vscode.commands.registerCommand('vscode-nanoframework.nfflash', async () => {
 		multiStepInput(context, nanoFrameworkExtensionPath);
 	}));
 
     context.subscriptions.push(vscode.window.onDidCloseTerminal((closedTerminal: vscode.Terminal) => {
         Executor.onDidCloseTerminal(closedTerminal);
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfcreate", async (fileUri: vscode.Uri, ) => {
+        const path = await chooseSolutionWorkspace(fileUri, workspaceFolder);
+        const solution = await chooseName();
+        NfProject.CreateSolution(path + (os.platform() === 'win32' ? "\\" : "/") + solution, nanoFrameworkExtensionPath);
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfadd", async (fileUri: vscode.Uri, ) => {
+        const path = await solvePath(fileUri, workspaceFolder);
+        const projectName = await chooseName();
+        const projectType = await chooseProjectType();
+        NfProject.AddProject(path, projectName, projectType, nanoFrameworkExtensionPath);
     }));
 }
 

@@ -15,8 +15,8 @@
   },
   "assetFiles": [
     {
-        "pathOnDisk": "assets/marketplace/nano-vs-code.gif",
-        "targetPath": "nano-vs-code.gif"
+      "pathOnDisk": "assets/marketplace/nano-vs-code.gif",
+      "targetPath": "nano-vs-code.gif"
     }
   ],
   "engines": {
@@ -34,13 +34,13 @@
     "Programming Languages",
     "Other"
   ],
-	"badges": [
-		{
-			"description": "Build Status",
-			"href": "https://github.com/nanoframework/nf-VSCodeExtension",
-			"url": "https://dev.azure.com/nanoframework/VSCodeExtension/_apis/build/status/nanoframework.nf-VSCodeExtension?branchName=develop"
-		}
-	],
+  "badges": [
+    {
+      "description": "Build Status",
+      "href": "https://github.com/nanoframework/nf-VSCodeExtension",
+      "url": "https://dev.azure.com/nanoframework/VSCodeExtension/_apis/build/status/nanoframework.nf-VSCodeExtension?branchName=develop"
+    }
+  ],
   "sponsor": {
     "url": "https://github.com/sponsors/nanoframework"
   },
@@ -48,7 +48,8 @@
     "onCommand:vscode-nanoframework.nfbuild",
     "onCommand:vscode-nanoframework.nfdeploy",
     "onCommand:vscode-nanoframework.nfflash",
-    "onCommand:vscode-nanoframework.nfdeployalt"
+    "onCommand:vscode-nanoframework.nfdeployalt",
+    "onCommand:vscode-nanoframework.nfcreate"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -68,6 +69,14 @@
       {
         "command": "vscode-nanoframework.nfdeployalt",
         "title": "nanoFramework: Deploy Project (alternative method)"
+      },
+      {
+        "command": "vscode-nanoframework.nfcreate",
+        "title": "nanoFramework: Create New Solution"
+      },
+      {
+        "command": "vscode-nanoframework.nfadd",
+        "title": "nanoFramework: Add a Project to existing Solution"
       }
     ],
     "menus": {
@@ -85,6 +94,16 @@
         {
           "when": "resourceExtname == .sln",
           "command": "vscode-nanoframework.nfdeployalt",
+          "group": "navigation@1"
+        },
+        {
+          "when": "resourceExtname == ",
+          "command": "vscode-nanoframework.nfcreate",
+          "group": "navigation@1"
+        },
+        {
+          "when": "resourceExtname == .sln",
+          "command": "vscode-nanoframework.nfadd",
           "group": "navigation@1"
         }
       ]
@@ -118,12 +137,12 @@
     "nerdbank-gitversioning": "^3.4.244",
     "ts-loader": "^9.2.6",
     "typescript": "^4.8.2",
-    "vsce": "^2.11.0",
     "webpack": "^5.64.1",
     "webpack-cli": "^4.9.1"
   },
   "dependencies": {
     "@types/node": "18.x",
+    "@vscode/vsce": "^2.19.0",
     "axios": "^0.27.2",
     "extract-zip": "^2.0.1",
     "globby": "^11.0.4",

@@ -15,7 +15,6 @@ gulpfile.js
 installation.md
 version.json
 webpack.config.js
-nanoFrameworkDeployer/**
 nanoFirmwareFlasher/**
 **/tsconfig.json
 **/.eslintrc.json

@@ -22,14 +22,12 @@
     }
 }
 
-# check if this is running on Azure Pipeline
-$IsAzurePipelines = $env:Agent_HomeDirectory + $env:Build_BuildNumber
-
 # only need these modules if not running on Azure Pipeline
 if(-Not $env:TF_BUILD)
 {
     "Installing VSSetup PS1 module" | Write-Host
     Install-Module VSSetup -Scope CurrentUser -Force
+
     "Installing BuildUtils PS1 module" | Write-Host
     Install-Module BuildUtils -Scope CurrentUser -Force
 
@@ -51,16 +49,6 @@ if(-Not $env:TF_BUILD)
     BuildDotnet $solution $true $outputDirectory
 }
 
-## Setup nanoFrameworkDeployer
-$solution = "nanoFrameworkDeployer"
-
-# skip build if running on Azure Pipeline
-if(-Not $env:TF_BUILD)
-{
-    "Setup build for $solution" | Write-Host
-    BuildDotnet $solution $false $outputDirectory
-}
-
 ## Setup nanoFrameworkSDK
 $extName = "VS2022ext"
 $vsExtensionVersion = "v2022.2.0.19"
@@ -75,9 +63,27 @@ Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object {
     Copy-Item -Path $SDKPath -Destination "$outputDirectory/utils/" -Recurse -Force
 }
 
+## move the templates
+
+Get-ChildItem 'CS.BlankApplication-vs2022' -Directory -Recurse | ForEach-Object { 
+    Copy-Item -Path $PSItem.FullName -Destination "$outputDirectory/utils" -Recurse -Force
+}
+
+Get-ChildItem 'CS.ClassLibrary-vs2022' -Directory -Recurse | ForEach-Object { 
+    Copy-Item -Path $PSItem.FullName -Destination "$outputDirectory/utils" -Recurse -Force
+}
+
+Get-ChildItem 'CS.TestApplication-vs2022' -Directory -Recurse | ForEach-Object { 
+    Copy-Item -Path $PSItem.FullName -Destination "$outputDirectory/utils" -Recurse -Force
+}
+
 # Clean nanoFramework SDK resources
 Remove-Item "$extName.zip"
 Remove-Item $extName -Recurse -Force
+
+# Copy the packages.config file
+$ScriptDirectory = Get-ChildItem -Path $PSScriptRoot
+Copy-Item (Join-Path $PSScriptRoot packages.config) (Join-Path $outputDirectory utils) -Force
 
 ## Setup nuget
 $nugetFolder = (New-Item -Name "$outputDirectory/utils/nuget" -ItemType Directory -Force).ToString()
