@@ -145,7 +145,7 @@
     "@vscode/vsce": "^2.19.0",
     "axios": "^0.27.2",
     "extract-zip": "^2.0.1",
-    "globby": "^11.0.4",
+    "globby": "^13.2.2",
     "node-usb-native": "^0.0.20"
   }
 }
