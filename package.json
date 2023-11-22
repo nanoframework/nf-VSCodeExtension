@@ -141,7 +141,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "@types/node": "18.x",
+    "@types/node": "20.x",
     "@vscode/vsce": "^2.19.0",
     "axios": "^0.27.2",
     "extract-zip": "^2.0.1",
