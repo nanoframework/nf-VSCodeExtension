@@ -31,11 +31,11 @@ The following packages/tools/frameworks are required:
 
 ## Updating the dependencies
 
-The extension depends on a .NET **nanoFramework** tool: [nanoFirmwareFlasher](https://github.com/nanoframework/nanoFirmwareFlasher). This is made available as git sub-module in the respective folder. To it manually, you have to `cd` into the folder and use the following git command to update to the desired tag. For example to update `nanoFirmwareFlasher` to version `v2.0.3`.
+The extension depends on a .NET **nanoFramework** tool: [nanoFirmwareFlasher](https://github.com/nanoframework/nanoFirmwareFlasher). This is made available as git sub-module in the respective folder. To it manually, you have to `cd` into the folder and use the following git command to update to the desired tag. For example to update `nanoFirmwareFlasher` to version `v2.5.78`.
 
 ```cmd
 cd nanoFirmwareFlasher
-git checkout tags/v2.0.3
+git checkout tags/v2.5.78
 ```
 
 Make sure to commit these update changes in a individual commit to the upstream repository.
