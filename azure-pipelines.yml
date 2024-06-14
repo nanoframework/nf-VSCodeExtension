@@ -88,6 +88,17 @@ jobs:
     displayName: Download and build dependencies for .NET nanoFramework
 
   - task: DotNetCoreCLI@2
+    displayName: Restore nanoff NuGet packages
+    condition: succeeded()
+    inputs:
+      command: restore
+      restoreArguments: '--locked-mode'
+      verbosityRestore: minimal
+      projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.sln'
+      feedsToUse: config
+      nugetConfigPath: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/NuGet.Config'
+
+  - task: DotNetCoreCLI@2
     displayName: Build nanoff
     inputs:
       command: 'build'
