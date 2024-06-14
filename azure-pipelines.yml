@@ -92,7 +92,7 @@ jobs:
     condition: succeeded()
     inputs:
       command: restore
-      restoreArguments: '--locked-mode'
+      restoreArguments: '--locked-mode --force-evaluate'
       verbosityRestore: minimal
       projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.sln'
       feedsToUse: config
