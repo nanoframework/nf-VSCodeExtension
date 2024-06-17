@@ -110,7 +110,6 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
     "build:prod": "npm run compile",
     "postinstall": "gulp build",
     "compile": "tsc -p ./",

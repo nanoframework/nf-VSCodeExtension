@@ -184,7 +184,7 @@ stages:
         downloadPath: '$(Agent.TempDirectory)/vscode_extension'
 
     - bash: |
-        npm install -g vsce
+        npm install -g @vscode/vsce
       displayName: 'Install VSCE'
       condition: succeeded()
 
