@@ -38,161 +38,183 @@ resources:
       endpoint: nanoframework
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: 'ubuntu-latest'
 
 variables:
   - group: sign-client-credentials
   - name: DOTNET_NOLOGO
     value: true
 
-steps:
+stages:
+- stage: Build
+  jobs:
 
-  # need this here in order to persist GitHub credentials
-  - checkout: self
-    persistCredentials: true
-    submodules: true
+  - job: BuildExtension
+    pool:
+      vmImage: 'ubuntu-latest'
 
-  - script: |
-      sudo apt-get update
-      sudo apt-get install libudev-dev --yes
-    displayName: install libudev-dev
+    steps:
 
-  - pwsh: scripts/build.ps1
-    displayName: Download and build dependencies for .NET nanoFramework
+      # need this here in order to persist GitHub credentials
+      - checkout: self
+        persistCredentials: true
+        submodules: true
 
-  - task: DotNetCoreCLI@2
-    displayName: Build nanoff
-    inputs:
-      command: 'build'
-      projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.Tool/nanoFirmwareFlasher.Tool.csproj'
-      arguments: '-o $(Build.SourcesDirectory)/dist/utils/nanoFirmwareFlasher /p:DefineConstants=VS_CODE_EXTENSION_BUILD /p:RestoreLockedMode=false /p:VSCodeExtensionBuild=True'
+      - script: |
+          sudo apt-get update
+          sudo apt-get install libudev-dev --yes
+        displayName: install libudev-dev
+
+      - pwsh: scripts/build.ps1
+        displayName: Download and build dependencies for .NET nanoFramework
+
+      - task: DotNetCoreCLI@2
+        displayName: Build nanoff
+        inputs:
+          command: 'build'
+          projects: '$(Build.SourcesDirectory)/nanoFirmwareFlasher/nanoFirmwareFlasher.Tool/nanoFirmwareFlasher.Tool.csproj'
+          arguments: '-o $(Build.SourcesDirectory)/dist/utils/nanoFirmwareFlasher /p:DefineConstants=VS_CODE_EXTENSION_BUILD /p:RestoreLockedMode=false /p:VSCodeExtensionBuild=True'
+      
+      - script: chmod -R +x $(Build.SourcesDirectory)/dist/utils/
+        displayName: Adding executable rights to utils folder
+
+      - task: DeleteFiles@1
+        displayName: Remove source folders
+        inputs:
+          Contents: |
+            v*.zip
+
+      - script: npm ci
+        displayName: npm ci
+        condition: succeeded()
+
+      # we don't have unit tests
+      # - script: npm run test
+      #   displayName: Run unit tests
+      #   condition: succeeded()
+        
+      - script: npm run build:prod
+        displayName: Build for production
+        condition: succeeded()
+
+      - script: npm run package
+        env:
+          PublicRelease: true
+        displayName: Package extension
+        condition: succeeded()
+
+      - task: CopyFiles@2
+        displayName: Collecting deployable artifacts
+        condition: succeeded()
+        inputs:
+          sourceFolder: $(Build.SourcesDirectory)
+          contents: |-
+            **\vscode-nanoframework.vsix
+            **\package.json
+            assets/marketplace/vscode-marketplace-overview.md
+            assets/marketplace/nano-vs-code.gif
+          targetFolder: $(Build.ArtifactStagingDirectory)
+          flattenFolders: true
+
+      # Publish files as an artifact
+      - task: PublishPipelineArtifact@1
+        displayName: Publish deployables artifacts
+        condition: succeeded()
+        inputs:
+          artifact: git-mob-vs-code
+          targetPath: $(Build.ArtifactStagingDirectory)
+
+      # create or update GitHub release
+      - task: GithubRelease@1
+        condition: >-
+          and(
+            succeeded(),
+            eq(variables['System.PullRequest.PullRequestId'], ''),
+            ne(variables['StartReleaseCandidate'], true),
+            not(startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+          )
+        displayName: Create/Update GitHub release
+        inputs:
+          gitHubConnection: 'github.com_nano-$(System.TeamProject)'
+          tagSource: userSpecifiedTag
+          tag: v$(NBGV_SimpleVersion)
+          title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
+          assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
+          isPreRelease: false
+          addChangeLog: true
+          releaseNotesSource: inline
+          changeLogType: issueBased
+          changeLogLabels: |
+            [
+              { "label" : "Type: bug", "displayName" : "Bugs fixed", "state" : "closed" },
+              { "label" : "Type: enhancement", "displayName" : "Enhancements and new features", "state" : "closed" },
+              { "label" : "Breaking-Change", "displayName" : "Breaking Changes", "state" : "closed" },
+              { "label" : "Type: dependencies", "displayName" : "Dependencies updated", "state" : "closed" },
+              { "label" : "Type: documentation", "displayName" : "Documentation", "state" : "closed" }
+            ]
+
+      # report error
+      - template: azure-pipelines-templates/discord-webhook-task.yml@templates  
+        parameters:
+          status: 'failure'
+          webhookUrl: '$(DiscordWebhook)'
+          message: ''
+
+- stage: Sign
+  dependsOn: Build
+  condition: >-
+    and(
+      succeeded('Build'),  
+      startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+    )
+
+  jobs:
+  - job: SignAndPublishExtension
   
-  - script: chmod -R +x $(Build.SourcesDirectory)/dist/utils/
-    displayName: Adding executable rights to utils folder
+    pool:
+      vmImage: 'windows-latest'
 
-  - task: DeleteFiles@1
-    displayName: Remove source folders
-    inputs:
-      Contents: |
-        v*.zip
+    steps:
 
-  - script: npm ci
-    displayName: npm ci
-    condition: succeeded()
-
-  # we don't have unit tests
-  # - script: npm run test
-  #   displayName: Run unit tests
-  #   condition: succeeded()
-    
-  - script: npm run build:prod
-    displayName: Build for production
-    condition: succeeded()
-
-  - script: npm run package
-    env:
-      PublicRelease: true
-    displayName: Package extension
-    condition: succeeded()
-
-  - task: CopyFiles@2
-    displayName: Collecting deployable artifacts
-    condition: succeeded()
-    inputs:
-      sourceFolder: $(Build.SourcesDirectory)
-      contents: |-
-        **\vscode-nanoframework.vsix
-        **\package.json
-        assets/marketplace/vscode-marketplace-overview.md
-        assets/marketplace/nano-vs-code.gif
-      targetFolder: $(Build.ArtifactStagingDirectory)
-      flattenFolders: true
-
-  - task: DotNetCoreCLI@2
-    displayName: Install Sign Client CLI
-    condition: >-
-      and(
-        succeeded(), 
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/')
-      )
-    inputs:
-      command: custom
-      custom: tool
-      arguments: install --tool-path . sign --version 0.9.1-beta.24312.3
-
-  - pwsh: |
-      .\sign code azure-key-vault `
-      "**/*.nupkg" `
-      --base-directory "$(Build.ArtifactStagingDirectory)" `
-      --file-list "$(Build.Repository.LocalPath)\config\filelist.txt" `
-      --description ".NET nanoFramework VS Code Extension" `
-      --description-url "https://github.com/$env:Build_Repository_Name" `
-      --azure-key-vault-tenant-id "$(SignTenantId)" `
-      --azure-key-vault-client-id "$(SignClientId)" `
-      --azure-key-vault-client-secret "$(SignClientSecret)" `
-      --azure-key-vault-certificate "$(SignKeyVaultCertificate)" `
-      --azure-key-vault-url "$(SignKeyVaultUrl)" `
-      --timestamp-url http://timestamp.digicert.com
-    displayName: Sign packages
-    continueOnError: true
-    condition: >-
-      and(
-        succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/')
-      )
-
-  - bash: |
-      echo ">>> Publish"
-      yarn deploy
-    displayName: Publish to marketplace
-    condition: >-
-      and(
-        succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/')
-      )
-    env:
-      VSCE_PAT: $(VSCE_PAT)
-
-  # Publish files as an artifact
-  - task: PublishPipelineArtifact@1
-    displayName: Publish deployables artifacts
-    condition: succeeded()
-    inputs:
+    - download: current
       artifact: git-mob-vs-code
-      targetPath: $(Build.ArtifactStagingDirectory)
+      
+    - task: DotNetCoreCLI@2
+      displayName: Install Sign Client CLI
+      condition: succeeded()
+      inputs:
+        command: custom
+        custom: tool
+        arguments: install --tool-path . sign --version 0.9.1-beta.24312.3
 
-  # create or update GitHub release
-  - task: GithubRelease@1
-    condition: >-
-      and(
-        succeeded(),
-        eq(variables['System.PullRequest.PullRequestId'], ''),
-        ne(variables['StartReleaseCandidate'], true),
-        not(startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
-      )
-    displayName: Create/Update GitHub release
-    inputs:
-      gitHubConnection: 'github.com_nano-$(System.TeamProject)'
-      tagSource: userSpecifiedTag
-      tag: v$(NBGV_SimpleVersion)
-      title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
-      assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
-      isPreRelease: false
-      addChangeLog: true
-      releaseNotesSource: inline
-      changeLogType: issueBased
-      changeLogLabels: |
-        [
-          { "label" : "Type: bug", "displayName" : "Bugs fixed", "state" : "closed" },
-          { "label" : "Type: enhancement", "displayName" : "Enhancements and new features", "state" : "closed" },
-          { "label" : "Breaking-Change", "displayName" : "Breaking Changes", "state" : "closed" },
-          { "label" : "Type: dependencies", "displayName" : "Dependencies updated", "state" : "closed" },
-          { "label" : "Type: documentation", "displayName" : "Documentation", "state" : "closed" }
-        ]
+    - pwsh: |
+        .\sign code azure-key-vault `
+        "**/*.nupkg" `
+        --base-directory "$(Build.ArtifactStagingDirectory)" `
+        --file-list "$(Build.Repository.LocalPath)\config\filelist.txt" `
+        --description ".NET nanoFramework VS Code Extension" `
+        --description-url "https://github.com/$env:Build_Repository_Name" `
+        --azure-key-vault-tenant-id "$(SignTenantId)" `
+        --azure-key-vault-client-id "$(SignClientId)" `
+        --azure-key-vault-client-secret "$(SignClientSecret)" `
+        --azure-key-vault-certificate "$(SignKeyVaultCertificate)" `
+        --azure-key-vault-url "$(SignKeyVaultUrl)" `
+        --timestamp-url http://timestamp.digicert.com
+      displayName: Sign packages
+      continueOnError: true
+      condition: succeeded()
 
-  # report error
-  - template: azure-pipelines-templates/discord-webhook-task.yml@templates  
-    parameters:
-      status: 'failure'
-      webhookUrl: '$(DiscordWebhook)'
-      message: ''
+    - bash: |
+        echo ">>> Publish"
+        yarn deploy
+      displayName: Publish to marketplace
+      condition: succeeded()
+      env:
+        VSCE_PAT: $(VSCE_PAT)
+
+    # report error
+    - template: azure-pipelines-templates/discord-webhook-task.yml@templates  
+      parameters:
+        status: 'failure'
+        webhookUrl: '$(DiscordWebhook)'
+        message: ''
