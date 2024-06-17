@@ -13,20 +13,13 @@ trigger:
       - .gitignore
       - .markdownlint.json
       - CHANGELOG.md
-      - CODE_OF_CONDUCT.md
-      - CONTRIBUTING.md
       - LICENSE.md
       - README.md
-      - NuGet.Config
       - assets/*
       - config/*
       - .github/*
       - .vscodeignore
       - .gitmodules
-  tags:
-    include: 
-      - v*  
-      - refs/tags/v*
 
 # PR always trigger build
 pr:
@@ -57,25 +50,11 @@ jobs:
   - checkout: self
     persistCredentials: true
     submodules: true
-  
-  - task: NuGetToolInstaller@1
-    condition: succeeded()
-    displayName: 'Install specific version of NuGet'
-    inputs:
-      versionSpec: '>=5.10.0'
 
-  - task: NodeTool@0 
-    displayName: Setup Node.js
-    inputs:
-      versionSpec: 14.x
-  
   - script: |
       sudo apt-get update
       sudo apt-get install libudev-dev --yes
     displayName: install libudev-dev
-
-  - script: npm install
-    displayName: npm install
 
   - pwsh: scripts/build.ps1
     displayName: Download and build dependencies for .NET nanoFramework
@@ -169,121 +148,31 @@ jobs:
 
   # create or update GitHub release
   - task: GithubRelease@1
-    condition: and( succeeded(), eq(variables['System.PullRequest.PullRequestId'], ''), not( startsWith(variables['Build.SourceBranch'], 'refs/tags/v') ), ne( variables['StartReleaseCandidate'], true ) )
-    displayName: Create/Update GitHub PREVIEW release
+    condition: >-
+      and(
+        succeeded(),
+        eq(variables['System.PullRequest.PullRequestId'], ''),
+        ne(variables['StartReleaseCandidate'], true)
+      )
+    displayName: Create/Update GitHub release
     inputs:
       gitHubConnection: 'github.com_nano-$(System.TeamProject)'
       tagSource: userSpecifiedTag
       tag: v$(NBGV_SimpleVersion)
       title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
-      releaseNotesSource: inline
-      releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio [Marketplace](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework).</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
       assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
-      assetUploadMode: replace
-      isPreRelease: true
-      addChangeLog: false
-
-  # create or update GitHub release ON tags from release or main branches
-  - task: GithubRelease@1
-    condition: and( succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'), or( eq(variables['Build.SourceBranchName'], 'main'), contains(variables['Build.SourceBranchName'], 'release') ) )
-    displayName: Create/Update GitHub stable release
-    inputs:
-      action: edit
-      gitHubConnection: 'github.com_nano-$(System.TeamProject)'
-      tagSource: userSpecifiedTag
-      tag: v$(NBGV_SimpleVersion)
-      title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
-      releaseNotesSource: inline
-      releaseNotesInline: 'Check the [changelog]($(Build.Repository.Uri)/blob/$(Build.SourceBranchName)/CHANGELOG.md).<br><br><h4>Install from Visual Studio [Marketplace](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework).</h4><br>The following Visual Studio Extensions are available for install from this release<br><br>:package: [.NET nanoFramework VS Code Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.vscode-nanoframework)'
-      assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
-      assetUploadMode: replace
       isPreRelease: false
-      addChangeLog: false
-
-#################################
-- job: Generate_Changelog
-  dependsOn:
-  - Build_Extension
-  condition: >-
-    and(
-      succeeded('Build_Extension'),
-      eq(variables['System.PullRequest.PullRequestId'], ''),
-      not(startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
-    )
-
-  pool:
-    vmImage: ubuntu-latest
-
-  steps:
-    - checkout: self
-
-    - script: |
-        git config --global user.email 'nanoframework@outlook.com'
-        git config --global user.name 'nfbot'
-      displayName: Setup git identity
-
-    - task: UseRubyVersion@0
-      inputs:
-        versionSpec: '= 3.0'
-        addToPath: true
-      displayName: Setup Ruby
-
-    # install github_changelog_generator
-    - powershell: |
-        gem install github_changelog_generator --quiet --no-document
-      condition: succeeded()
-      displayName: Install github_changelog_generator
-
-    # generate VS2022 change log
-    - powershell: |
-          # need to call it passing both cache options with full path otherwise it won't work
-          github_changelog_generator --token $(GitHubToken) --cache-log  $(Agent.TempDirectory)/github-changelog-logger.log --cache-file $(Agent.TempDirectory)/github-changelog-http-cache --output $(System.DefaultWorkingDirectory)/CHANGELOG.md
-      displayName: Generate change log
-
-    # copy change log to artifacts directory
-    - task: CopyFiles@2
-      inputs:
-        SourceFolder: '$(System.DefaultWorkingDirectory)'
-        Contents: |
-          'CHANGELOG.md'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)'
-      condition: succeeded()
-      displayName: Copy Changelog
-
-    # publish artifacts (only possible if this is not a PR originated on a fork)
-    - task: PublishBuildArtifacts@1
-      inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-        ArtifactName: deployables
-        ArtifactType: Container
-      condition: succeeded()
-      displayName: Publish deployables artifacts
-
-    # Commit changelog changes
-    - task: PowerShell@2
-      inputs:
-        targetType: 'inline'
-        script: |
-          git add CHANGELOG.md
-          git commit -m "Update CHANGELOG" -m"***NO_CI***"
-      condition: succeeded()
-      displayName: Commit changelog changes
-
-    # push changelog to GitHub repo
-    - task: PowerShell@2
-      inputs:
-        targetType: 'inline'
-        script: |
-          git config user.email 'nanoframework@outlook.com'
-          git config user.name 'nfbot'
-
-          # compute authorization header in format "AUTHORIZATION: basic 'encoded token'"
-          # 'encoded token' is the Base64 of the string "nfbot:personal-token"
-          $auth = "basic $([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("nfbot:$(GitHubToken)"))))"
-
-          git -c http.extraheader="AUTHORIZATION: $auth" push origin "HEAD:$(Build.SourceBranchName)"
-      condition: succeeded()
-      displayName: Push changelog to GitHub
+      addChangeLog: true
+      releaseNotesSource: inline
+      changeLogType: issueBased
+      changeLogLabels: |
+        [
+          { "label" : "Type: bug", "displayName" : "Bugs fixed", "state" : "closed" },
+          { "label" : "Type: enhancement", "displayName" : "Enhancements and new features", "state" : "closed" },
+          { "label" : "Breaking-Change", "displayName" : "Breaking Changes", "state" : "closed" },
+          { "label" : "Type: dependencies", "displayName" : "Dependencies updated", "state" : "closed" },
+          { "label" : "Type: documentation", "displayName" : "Documentation", "state" : "closed" }
+        ]
 
 ##################################
 # report build failure to Discord
