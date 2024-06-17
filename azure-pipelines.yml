@@ -20,6 +20,10 @@ trigger:
       - .github/*
       - .vscodeignore
       - .gitmodules
+  tags:
+    include: 
+      - v*  
+      - refs/tags/v*
 
 # PR always trigger build
 pr:
@@ -33,18 +37,15 @@ resources:
       name: nanoframework/nf-tools
       endpoint: nanoframework
 
-jobs:
-  
-######################
-- job: Build_Extension
+pool:
+  vmImage: ubuntu-latest
 
-  pool:
-    vmImage: ubuntu-latest
+variables:
+  - group: sign-client-credentials
+  - name: DOTNET_NOLOGO
+    value: true
 
-  variables:
-    DOTNET_NOLOGO: true
-    
-  steps:
+steps:
 
   # need this here in order to persist GitHub credentials
   - checkout: self
@@ -108,33 +109,47 @@ jobs:
       flattenFolders: true
 
   - task: DotNetCoreCLI@2
-    displayName: Install SignTool tool
-    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
+    displayName: Install Sign Client CLI
+    condition: >-
+      and(
+        succeeded(), 
+        startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+      )
     inputs:
       command: custom
       custom: tool
-      arguments: install --tool-path . SignClient
+      arguments: install --tool-path . sign --version 0.9.1-beta.24312.3
 
   - pwsh: |
-      .\SignClient "Sign" `
-      --baseDirectory "$(Build.ArtifactStagingDirectory)" `
-      --input "**/*.vsix" `
-      --config "$(Build.Repository.LocalPath)/config/signClient.json" `
-      --filelist "$(Build.Repository.LocalPath)/config/filelist.txt" `
-      --user "$(SignClientUser)" `
-      --secret '$(SignClientSecret)' `
-      --name ".NET nanoFramework VS Code Extension" `
+      .\sign code azure-key-vault `
+      "**/*.nupkg" `
+      --base-directory "$(Build.ArtifactStagingDirectory)" `
+      --file-list "$(Build.Repository.LocalPath)\config\filelist.txt" `
       --description ".NET nanoFramework VS Code Extension" `
-      --descriptionUrl "https://github.com/$env:Build_Repository_Name"
+      --description-url "https://github.com/$env:Build_Repository_Name" `
+      --azure-key-vault-tenant-id "$(SignTenantId)" `
+      --azure-key-vault-client-id "$(SignClientId)" `
+      --azure-key-vault-client-secret "$(SignClientSecret)" `
+      --azure-key-vault-certificate "$(SignKeyVaultCertificate)" `
+      --azure-key-vault-url "$(SignKeyVaultUrl)" `
+      --timestamp-url http://timestamp.digicert.com
     displayName: Sign packages
     continueOnError: true
-    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
+    condition: >-
+      and(
+        succeeded(),
+        startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+      )
 
   - bash: |
       echo ">>> Publish"
       yarn deploy
     displayName: Publish to marketplace
-    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
+    condition: >-
+      and(
+        succeeded(),
+        startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+      )
     env:
       VSCE_PAT: $(VSCE_PAT)
 
@@ -152,7 +167,8 @@ jobs:
       and(
         succeeded(),
         eq(variables['System.PullRequest.PullRequestId'], ''),
-        ne(variables['StartReleaseCandidate'], true)
+        ne(variables['StartReleaseCandidate'], true),
+        not(startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
       )
     displayName: Create/Update GitHub release
     inputs:
@@ -174,27 +190,8 @@ jobs:
           { "label" : "Type: documentation", "displayName" : "Documentation", "state" : "closed" }
         ]
 
-##################################
-# report build failure to Discord
-- job: Report_Build_Failure
-  dependsOn:
-  - Build_Extension
-  - Generate_Changelog
-  condition: >-
-    or(
-      failed('Build_Extension'),
-      failed('Generate_Changelog')
-    )
-
-  pool:
-    vmImage: 'windows-2019'
-
-  steps:
-
-  - checkout: self
-
-  # step from template @ nf-tools repo
-  - template: azure-pipelines-templates/discord-webhook.yml@templates  
+  # report error
+  - template: azure-pipelines-templates/discord-webhook-task.yml@templates  
     parameters:
       status: 'failure'
       webhookUrl: '$(DiscordWebhook)'
