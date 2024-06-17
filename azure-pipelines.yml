@@ -184,7 +184,7 @@ stages:
         downloadPath: '$(Agent.TempDirectory)/vscode_extension'
 
     - bash: |
-        npm install -g vsce
+        npm install -g @vscode/vsce
       displayName: 'Install VSCE'
       condition: succeeded()
 
@@ -215,9 +215,10 @@ stages:
 
     - bash: |
         echo ">>> Publish"
-        yarn deploy
+        vsce publish
       displayName: Publish to marketplace
       condition: succeeded()
+      workingDirectory: $(Agent.TempDirectory)/vscode_extension
       env:
         VSCE_PAT: $(VSCE_PAT)
 
