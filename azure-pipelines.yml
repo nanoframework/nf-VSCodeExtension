@@ -177,6 +177,7 @@ stages:
     steps:
 
     - download: current
+      displayName: Download artifacts
       artifact: git-mob-vs-code
       
     - task: DotNetCoreCLI@2
@@ -190,7 +191,7 @@ stages:
     - pwsh: |
         .\sign code azure-key-vault `
         "**/*.nupkg" `
-        --base-directory "$(Build.ArtifactStagingDirectory)" `
+        --base-directory "$(Pipeline.Workspace)/git-mob-vs-code" `
         --file-list "$(Build.Repository.LocalPath)\config\filelist.txt" `
         --description ".NET nanoFramework VS Code Extension" `
         --description-url "https://github.com/$env:Build_Repository_Name" `
