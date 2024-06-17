@@ -121,8 +121,9 @@ stages:
         displayName: Publish deployables artifacts
         condition: succeeded()
         inputs:
-          artifact: git-mob-vs-code
+          artifactName: git-mob-vs-code
           targetPath: $(Build.ArtifactStagingDirectory)
+          artifactType: pipeline
 
       # create or update GitHub release
       - task: GithubRelease@1
@@ -176,10 +177,17 @@ stages:
 
     steps:
 
-    - download: current
-      displayName: Download artifacts
-      artifact: git-mob-vs-code
-      
+    - task: DownloadBuildArtifacts@1
+      inputs:
+        buildType: 'current'
+        artifactName: 'git-mob-vs-code' 
+        downloadPath: '$(Agent.TempDirectory)/vscode_extension'
+
+    - bash: |
+        npm install -g vsce
+      displayName: 'Install VSCE'
+      condition: succeeded()
+
     - task: DotNetCoreCLI@2
       displayName: Install Sign Client CLI
       condition: succeeded()
@@ -190,8 +198,8 @@ stages:
 
     - pwsh: |
         .\sign code azure-key-vault `
-        "**/*.nupkg" `
-        --base-directory "$(Pipeline.Workspace)/git-mob-vs-code" `
+        "**/*.vsix" `
+        --base-directory "$(Agent.TempDirectory)/vscode_extension" `
         --file-list "$(Build.Repository.LocalPath)\config\filelist.txt" `
         --description ".NET nanoFramework VS Code Extension" `
         --description-url "https://github.com/$env:Build_Repository_Name" `
