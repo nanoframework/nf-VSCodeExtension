@@ -8,7 +8,7 @@ The following packages/tools/frameworks are required:
 
 - [node](https://nodejs.org/en/) (> v12)
 - [npm](https://www.npmjs.com/)
-- [.NET 6.0](https://dotnet.microsoft.com/en-us/download/dotnet/6.0)
+- [.NET 8.0](https://dotnet.microsoft.com/en-us/download/dotnet/6.0)
 - [nbgv](https://github.com/dotnet/nerdbank.gitversioning)
 - .NET 4.7.2 on Windows, [mono-complete](https://www.mono-project.com/docs/getting-started/install/) on Linux/macOS
 - PowerShell core (`pwsh`) for Linux/macOS
@@ -27,15 +27,16 @@ The following packages/tools/frameworks are required:
 - Run `npm install`
 - Run `pwsh scripts/build.ps1` (on Linux & MacOS) or `./scripts/build.ps1` in Windows PowerShell
 - Open in Visual Studio Code (`code .`)
+
+## Debugging extension
+
 - Press <kbd>F5</kbd> to debug
+- Set breakpoints at will
+- Move to the new VS Code instance window
+- Load a directory with a project or go to Command Palette and choose one of the nanoFramework commands
 
 ## Updating the dependencies
 
-The extension depends on a .NET **nanoFramework** tool: [nanoFirmwareFlasher](https://github.com/nanoframework/nanoFirmwareFlasher). This is made available as git sub-module in the respective folder. To it manually, you have to `cd` into the folder and use the following git command to update to the desired tag. For example to update `nanoFirmwareFlasher` to version `v2.0.3`.
-
-```cmd
-cd nanoFirmwareFlasher
-git checkout tags/v2.0.3
-```
-
+The extension depends on .NET **nanoFramework** msbuild components providade by the [VS extension](https://github.com/nanoframework/vs-extension).
+To update to a new version go to the [build.ps1](scripts\build.ps1) and set the `$vsExtensionVersion` variable to the desired Git tag.
 Make sure to commit these update changes in a individual commit to the upstream repository.

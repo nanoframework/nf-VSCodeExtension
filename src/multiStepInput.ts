@@ -300,7 +300,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		cliArguments += " --preview";
 	}
 
-	Dotnet.flash(toolPath, cliArguments);
+	Dotnet.flash(cliArguments);
 }
 
 // -------------------------------------------------------
