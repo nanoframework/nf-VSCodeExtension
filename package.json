@@ -20,7 +20,7 @@
     }
   ],
   "engines": {
-    "vscode": "^1.62.0"
+    "vscode": "^1.90.0"
   },
   "repository": {
     "type": "git",
@@ -44,13 +44,7 @@
   "sponsor": {
     "url": "https://github.com/sponsors/nanoframework"
   },
-  "activationEvents": [
-    "onCommand:vscode-nanoframework.nfbuild",
-    "onCommand:vscode-nanoframework.nfdeploy",
-    "onCommand:vscode-nanoframework.nfflash",
-    "onCommand:vscode-nanoframework.nfdeployalt",
-    "onCommand:vscode-nanoframework.nfcreate"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -119,33 +113,33 @@
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
-    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch main --out ./vscode-nanoframework.vsix && nbgv cloud -a -c",
+    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv cloud -a -c",
     "deploy": "vsce publish"
   },
   "devDependencies": {
     "@types/glob": "^8.0.0",
-    "@types/mocha": "^10.0.6",
-    "@types/vscode": "^1.62.0",
+    "@types/mocha": "^10.0.1",
+    "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^5.36.2",
     "@typescript-eslint/parser": "^5.36.1",
     "@vscode/test-electron": "^2.1.5",
     "download": "^8.0.0",
     "eslint": "^8.23.0",
     "glob": "^8.0.3",
-    "gulp": "^4.0.2",
-    "mocha": "^10.4.0",
-    "nerdbank-gitversioning": "^3.6.139",
-    "ts-loader": "^9.5.1",
-    "typescript": "^5.4.5",
-    "webpack": "^5.92.0",
+    "gulp": "^5.0.0",
+    "mocha": "^10.0.0",
+    "nerdbank-gitversioning": "^3.4.244",
+    "ts-loader": "^9.2.6",
+    "typescript": "^5.2.2",
+    "webpack": "^5.64.1",
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "@types/node": "20.x",
+    "@types/node": "18.x",
     "@vscode/vsce": "^2.19.0",
     "axios": "^1.7.2",
     "extract-zip": "^2.0.1",
-    "globby": "^14.0.1",
+    "globby": "^11.0.4",
     "node-usb-native": "^0.0.20"
   }
 }
