@@ -27,8 +27,8 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		title: string;
 		step: number;
 		totalSteps: number;
-		targetBoard: string;
-		targetBoardType: string;
+		targetName: string;
+		targetNameType: string;
 		imageVersion: QuickPickItem;
 		dfuOrJtag: QuickPickItem;
 		devicePath: string;
@@ -37,14 +37,14 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 	async function collectInputs() {
 		const state = {} as Partial<State>;
-		await MultiStepInput.run(input => pickTargetBoard(input, state));
+		await MultiStepInput.run(input => picktargetName(input, state));
 		return state as State;
 	}
 
 	const title = 'Flash connected device with nanoFramework';
 
-	async function pickTargetBoard(input: MultiStepInput, state: Partial<State>) {
-		const targetImages = await getTargetImages();
+	async function picktargetName(input: MultiStepInput, state: Partial<State>) {
+		const targetImages = await getTargetNames();
 		const pick = await input.showQuickPick({
 			title,
 			step: 1,
@@ -54,9 +54,9 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 			shouldResume: shouldResume
 		});
 
-		state.targetBoard = pick.label || '';
+		state.targetName = pick.label || '';
 
-		switch (state.targetBoard?.substring(0, 3)) {
+		switch (state.targetName?.substring(0, 3)) {
 			case 'ST_':
 			case 'MBN':
 			case 'NET':
@@ -65,19 +65,19 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 			case 'WeA':
 			case 'ORG':
 			case 'Pyb':
-				state.targetBoardType = 'STM32';
+				state.targetNameType = 'STM32';
 				state.totalSteps = 3;
 				break;
 			case 'TI_':
-				state.targetBoardType = 'TI';
+				state.targetNameType = 'TI';
 				state.totalSteps = 2;
 				break;
 			case 'SL_':
-				state.targetBoardType = 'SL';
+				state.targetNameType = 'SL';
 				state.totalSteps = 2;
 				break;
 			default:
-				state.targetBoardType = 'ESP32';
+				state.targetNameType = 'ESP32';
 				state.totalSteps = 4;
 				break;
 		}
@@ -86,21 +86,23 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	}
 
 	async function imageVersion(input: MultiStepInput, state: Partial<State>) {
-		const imageVersions = await getImageVersions(state.targetBoard);
+		const imageVersions = await getImageVersions(state.targetName);
 
 		const imageVersion = await input.showQuickPick({
 			title,
 			step: 2,
 			totalSteps: state.totalSteps || 4,
-			placeholder: 'Choose the image version for your target board (' + state.targetBoard + ')',
+			placeholder: 'Choose the image version for your target board (' + state.targetName + ')',
 			items: imageVersions,
-			shouldResume: shouldResume
+			shouldResume: shouldResume,
+			// Set the default selection to the latest version
+			activeItem: imageVersions[0]
 		});
 
 		state.imageVersion = imageVersion;
 
-		if ((state.targetBoardType !== 'TI') && (state.targetBoardType !== 'SL')) {
-			return (input: MultiStepInput) => state.targetBoardType === 'ESP32' ? pickDevicePath(input, state) : pickJTAGOrDFU(input, state);
+		if ((state.targetNameType !== 'TI') && (state.targetNameType !== 'SL')) {
+			return (input: MultiStepInput) => state.targetNameType === 'ESP32' ? pickDevicePath(input, state) : pickJTAGOrDFU(input, state);
 		}
 	}
 
@@ -130,7 +132,9 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 			totalSteps: 4,
 			placeholder: 'Pick a baud rate',
 			items: baudRates,
-			shouldResume: shouldResume
+			shouldResume: shouldResume,
+			// Set the default selection to the default baud rate
+			activeItem: baudRates[0]
 		});
 
 		state.baudrate = parseInt(baudrate.label);
@@ -159,11 +163,11 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	 * Helper function that dynamically gets all possible target images from different APIs
 	 * @returns QuickPickItem[] with distinct (unique), sorted (a-z) list of target boards
 	 */
-	async function getTargetImages(): Promise<QuickPickItem[]> {
+	async function getTargetNames(): Promise<QuickPickItem[]> {
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
-			.map(repo => axios.get(apiUrl + repo + '/?&q=uploaded:>\'2 months ago\''));
+			.map(repo => axios.get(apiUrl + repo + '/?page_size=500&q=uploaded:>\'1 month ago\''));
 
 		let imageArray: string[] = [];
 		let targetImages: QuickPickItem[] = [];
@@ -178,9 +182,12 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 				});
 
 				targetImages = imageArray
-					.filter((value: any, index: any, self: string | any[]) => self.indexOf(value) === index)
+					// Exclude elements starting with "WIN"
+					.filter((value: string) => !value.startsWith('WIN'))
+					// Remove duplicates
+					.filter((value, index, self) => self.indexOf(value) === index)
 					.sort()
-					.map((label: any) => ({ label: label }));
+					.map(label => ({ label }));
 			})
 			.catch((err: any) => {
 				window.showErrorMessage(`Couldn't retrieve live boards from API: ${JSON.stringify(err)}`);
@@ -194,33 +201,30 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	}
 
 	/**
-	 * Helper function that requests all versions for a given targetBoard from different APIs
-	 * @param targetBoard target board to get image versions for
+	 * Helper function that requests all versions for a given targetName from different APIs
+	 * @param targetName target board to get image versions for
 	 * @returns QuickPickItem[] with sorted (newest first) list of image versions
 	 */
-	async function getImageVersions(targetBoard: string | undefined): Promise<QuickPickItem[]> {
+	async function getImageVersions(targetName: string | undefined): Promise<QuickPickItem[]> {
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
-			.map(repo => axios.get(apiUrl + repo + '/?query=' + targetBoard));
+			.map(repo => axios.get(apiUrl + repo + '/?page_size=5&query=' + targetName));
 
-		let imageVersions: object[] = [];
+		let imageVersions: string[] = [];
 		let targetImages: QuickPickItem[] = [];
 
 		await Promise
 			.all(apiRepos)
 			.then((responses: any) => {
-				responses.forEach((res: { data: { filename: string; version: string; }[]; }) => {
-					res.data.forEach((resData: { filename: string; version: string; }) => {
-						imageVersions.push({
-							filename: resData.filename,
-							version: resData.version
-						});
+				responses.forEach((res: { data: { version: string; }[]; }) => {
+					res.data.forEach((resData: { version: string; }) => {
+						imageVersions.push(resData.version);
 					});
 				});
 
 				targetImages = imageVersions
-					.map((label: any) => ({ label: label.filename, description: label.version }));
+					.map(label => ({ label }));
 			})
 			.catch((err: any) => {
 				window.showErrorMessage(`Couldn't retrieve live board versions from API: ${JSON.stringify(err)}`);
@@ -232,8 +236,8 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 		// sort versions descending, versions are not sorted properly as string
 		targetImages = targetImages.sort((a, b) => {
-			var a1 = a.description!.split('.');
-			var b1 = b.description!.split('.');
+			var a1 = a.label!.split('.');
+			var b1 = b.label!.split('.');
 			var len = Math.max(a1.length, b1.length);
 
 			for (var i = 0; i < len; i++) {
@@ -243,12 +247,12 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 					continue;
 				}
 				else {
-					return _a < _b ? 1 : -1
+					return _a < _b ? 1 : -1;
 				}
 			}
 			return 0;
 		});
-		
+
 		return targetImages;
 	}
 
@@ -267,12 +271,21 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 	const state = await collectInputs();
 
-	window.showInformationMessage(`Flashing '${state.targetBoard}' device on ${state.devicePath}`);
+	window.showInformationMessage(`Flashing '${state.targetName}' device on ${state.devicePath}`);
 
 	let cliArguments: string;
 
-	// different CLI arguments are given to the nanoFrameworkFlasher based on type of targetBoard selected
-	switch (state.targetBoard?.substring(0, 3)) {
+	// build the CLI arguments for the nanoFrameworkFlasher
+	// starts with the target name and version
+	cliArguments = `--target ${state.targetName} --fwversion ${state.imageVersion.label} `;
+
+	// adds --preview for the nanoFrameworkFlasher when the imageVersion selected is in preview
+	if (state.imageVersion.label && state.imageVersion.label.includes("preview")) {
+		cliArguments += " --preview";
+	}
+
+	// different CLI arguments are given to the nanoFrameworkFlasher based on type of targetName selected
+	switch (state.targetName?.substring(0, 3)) {
 		case 'ST_':
 		case 'MBN':
 		case 'NET':
@@ -281,23 +294,17 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		case 'WeA':
 		case 'ORG':
 		case 'Pyb':
-			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description} ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
+			cliArguments += `${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
 			break;
 
 		case 'TI_':
 		case 'SL_':
 			// SL and TI only requires the target and version
-			cliArguments = `--target ${state.targetBoard} --fwversion ${state.imageVersion.description}`;
 			break;
 
 		default:
-			cliArguments = `--target ${state.targetBoard} --serialport ${state.devicePath} --fwversion ${state.imageVersion.description} --baud ${state.baudrate}`;
+			cliArguments += `--serialport ${state.devicePath} --baud ${state.baudrate}`;
 			break;
-	}
-
-	// adds --preview for the nanoFrameworkFlasher when the imageVersion selected is in preview
-	if (state.imageVersion.description && state.imageVersion.description.includes("preview")) {
-		cliArguments += " --preview";
 	}
 
 	Dotnet.flash(cliArguments);
