@@ -78,12 +78,13 @@ Then select the type of project you want to add.
 
 You will need to make sure you'll have the following elements installed:
 
-- [.NET 6.0](https://dotnet.microsoft.com/download/dotnet)
+- [.NET 8.0](https://dotnet.microsoft.com/download/dotnet)
+- [nuget CLI](https://www.nuget.org/downloads)
 - [Visual Studio build tools](https://visualstudio.microsoft.com/en/thank-you-downloading-visual-studio/?sku=BuildTools&rel=16) on Windows, `mono-complete` on [Linux/macOS](https://www.mono-project.com/docs/getting-started/install/)
 
 > **Note:** Do not use the `mono-complete` package provided by your Linux distribution  
 > as it may not include `msbuild` which is required for this extension to work.  
->   
+>
 > Instead install the `mono-complete` package provided by the Mono Project.  
 > The [preview](https://www.mono-project.com/download/preview/) version is recommended
 > as the [stable](https://www.mono-project.com/download/stable/) version is outdated.
@@ -93,11 +94,6 @@ You will need to make sure you'll have the following elements installed:
 This extension will **not** allow you to debug the device. Debug is only available on Windows with [Visual Studio](https://visualstudio.microsoft.com/downloads/) (any edition) and the [.NET nanoFramework Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2022-Extension) installed.
 
 This extension will work on any Mac version (x64 or M1), works only on Linux x64 and Windows x64. Other 32 bits OS or ARM platforms are not supported.
-
-## Install path issues
-
-:warning: That are know issues running commands for STM32 devices when the user path contains diacritic characters. This causes issues with with STM32 Cube Programmer which is used by `nanoff` a dependency of the extension.
-Note that if you're not using the extension with with STM32 devices, this limitation does not apply.
 
 ## Developing for the VS Code extension
 
