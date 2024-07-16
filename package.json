@@ -131,7 +131,7 @@
     "nerdbank-gitversioning": "^3.6.139",
     "ts-loader": "^9.5.1",
     "typescript": "^5.2.2",
-    "webpack": "^5.64.1",
+    "webpack": "^5.93.0",
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
