@@ -21,7 +21,7 @@ export class Dotnet {
             // using dynamicly-solved MSBuild.exe when ran from win32
             if (os.platform() === "win32") {
                 Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
-                    toolPath + '/nuget/nuget.exe restore "' + fileUri + '"; ' +
+                    'nuget restore "' + fileUri + '"; ' +
                     '& $path "' + fileUri + '" -p:platform="Any CPU" -p:NanoFrameworkProjectSystemPath=' + toolPath + '\\nanoFramework\\v1.0\\' + ' -verbosity:minimal');
             }
             // using msbuild (comes with mono-complete) on unix 
