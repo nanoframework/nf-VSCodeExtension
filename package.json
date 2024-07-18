@@ -118,7 +118,7 @@
   },
   "devDependencies": {
     "@types/glob": "^8.0.0",
-    "@types/mocha": "^10.0.1",
+    "@types/mocha": "^10.0.7",
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^5.36.2",
     "@typescript-eslint/parser": "^5.36.1",
@@ -127,7 +127,7 @@
     "eslint": "^8.23.0",
     "glob": "^8.0.3",
     "gulp": "^5.0.0",
-    "mocha": "^10.0.0",
+    "mocha": "^10.6.0",
     "nerdbank-gitversioning": "^3.6.139",
     "ts-loader": "^9.5.1",
     "typescript": "^5.2.2",
