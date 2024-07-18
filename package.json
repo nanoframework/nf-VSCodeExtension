@@ -136,7 +136,7 @@
   },
   "dependencies": {
     "@types/node": "18.x",
-    "@vscode/vsce": "^2.30.0",
+    "@vscode/vsce": "^2.31.0",
     "axios": "^1.7.2",
     "extract-zip": "^2.0.1",
     "globby": "^11.0.4",
