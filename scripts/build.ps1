@@ -1,6 +1,5 @@
 ﻿# only need these modules if not running on Azure Pipeline
-if(-Not $env:TF_BUILD)
-{
+if (-Not $env:TF_BUILD) {
     "Installing VSSetup PS1 module" | Write-Host
     Install-Module VSSetup -Scope CurrentUser -Force
 
@@ -26,7 +25,8 @@ Expand-Archive "$extName.zip" -Force
 
 Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object { 
     $SDKPath = Join-Path -Path $PSItem.FullName -ChildPath "nanoFramework"
-    Copy-Item -Path $SDKPath -Destination "$outputDirectory/utils/" -Recurse -Force
+    $DestinationPath = Join-Path -Path "$outputDirectory/utils" -ChildPath "nanoframework"
+    Copy-Item -Path $SDKPath -Destination $DestinationPath -Recurse -Force
 }
 
 ## move the templates
