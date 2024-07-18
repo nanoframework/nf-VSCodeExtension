@@ -10,6 +10,8 @@ import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
 
+const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false';
+
 export class Dotnet {
     /**
      * Builds the nanoFramework solution in a Terminal using MSBuild.exe (win32) or msbuild from mono (linux/macOS)
@@ -22,7 +24,7 @@ export class Dotnet {
             if (os.platform() === "win32") {
                 Executor.runInTerminal('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
                     'nuget restore "' + fileUri + '"; ' +
-                    '& $path "' + fileUri + '" -p:platform="Any CPU" -p:NanoFrameworkProjectSystemPath=' + toolPath + '\\nanoFramework\\v1.0\\' + ' -verbosity:minimal');
+                    '& $path "' + fileUri + '" -p:platform="Any CPU" -p:NanoFrameworkProjectSystemPath=' + toolPath + '\\nanoFramework\\v1.0\\ ' + mdpBuildProperties + ' -verbosity:minimal');
             }
             // using msbuild (comes with mono-complete) on unix 
             else {
@@ -40,8 +42,8 @@ export class Dotnet {
     public static async deploy(fileUri: string, serialPath: string, toolPath: String) {
         if (fileUri) {
             const outputDir = path.dirname(fileUri) + '/OutputDir/';
-            const cliBuildArgumentsLinux = `-p:platform="Any CPU" /p:NanoFrameworkProjectSystemPath=${toolPath}/nanoFramework/v1.0/  -verbosity:minimal /p:OutDir=${outputDir}`;
-            const cliBuildArgumentsWindows = `-p:platform="Any CPU" /p:NanoFrameworkProjectSystemPath=` + toolPath + `\\nanoFramework\\v1.0\\ -verbosity:minimal /p:OutDir=${outputDir}`;
+            const cliBuildArgumentsLinux = `-p:platform="Any CPU" /p:NanoFrameworkProjectSystemPath=${toolPath}/nanoFramework/v1.0/ ${mdpBuildProperties} -verbosity:minimal /p:OutDir=${outputDir}`;
+            const cliBuildArgumentsWindows = `-p:platform="Any CPU" /p:NanoFrameworkProjectSystemPath=` + toolPath + `\\nanoFramework\\v1.0\\  ${mdpBuildProperties} -verbosity:minimal /p:OutDir=${outputDir}`;
             const cliDeployArguments = `nanoff --nanodevice --deploy --serialport  ${serialPath} --image ${outputDir}`;
             var binaryFile;
 
