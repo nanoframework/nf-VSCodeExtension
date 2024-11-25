@@ -25,7 +25,7 @@ Expand-Archive "$extName.zip" -Force
 
 Get-ChildItem '$MSBuild' -Directory -Recurse | ForEach-Object { 
     $SDKPath = Join-Path -Path $PSItem.FullName -ChildPath "nanoFramework"
-    $DestinationPath = Join-Path -Path "$outputDirectory/utils" -ChildPath "nanoframework"
+    $DestinationPath = Join-Path -Path "$outputDirectory/utils" -ChildPath "nanoFramework"
     Copy-Item -Path $SDKPath -Destination $DestinationPath -Recurse -Force
 }
 
