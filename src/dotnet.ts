@@ -9,6 +9,7 @@ import * as os from 'os';
 import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
+import * as fs from "fs";
 
 const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false';
 
@@ -77,6 +78,49 @@ export class Dotnet {
     public static flash(cliArguments: String) {
         if (cliArguments) {
             Executor.runInTerminal(`nanoff --update ${cliArguments}`);
+        }
+    }
+
+    /**
+     * First finds all of the content files from the nfproj file that are set to PreserveNewest
+     * or Always. Generates a temporary deploy.json file containing those files. Then deploys those files
+     * to the selected device. Then it removes the temporary deploy.json
+     * @param fileUri absolute path to *.sln 
+     * @param serialPath path to connected nanoFramework device (e.g. COM4 or /dev/tty.usbserial*)
+     * @param toolPath absolute path to root of nanoFramework extension 
+     * @param storagePrefix drive letter to use for storage (`I:\\` for internal, `E:\\` for USB, `D:\\` for SD Card)
+     */    
+    public static async deployFiles(fileUri: string, serialPath: string, toolPath: string, storagePrefix: string = 'I:\\') {
+        if (fileUri) {
+            const outputDir = path.dirname(fileUri) + '/OutputDir/';
+            const cliBuildArguments = 'getItem:Content > contentfiles.json';
+            var binaryFile;
+
+            binaryFile = await executeMSBuildAndFindBinaryFile(fileUri, cliBuildArguments);
+
+            await fs.readFile('contentFiles.json', 'utf8', async function (err: any, contentItems: any) {
+                if (err) {
+                    return err;
+                }
+
+                const itemsToCopy = contentItems.Items.Content.filter((item: any) => item.CopyToOutputDirectory !== 'Never');
+
+                let deploy = {
+                    serialPort: serialPath,
+                    files: itemsToCopy.map((item: any) => {
+                            return {
+                            DestinationFilePath: `${storagePrefix}${item.Identity}`,
+                            SourceFilePath: item.FullPath
+                        };
+                    })
+                };
+
+                await fs.writeFile('tempdeploy.json', deploy, { flag: 'w'});
+                Executor.runInTerminal('nanoff --filedeployment tempdeploy.json');
+            });
+
+            await fs.unlink('contentfiles.json');
+            await fs.unlink('tempdeploy.json');
         }
     }
 }
