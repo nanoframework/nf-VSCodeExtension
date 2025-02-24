@@ -61,6 +61,12 @@ export async function activate(context: vscode.ExtensionContext) {
         const projectType = await chooseProjectType();
         NfProject.AddProject(path, projectName, projectType, nanoFrameworkExtensionPath);
     }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('vscode-nanoframework.nffiledeploy', async (fileUri: vscode.Uri,) => {
+        const path = await solvePath(fileUri, workspaceFolder);
+        const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
+        Dotnet.deployFiles(path, serialPath, nanoFrameworkExtensionPath, 'I:\\');
+    }));
 }
 
 /**
