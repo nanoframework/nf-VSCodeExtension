@@ -62,7 +62,7 @@ export class Dotnet {
                     msbuild "${fileUri}" ${cliBuildArgumentsLinux}`);
 
                 // grab the binary file name
-                binaryFile = await executeMSBuildAndFindBinaryFile(fileUri, cliBuildArgumentsWindows);
+                binaryFile = await executeMSBuildAndFindBinaryFile(fileUri, cliBuildArgumentsLinux);
             }
 
             // deploy the binary file to the selected device
