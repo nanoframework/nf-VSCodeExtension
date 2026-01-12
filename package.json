@@ -71,6 +71,10 @@
       {
         "command": "vscode-nanoframework.nfadd",
         "title": "nanoFramework: Add a Project to existing Solution"
+      },
+      {
+        "command": "vscode-nanoframework.checkPrerequisites",
+        "title": "nanoFramework: Check Prerequisites"
       }
     ],
     "menus": {
@@ -119,6 +123,7 @@
   "devDependencies": {
     "@types/glob": "^8.0.0",
     "@types/mocha": "^10.0.7",
+    "@types/semver": "^7.5.0",
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^5.36.2",
     "@typescript-eslint/parser": "^5.36.1",
@@ -129,6 +134,7 @@
     "gulp": "^5.0.0",
     "mocha": "^10.7.0",
     "nerdbank-gitversioning": "^3.6.139",
+    "rimraf": "^5.0.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.5.3",
     "webpack": "^5.93.0",
@@ -140,6 +146,8 @@
     "axios": "^1.7.2",
     "extract-zip": "^2.0.1",
     "globby": "^11.0.4",
-    "node-usb-native": "^0.0.20"
+    "serialport": "^12.0.0",
+    "semver": "^7.6.0",
+    "typed-rest-client": "^2.0.2"
   }
 }

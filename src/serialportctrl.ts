@@ -4,11 +4,9 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { execFileSync } from "child_process";
-import * as os from "os";
-import * as path from "path";
+import { SerialPort } from 'serialport';
 
-interface ISerialPortDetail {
+export interface ISerialPortDetail {
   port: string;
   desc: string;
   hwid: string;
@@ -19,33 +17,37 @@ interface ISerialPortDetail {
 /**
  * Cross-platform SerialPort class that returns all connected serial ports
  * For Windows these are usually hosted on COM ports (e.g. COM3/COM4/etc)
- * For macOS/Linux they are usally hosted under e.g. /dev/tty.usbserial-xxxxxx
+ * For macOS/Linux they are usually hosted under e.g. /dev/tty.usbserial-xxxxxx
+ * 
+ * Uses the 'serialport' npm package which provides native cross-platform support
+ * for Windows, macOS (including Apple Silicon), and Linux.
  */
 export class SerialPortCtrl {
-  public static list(extensionPath: String): Promise<ISerialPortDetail[]> {
-    const stdout = execFileSync(SerialPortCtrl._serialCliPath(extensionPath), ["list-ports"]);
-    const lists = JSON.parse(stdout.toString("utf-8"));
-    lists.forEach((port: { [x: string]: any; }) => {
-        const vidPid = this._parseVidPid(port["hwid"]);
-        port["vendorId"] = vidPid["vid"];
-        port["productId"] = vidPid["pid"];
-    });
-    return lists;
-  }
-
-  private static _parseVidPid(hwid: String): any {
-    const result = hwid.match(/VID:PID=(?<vid>\w+):(?<pid>\w+)/i);
-    return result !== null ? result["groups"] : [null, null];
-  }
-
-  private static _serialCliPath(extensionPath: String): string {
-    let fileName: string = "";
-    if (os.platform() === "win32") {
-        fileName = "main.exe";
-    } else if (os.platform() === "linux" || os.platform() === "darwin") {
-        fileName = "main.out";
+  /**
+   * Lists all available serial ports on the system
+   * @param _extensionPath - Kept for backwards compatibility, no longer used
+   * @returns Promise resolving to array of serial port details
+   */
+  public static async list(_extensionPath?: string): Promise<ISerialPortDetail[]> {
+    try {
+      const ports = await SerialPort.list();
+      
+      return ports.map(port => {
+        const vendorId = port.vendorId || '';
+        const productId = port.productId || '';
+        const hwid = vendorId && productId ? `VID:PID=${vendorId}:${productId}` : (port.pnpId || '');
+        
+        return {
+          port: port.path,
+          desc: port.manufacturer || port.friendlyName || '',
+          hwid: hwid,
+          vendorId: vendorId,
+          productId: productId
+        };
+      });
+    } catch (error) {
+      console.error('Error listing serial ports:', error);
+      return [];
     }
-    
-    return path.resolve(extensionPath.toString(), "serial-monitor-cli", `${os.platform}`, fileName);
   }
 }

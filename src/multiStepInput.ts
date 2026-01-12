@@ -261,12 +261,26 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	 * @returns QuickPickItem[] with list of serial devices available
 	 */
 	async function getDevices() {
-		let ports = await SerialPortCtrl.list(toolPath);
+		try {
+			let ports = await SerialPortCtrl.list();
 
-		const devicePaths: QuickPickItem[] = ports
-			.map((label) => ({ label: label.port, description: label.desc }));
+			if (ports.length === 0) {
+				window.showWarningMessage('No serial ports found. Please check that your device is connected.');
+				return [];
+			}
 
-		return devicePaths;
+			const devicePaths: QuickPickItem[] = ports
+				.map((port) => ({ 
+					label: port.port, 
+					description: port.desc || `VID:${port.vendorId} PID:${port.productId}` 
+				}));
+
+			return devicePaths;
+		} catch (error) {
+			console.error('Error listing serial ports:', error);
+			window.showErrorMessage('Failed to list serial ports. Please check your permissions and device connection.');
+			return [];
+		}
 	}
 
 	const state = await collectInputs();

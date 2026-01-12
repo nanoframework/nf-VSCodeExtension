@@ -5,40 +5,54 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
 import { NfProject } from "./createProject";
 
 import { multiStepInput } from './multiStepInput';
 import {
-    getDocumentWorkspaceFolder, solvePath, chooseSerialPort, chooseTarget, chooseSolutionWorkspace,
+    getDocumentWorkspaceFolder, solvePath, chooseSerialPort, chooseSolutionWorkspace,
     chooseName, chooseProjectType
 } from './utils';
-import * as os from 'os';
 import * as cp from 'child_process';
 import { HttpClient } from 'typed-rest-client/HttpClient';
 import * as semver from 'semver';
+import { validatePrerequisites, showPrerequisiteStatus, getPlatformInfo } from './prerequisites';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('The "vscode-nanoframework" is now active!');
+    const platformInfo = getPlatformInfo();
+    console.log(`The "vscode-nanoframework" is now active on ${platformInfo.platform} (${platformInfo.arch})`);
 
-    // check for nanoff tool installation
+    // Validate prerequisites on activation
+    const prereqResult = await validatePrerequisites();
+    if (!prereqResult.allPassed) {
+        // Show issues but don't block activation
+        await showPrerequisiteStatus(prereqResult, false);
+    } else if (prereqResult.warnings.length > 0) {
+        // Show warnings silently (only if there are any)
+        await showPrerequisiteStatus(prereqResult, true);
+    }
+
+    // Check for nanoff tool updates (only if installed)
     await checkDotNetToolInstalled('nanoff');
 
     const workspaceFolder = getDocumentWorkspaceFolder() || '';
-    const nanoFrameworkExtensionPath = context.extensionPath + '/dist/utils';
+    const nanoFrameworkExtensionPath = path.join(context.extensionPath, 'dist', 'utils');
 
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfbuild", async (fileUri: vscode.Uri,) => {
-        const path = await solvePath(fileUri, workspaceFolder);
-        Dotnet.build(path, nanoFrameworkExtensionPath);
+        const filePath = await solvePath(fileUri, workspaceFolder);
+        Dotnet.build(filePath, nanoFrameworkExtensionPath);
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfdeploy", async (fileUri: vscode.Uri,) => {
-        const path = await solvePath(fileUri, workspaceFolder);
-        const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
-        Dotnet.deploy(path, serialPath, nanoFrameworkExtensionPath);
+        const filePath = await solvePath(fileUri, workspaceFolder);
+        const serialPath = await chooseSerialPort();
+        if (serialPath) {
+            Dotnet.deploy(filePath, serialPath, nanoFrameworkExtensionPath);
+        }
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand('vscode-nanoframework.nfflash', async () => {
@@ -50,16 +64,27 @@ export async function activate(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfcreate", async (fileUri: vscode.Uri,) => {
-        const path = await chooseSolutionWorkspace(fileUri, workspaceFolder);
+        const folderPath = await chooseSolutionWorkspace(fileUri, workspaceFolder);
         const solution = await chooseName();
-        NfProject.CreateSolution(path + (os.platform() === 'win32' ? "\\" : "/") + solution, nanoFrameworkExtensionPath);
+        if (solution) {
+            const solutionPath = path.join(folderPath, solution);
+            NfProject.CreateSolution(solutionPath, nanoFrameworkExtensionPath);
+        }
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfadd", async (fileUri: vscode.Uri,) => {
-        const path = await solvePath(fileUri, workspaceFolder);
+        const filePath = await solvePath(fileUri, workspaceFolder);
         const projectName = await chooseName();
         const projectType = await chooseProjectType();
-        NfProject.AddProject(path, projectName, projectType, nanoFrameworkExtensionPath);
+        if (projectName && projectType) {
+            NfProject.AddProject(filePath, projectName, projectType, nanoFrameworkExtensionPath);
+        }
+    }));
+
+    // Register a command to check prerequisites manually
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.checkPrerequisites", async () => {
+        const result = await validatePrerequisites();
+        await showPrerequisiteStatus(result, false);
     }));
 }
 
