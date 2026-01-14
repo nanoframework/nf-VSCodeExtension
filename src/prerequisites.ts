@@ -104,10 +104,7 @@ export async function validatePrerequisites(): Promise<PrerequisiteCheckResult> 
             issues.push('Visual Studio or Visual Studio Build Tools not found. Download from: https://visualstudio.microsoft.com/downloads/');
         }
         
-        // Check nuget
-        if (!await commandExists('nuget')) {
-            warnings.push('nuget CLI not found in PATH. It may be available through Visual Studio.');
-        }
+        // Note: nuget.exe is automatically downloaded by the extension when needed on Windows
     } else {
         // macOS and Linux checks
         

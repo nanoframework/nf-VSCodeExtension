@@ -39,7 +39,7 @@ export class SerialPortCtrl {
         
         return {
           port: port.path,
-          desc: port.manufacturer || port.friendlyName || '',
+          desc: port.manufacturer || '',
           hwid: hwid,
           vendorId: vendorId,
           productId: productId

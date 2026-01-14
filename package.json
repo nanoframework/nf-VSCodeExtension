@@ -61,10 +61,6 @@
         "title": "nanoFramework: Flash device"
       },
       {
-        "command": "vscode-nanoframework.nfdeployalt",
-        "title": "nanoFramework: Deploy Project (alternative method)"
-      },
-      {
         "command": "vscode-nanoframework.nfcreate",
         "title": "nanoFramework: Create New Solution"
       },
@@ -89,11 +85,7 @@
           "command": "vscode-nanoframework.nfdeploy",
           "group": "navigation@1"
         },
-        {
-          "when": "resourceExtname == .sln",
-          "command": "vscode-nanoframework.nfdeployalt",
-          "group": "navigation@1"
-        },
+        
         {
           "when": "resourceExtname == ",
           "command": "vscode-nanoframework.nfcreate",
@@ -105,11 +97,23 @@
           "group": "navigation@1"
         }
       ]
+    },
+    "configuration": {
+      "title": ".NET nanoFramework",
+      "properties": {
+        "nanoFramework.showTerminalOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show command output in the terminal. When disabled, commands run in the background."
+        }
+      }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "build:prod": "npm run compile",
+    "build:native": "pwsh scripts/build.ps1",
+    "build:native:clean": "pwsh scripts/build.ps1 -Clean",
     "postinstall": "gulp build",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
