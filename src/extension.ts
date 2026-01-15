@@ -19,6 +19,7 @@ import * as cp from 'child_process';
 import { HttpClient } from 'typed-rest-client/HttpClient';
 import * as semver from 'semver';
 import { validatePrerequisites, showPrerequisiteStatus, getPlatformInfo } from './prerequisites';
+import { SerialMonitor, chooseBaudRate } from './serialMonitor';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -90,6 +91,72 @@ export async function activate(context: vscode.ExtensionContext) {
         const result = await validatePrerequisites();
         await showPrerequisiteStatus(result, false);
     }));
+
+    // Register the Serial Monitor command
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.serialMonitor", async () => {
+        console.log('Serial Monitor command triggered');
+        
+        const monitor = SerialMonitor.getInstance();
+        console.log(`Monitor state: isActive=${monitor.isActive()}, currentPort=${monitor.getCurrentPort()}`);
+        
+        // Check if already running
+        if (monitor.isActive()) {
+            const choice = await vscode.window.showQuickPick(
+                ['Stop current monitor', 'Start new monitor on different port', 'Cancel'],
+                { placeHolder: `Serial Monitor is already running on ${monitor.getCurrentPort()}` }
+            );
+            
+            if (choice === 'Stop current monitor') {
+                await monitor.stop();
+                vscode.window.showInformationMessage('Serial Monitor stopped.');
+                return;
+            } else if (choice === 'Cancel' || !choice) {
+                return;
+            }
+            // Otherwise continue to start new monitor
+        }
+
+        // Choose serial port
+        console.log('Prompting for serial port selection...');
+        const serialPort = await chooseSerialPort();
+        console.log(`Serial port selected: ${serialPort}`);
+        if (!serialPort) {
+            console.log('No serial port selected, aborting');
+            return;
+        }
+
+        // Choose baud rate
+        console.log('Prompting for baud rate selection...');
+        const baudRate = await chooseBaudRate();
+        console.log(`Baud rate selected: ${baudRate}`);
+        if (!baudRate) {
+            console.log('No baud rate selected, aborting');
+            return;
+        }
+
+        // Start the monitor
+        console.log(`Starting monitor on ${serialPort} at ${baudRate} baud`);
+        await monitor.start(serialPort, baudRate);
+    }));
+
+    // Register the Stop Serial Monitor command
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.stopSerialMonitor", async () => {
+        const monitor = SerialMonitor.getInstance();
+        
+        if (monitor.isActive()) {
+            await monitor.stop();
+            vscode.window.showInformationMessage('Serial Monitor stopped.');
+        } else {
+            vscode.window.showInformationMessage('Serial Monitor is not running.');
+        }
+    }));
+
+    // Dispose serial monitor on deactivation
+    context.subscriptions.push({
+        dispose: async () => {
+            await SerialMonitor.reset();
+        }
+    });
 }
 
 /**

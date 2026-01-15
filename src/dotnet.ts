@@ -1264,22 +1264,7 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
                         if (lower.endsWith('.bin')) {
                             binFiles.push(fullPath);
                             console.log(`Found .bin file: ${fullPath}`);
-                        }
-                        // If MSBuild produced a .exe, rename it to .bin so deploy can use it
-                        else if (lower.endsWith('.exe')) {
-                            const binPath = fullPath.replace(/\.exe$/i, '.bin');
-                            try {
-                                // If a .bin already exists, remove it first
-                                if (fs.existsSync(binPath)) {
-                                    fs.unlinkSync(binPath);
-                                }
-                                fs.renameSync(fullPath, binPath);
-                                binFiles.push(binPath);
-                                console.log(`Renamed .exe to .bin: ${fullPath} -> ${binPath}`);
-                            } catch (err) {
-                                console.error(`Failed to rename ${fullPath} to ${binPath}:`, err);
-                            }
-                        }
+                        }                        
                     }
                 }
             }
@@ -1297,65 +1282,3 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
         return [];
     }
 }
-
-/**
- * Finds all deployable files (.bin) in the output directory
- * @param outputDir The output directory path
- * @returns Array of file names to deploy, or empty array if none found
- */
-async function findDeployableFilesInOutputDir(outputDir: string): Promise<string[]> {
-    try {
-        // Normalize the path (remove trailing separator for consistent checking)
-        const normalizedDir = outputDir.endsWith(path.sep) ? outputDir.slice(0, -1) : outputDir;
-        
-        if (!fs.existsSync(normalizedDir)) {
-            console.error(`Output directory does not exist: ${normalizedDir}`);
-            // Try to list parent directory to help debug
-            const parentDir = path.dirname(normalizedDir);
-            if (fs.existsSync(parentDir)) {
-                const parentFiles = fs.readdirSync(parentDir);
-                console.log(`Parent directory contents: ${parentFiles.join(', ')}`);
-            }
-            return [];
-        }
-
-        const files = fs.readdirSync(normalizedDir);
-        console.log(`Files in output directory ${normalizedDir}: ${files.join(', ')}`);
-
-        const binFiles: string[] = [];
-
-        for (const file of files) {
-            const lower = file.toLowerCase();
-            const fullPath = path.join(normalizedDir, file);
-
-            if (lower.endsWith('.bin')) {
-                binFiles.push(file);
-            } else if (lower.endsWith('.exe')) {
-                const binPath = fullPath.replace(/\.exe$/i, '.bin');
-                try {
-                    if (fs.existsSync(binPath)) {
-                        fs.unlinkSync(binPath);
-                    }
-                    fs.renameSync(fullPath, binPath);
-                    binFiles.push(path.basename(binPath));
-                    console.log(`Renamed .exe to .bin in output dir: ${fullPath} -> ${binPath}`);
-                } catch (err) {
-                    console.error(`Failed to rename ${fullPath} to ${binPath}:`, err);
-                }
-            }
-        }
-
-        if (binFiles.length > 0) {
-            console.log(`Found ${binFiles.length} BIN files to deploy: ${binFiles.join(', ')}`);
-            return binFiles;
-        }
-
-        console.error(`No .bin files found in ${normalizedDir}`);
-        console.error(`Available files: ${files.join(', ')}`);
-        return [];
-    } catch (error) {
-        console.error(`Error reading output directory: ${error}`);
-        return [];
-    }
-}
-
