@@ -77,6 +77,94 @@ Then select the type of project you want to add.
 
 ![type of project](docs/create-solution-step4.png)
 
+## Debugging
+
+The extension provides full debugging support for .NET nanoFramework applications running on connected devices.
+
+### Quick Start
+
+1. **Connect your device** - Ensure your nanoFramework device is connected via USB/Serial
+2. **Build your project** - Use `nanoFramework: Build Project` command
+3. **Start debugging** - Press `F5` or use `Run > Start Debugging`
+
+### Debug Features
+
+| Feature | Description |
+|---------|-------------|
+| **Breakpoints** | Set breakpoints by clicking in the gutter or pressing `F9` |
+| **Step Through Code** | Step Over (`F10`), Step Into (`F11`), Step Out (`Shift+F11`) |
+| **Variable Inspection** | View local variables, arguments, and object properties |
+| **Watch Expressions** | Add expressions to the Watch panel |
+| **Call Stack** | View the current call stack with source locations |
+| **Debug Console** | See `Debug.WriteLine` output and evaluate expressions |
+| **Exception Handling** | Break on exceptions (configurable) |
+
+### launch.json Configuration
+
+Create a `.vscode/launch.json` file in your workspace with the following configurations:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "nanoFramework: Launch and Debug",
+            "type": "nanoframework",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe",
+            "device": "",
+            "stopOnEntry": true,
+            "deployAssemblies": true
+        },
+        {
+            "name": "nanoFramework: Attach to Device",
+            "type": "nanoframework",
+            "request": "attach",
+            "device": "",
+            "program": "${workspaceFolder}/bin/Debug"
+        }
+    ]
+}
+```
+
+#### Configuration Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `type` | string | Must be `"nanoframework"` |
+| `request` | string | `"launch"` to deploy and debug, `"attach"` to debug running code |
+| `program` | string | Path to the `.pe` file or directory containing assemblies |
+| `device` | string | COM port (e.g., `"COM3"`) or IP address. Leave empty for auto-detect |
+| `stopOnEntry` | boolean | Pause at program entry point (default: `true`) |
+| `deployAssemblies` | boolean | Deploy assemblies before debugging (launch only) |
+| `verbose` | boolean | Enable verbose debug output |
+
+### Device Selection
+
+- If `device` is empty, the extension will:
+  - Use the last selected device if available
+  - Auto-select if only one device is connected
+  - Show a device picker if multiple devices are found
+
+- Use the `nanoFramework: Select Debug Device` command to manually choose a device
+
+### Troubleshooting
+
+**Device not detected:**
+- Ensure the device is properly connected and running nanoFramework firmware
+- Check that the correct drivers are installed for your device
+- Try unplugging and reconnecting the device
+
+**Breakpoints not hitting:**
+- Ensure the deployed code matches your source files
+- Rebuild the project before debugging
+- Check that symbol files (.pdbx, .pdb) are present in the output directory
+
+**Debug session won't start:**
+- Verify .NET 8.0 runtime is installed
+- Check the Debug Console for error messages
+- Ensure no other application is using the COM port
+
 ## Requirements
 
 You will need to make sure you'll have the following elements installed:
@@ -94,7 +182,7 @@ You will need to make sure you'll have the following elements installed:
 
 ## Known Issues
 
-This extension will **not** allow you to debug the device. Debug is only available on Windows with [Visual Studio](https://visualstudio.microsoft.com/downloads/) (any edition) and the [.NET nanoFramework Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2022-Extension) installed.
+~~This extension will **not** allow you to debug the device.~~ **Debugging is now supported!** See the [Debugging](#debugging) section below.
 
 This extension will work on any Mac version (x64 or M1), works only on Linux x64 and Windows x64. Other 32 bits OS or ARM platforms are not supported.
 

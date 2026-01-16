@@ -1,7 +1,7 @@
 {
   "name": "vscode-nanoframework",
   "displayName": ".NET nanoFramework",
-  "description": "Build, deploy and flash your .NET nanoFramework solutions",
+  "description": "Build, deploy, flash, and debug your .NET nanoFramework solutions",
   "icon": "assets/nF-logo-128.png",
   "license": "MIT",
   "preview": true,
@@ -32,6 +32,7 @@
   },
   "categories": [
     "Programming Languages",
+    "Debuggers",
     "Other"
   ],
   "badges": [
@@ -44,9 +45,130 @@
   "sponsor": {
     "url": "https://github.com/sponsors/nanoframework"
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "onDebug",
+    "onDebugResolve:nanoframework",
+    "onDebugDynamicConfigurations:nanoframework"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "breakpoints": [
+      {
+        "language": "csharp"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "nanoframework",
+        "label": ".NET nanoFramework",
+        "languages": [
+          "csharp"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the nanoFramework executable (.pe file) to debug",
+                "default": "${workspaceFolder}/bin/Debug/net${framework}/${workspaceFolderBasename}.pe"
+              },
+              "device": {
+                "type": "string",
+                "description": "Serial port or IP address of the target device (e.g., COM3, /dev/ttyUSB0, 192.168.1.100:1234)",
+                "default": ""
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch",
+                "default": true
+              },
+              "deployAssemblies": {
+                "type": "boolean",
+                "description": "Deploy assemblies to the device before starting debug session",
+                "default": true
+              },
+              "assembliesPath": {
+                "type": "string",
+                "description": "Path to the folder containing assemblies to deploy",
+                "default": "${workspaceFolder}/bin/Debug"
+              },
+              "verbose": {
+                "type": "boolean",
+                "description": "Enable verbose debug output",
+                "default": false
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "device"
+            ],
+            "properties": {
+              "device": {
+                "type": "string",
+                "description": "Serial port or IP address of the target device",
+                "default": ""
+              },
+              "program": {
+                "type": "string",
+                "description": "Path to the PDB/PE files for symbol resolution",
+                "default": "${workspaceFolder}/bin/Debug"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Break into debugger on attach",
+                "default": false
+              },
+              "verbose": {
+                "type": "boolean",
+                "description": "Enable verbose debug output",
+                "default": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "nanoframework",
+            "request": "launch",
+            "name": "nanoFramework: Launch and Debug",
+            "program": "${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe",
+            "device": "",
+            "stopOnEntry": true,
+            "deployAssemblies": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "nanoFramework: Launch",
+            "description": "Launch and debug a nanoFramework application",
+            "body": {
+              "type": "nanoframework",
+              "request": "launch",
+              "name": "nanoFramework: Launch",
+              "program": "^\"\\${workspaceFolder}/bin/Debug/\\${workspaceFolderBasename}.pe\"",
+              "device": "",
+              "stopOnEntry": true,
+              "deployAssemblies": true
+            }
+          },
+          {
+            "label": "nanoFramework: Attach",
+            "description": "Attach to a running nanoFramework device",
+            "body": {
+              "type": "nanoframework",
+              "request": "attach",
+              "name": "nanoFramework: Attach",
+              "device": "",
+              "program": "^\"\\${workspaceFolder}/bin/Debug\""
+            }
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "vscode-nanoframework.nfbuild",
@@ -71,6 +193,10 @@
       {
         "command": "vscode-nanoframework.nfadd",
         "title": "nanoFramework: Add a Project to existing Solution"
+      },
+      {
+        "command": "vscode-nanoframework.selectDebugDevice",
+        "title": "nanoFramework: Select Debug Device"
       }
     ],
     "menus": {
@@ -136,6 +262,8 @@
   },
   "dependencies": {
     "@types/node": "22.x",
+    "@vscode/debugadapter": "^1.68.0",
+    "@vscode/debugprotocol": "^1.68.0",
     "@vscode/vsce": "^2.31.1",
     "axios": "^1.7.2",
     "extract-zip": "^2.0.1",

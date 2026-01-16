@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>nanoFramework.Tools.DebugBridge</RootNamespace>
+    <AssemblyName>nanoFramework.Tools.DebugBridge</AssemblyName>
+    <Description>Debug bridge process for VS Code nanoFramework debugging</Description>
+    <Authors>.NET Foundation and Contributors</Authors>
+    <Company>nanoframework</Company>
+    <Copyright>Copyright (c) .NET Foundation and Contributors</Copyright>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference to nf-debugger library -->
+    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="*" />
+    <PackageReference Include="System.IO.Ports" Version="8.*" />
+    <PackageReference Include="System.Text.Json" Version="8.*" />
+    <!-- For parsing portable PDB files to extract source line information -->
+    <PackageReference Include="System.Reflection.Metadata" Version="8.*" />
+  </ItemGroup>
+
+</Project>
