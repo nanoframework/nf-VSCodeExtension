@@ -81,6 +81,14 @@
       {
         "command": "vscode-nanoframework.stopSerialMonitor",
         "title": "nanoFramework: Stop Serial Monitor"
+      },
+      {
+        "command": "vscode-nanoframework.nfaddnuget",
+        "title": "nanoFramework: Add NuGet Package"
+      },
+      {
+        "command": "vscode-nanoframework.nfremovenuget",
+        "title": "nanoFramework: Remove NuGet Package"
       }
     ],
     "menus": {
@@ -104,6 +112,16 @@
           "when": "resourceExtname == .sln",
           "command": "vscode-nanoframework.nfadd",
           "group": "navigation@1"
+        },
+        {
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfaddnuget",
+          "group": "navigation@2"
+        },
+        {
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfremovenuget",
+          "group": "navigation@2"
         }
       ]
     },

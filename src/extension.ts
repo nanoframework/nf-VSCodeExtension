@@ -9,6 +9,7 @@ import * as path from 'path';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
 import { NfProject } from "./createProject";
+import { NuGetManager, showNuGetPackagePicker, showInstalledPackagePicker, showProjectPicker, findProjectFiles } from "./nuget";
 
 import { multiStepInput } from './multiStepInput';
 import {
@@ -71,6 +72,140 @@ export async function activate(context: vscode.ExtensionContext) {
         const projectType = await chooseProjectType();
         if (projectName && projectType) {
             NfProject.AddProject(filePath, projectName, projectType, nanoFrameworkExtensionPath);
+        }
+    }));
+
+    // Register command to add NuGet packages
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfaddnuget", async (fileUri: vscode.Uri) => {
+        try {
+            let projectPath: string | undefined;
+            
+            if (fileUri) {
+                const filePath = fileUri.fsPath;
+                
+                if (filePath.endsWith('.nfproj')) {
+                    // Direct project file
+                    projectPath = filePath;
+                } else if (filePath.endsWith('.sln')) {
+                    // Solution file - let user pick a project
+                    projectPath = await showProjectPicker(filePath);
+                }
+            } else {
+                // No file URI - try to find projects in workspace
+                if (workspaceFolder) {
+                    const projects = findProjectFiles(workspaceFolder);
+                    if (projects.length === 1) {
+                        projectPath = projects[0];
+                    } else if (projects.length > 1) {
+                        projectPath = await showProjectPicker(workspaceFolder);
+                    } else {
+                        vscode.window.showErrorMessage('No .nfproj files found in the workspace.');
+                        return;
+                    }
+                } else {
+                    vscode.window.showErrorMessage('No workspace folder is open.');
+                    return;
+                }
+            }
+            
+            if (!projectPath) {
+                return;
+            }
+            
+            // Show the NuGet package picker
+            const packageInfo = await showNuGetPackagePicker();
+            
+            if (!packageInfo) {
+                return;
+            }
+            
+            // Add the package
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Adding ${packageInfo.packageId}...`,
+                    cancellable: false
+                },
+                async () => {
+                    await NuGetManager.addPackage(projectPath!, packageInfo.packageId, packageInfo.version);
+                }
+            );
+            
+            vscode.window.showInformationMessage(
+                `Successfully added ${packageInfo.packageId} v${packageInfo.version} to the project. Run 'nuget restore' or build to download the package.`
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to add NuGet package: ${error}`);
+        }
+    }));
+
+    // Register command to remove NuGet packages
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfremovenuget", async (fileUri: vscode.Uri) => {
+        try {
+            let projectPath: string | undefined;
+            
+            if (fileUri) {
+                const filePath = fileUri.fsPath;
+                
+                if (filePath.endsWith('.nfproj')) {
+                    projectPath = filePath;
+                } else if (filePath.endsWith('.sln')) {
+                    projectPath = await showProjectPicker(filePath);
+                }
+            } else {
+                if (workspaceFolder) {
+                    const projects = findProjectFiles(workspaceFolder);
+                    if (projects.length === 1) {
+                        projectPath = projects[0];
+                    } else if (projects.length > 1) {
+                        projectPath = await showProjectPicker(workspaceFolder);
+                    } else {
+                        vscode.window.showErrorMessage('No .nfproj files found in the workspace.');
+                        return;
+                    }
+                } else {
+                    vscode.window.showErrorMessage('No workspace folder is open.');
+                    return;
+                }
+            }
+            
+            if (!projectPath) {
+                return;
+            }
+            
+            // Show installed packages picker
+            const packageId = await showInstalledPackagePicker(projectPath);
+            
+            if (!packageId) {
+                return;
+            }
+            
+            // Confirm removal
+            const confirmation = await vscode.window.showWarningMessage(
+                `Remove ${packageId} from the project?`,
+                { modal: true },
+                'Remove'
+            );
+            
+            if (confirmation !== 'Remove') {
+                return;
+            }
+            
+            // Remove the package
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Removing ${packageId}...`,
+                    cancellable: false
+                },
+                async () => {
+                    await NuGetManager.removePackage(projectPath!, packageId);
+                }
+            );
+            
+            vscode.window.showInformationMessage(`Successfully removed ${packageId} from the project.`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to remove NuGet package: ${error}`);
         }
     }));
 
