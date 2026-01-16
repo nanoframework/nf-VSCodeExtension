@@ -14,6 +14,9 @@ import * as vscode from 'vscode';
 
 const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false';
 
+// Deploy operation tracking - used to cancel previous deploys when a new one starts
+let currentDeployId = 0;
+
 // Shared output channel for build logs
 let buildOutputChannel: vscode.OutputChannel | null = null;
 function getBuildOutputChannel(): vscode.OutputChannel {
@@ -376,6 +379,9 @@ export class Dotnet {
             configuration = await vscode.window.showQuickPick(['Debug', 'Release'], { placeHolder: 'Select build configuration', canPickMany: false }) || 'Debug';
         }
         if (fileUri) {
+            // Clean .bin files before building to avoid stale files
+            cleanBinFiles(fileUri, configuration);
+
             const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
             
             // Using dynamically-solved MSBuild.exe when run from win32
@@ -452,7 +458,13 @@ export class Dotnet {
             return;
         }
 
-        console.log(`Deploy starting - Solution: ${fileUri}, Port: ${serialPath}, ToolPath: ${toolPath}`);
+        // Cancel any previous deploy operation by incrementing the deploy ID
+        currentDeployId++;
+        const thisDeployId = currentDeployId;
+        console.log(`Deploy #${thisDeployId} starting - Solution: ${fileUri}, Port: ${serialPath}, ToolPath: ${toolPath}`);
+
+        // Clean .bin files before building to avoid stale files
+        cleanBinFiles(fileUri, configuration);
 
         const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
         
@@ -517,13 +529,36 @@ export class Dotnet {
             }
 
             // Automatically wait for build to finish by polling for .bin files, then deploy
-            const pollForBinFiles = async (solutionPath: string, timeoutMs = 120000, intervalMs = 1000, configurationParam: string = configuration): Promise<string[]> => {
+            // We wait for .bin files to appear and then wait a bit longer to ensure build is complete
+            // The deployId parameter is used to check if this deploy has been cancelled
+            const pollForBinFiles = async (solutionPath: string, deployId: number, timeoutMs = 120000, intervalMs = 2000, configurationParam: string = configuration): Promise<string[] | null> => {
                 const end = Date.now() + timeoutMs;
+                
                 while (Date.now() < end) {
-                    const files = await findDeployableBinFiles(solutionPath, configurationParam);
-                    if (files.length > 0) {
-                        return files;
+                    // Check if this deploy has been cancelled (a new deploy started)
+                    if (currentDeployId !== deployId) {
+                        console.log(`Deploy #${deployId} cancelled - a newer deploy #${currentDeployId} has started`);
+                        return null; // Return null to indicate cancellation
                     }
+                    
+                    const files = await findDeployableBinFiles(solutionPath, configurationParam);
+                    
+                    if (files.length > 0) {
+                        // Found .bin files - wait a bit more to ensure build is fully complete
+                        console.log(`Deploy #${deployId}: Found ${files.length} .bin file(s), waiting for build to fully complete...`);
+                        await new Promise(r => setTimeout(r, 3000));
+                        
+                        // Check again if cancelled during the wait
+                        if (currentDeployId !== deployId) {
+                            console.log(`Deploy #${deployId} cancelled during wait - a newer deploy #${currentDeployId} has started`);
+                            return null;
+                        }
+                        
+                        // Re-check to get final list
+                        const finalFiles = await findDeployableBinFiles(solutionPath, configurationParam);
+                        return finalFiles;
+                    }
+                    
                     await new Promise(r => setTimeout(r, intervalMs));
                 }
                 return [];
@@ -531,10 +566,22 @@ export class Dotnet {
 
             vscode.window.showInformationMessage('Build started in terminal. Waiting for build to finish...');
 
-            const binFiles = await pollForBinFiles(fileUri, 120000, 1000, configuration);
+            const binFiles = await pollForBinFiles(fileUri, thisDeployId, 120000, 2000, configuration);
+
+            // Check if deploy was cancelled
+            if (binFiles === null) {
+                console.log(`Deploy #${thisDeployId} was cancelled, stopping`);
+                return;
+            }
 
             if (binFiles.length === 0) {
                 vscode.window.showErrorMessage('No .bin files found after build finished. Make sure the build completed successfully.');
+                return;
+            }
+
+            // Final check if this deploy is still the current one before flashing
+            if (currentDeployId !== thisDeployId) {
+                console.log(`Deploy #${thisDeployId} cancelled before flash - a newer deploy #${currentDeployId} has started`);
                 return;
             }
 
@@ -552,7 +599,14 @@ export class Dotnet {
             }
 
             console.log(`Deploy command: ${cliDeployArguments}`);
+            
+            // Wait a moment to ensure terminal is ready for the next command
+            // This helps when the build just finished and the terminal needs to process
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Send the deploy command to terminal
             Executor.runInTerminal(cliDeployArguments);
+            console.log('Deploy command sent to terminal');
             vscode.window.showInformationMessage(`Deploying ${binFiles.length} BIN file(s) to ${serialPath}...`);
         } else {
             // Run build hidden with progress notification
@@ -562,6 +616,12 @@ export class Dotnet {
                     title: "nanoFramework",
                     cancellable: false
                 }, async (progress) => {
+                    // Check if this deploy has been cancelled
+                    if (currentDeployId !== thisDeployId) {
+                        console.log(`Deploy #${thisDeployId} cancelled at start of hidden build`);
+                        return;
+                    }
+
                     progress.report({ message: "Building project..." });
 
                     // Get the output channel for logging
@@ -650,6 +710,13 @@ export class Dotnet {
                     outChannel.appendLine('Build succeeded.');
                     outChannel.appendLine('');
 
+                    // Check if this deploy has been cancelled
+                    if (currentDeployId !== thisDeployId) {
+                        console.log(`Deploy #${thisDeployId} cancelled after build`);
+                        outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                        return;
+                    }
+
                     progress.report({ message: "Finding BIN files to deploy..." });
 
                     // Find all BIN files in project output directories
@@ -666,6 +733,13 @@ export class Dotnet {
                     }
 
                     progress.report({ message: `Deploying ${binFiles.length} BIN file(s) to ${serialPath}...` });
+
+                    // Check if this deploy has been cancelled before flashing
+                    if (currentDeployId !== thisDeployId) {
+                        console.log(`Deploy #${thisDeployId} cancelled before flash`);
+                        outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                        return;
+                    }
 
                     // Build the deploy command with all BIN files (using full paths)
                     // Deduplicate files (resolve to absolute paths to avoid duplicates)
@@ -1280,5 +1354,51 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
     } catch (error) {
         console.error(`Error searching for .bin files: ${error}`);
         return [];
+    }
+}
+
+/**
+ * Cleans (deletes) all .bin files in the solution's project directories for a specific configuration
+ * This ensures that stale .bin files from previous builds don't get picked up during deployment
+ * @param solutionPath The path to the solution file
+ * @param configuration The build configuration to clean (Debug|Release)
+ */
+function cleanBinFiles(solutionPath: string, configuration: string = 'Debug'): void {
+    const solutionDir = path.dirname(solutionPath);
+    
+    console.log(`Cleaning .bin files in solution directory: ${solutionDir} for configuration: ${configuration}`);
+    
+    try {
+        // Get all subdirectories (project folders)
+        const entries = fs.readdirSync(solutionDir, { withFileTypes: true });
+        
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                // Check bin/<configuration> folder
+                const configDir = path.join(solutionDir, entry.name, 'bin', configuration);
+
+                if (fs.existsSync(configDir)) {
+                    const files = fs.readdirSync(configDir);
+                    for (const file of files) {
+                        const lower = file.toLowerCase();
+                        const fullPath = path.join(configDir, file);
+
+                        // Delete .bin files
+                        if (lower.endsWith('.bin')) {
+                            try {
+                                fs.unlinkSync(fullPath);
+                                console.log(`Deleted .bin file: ${fullPath}`);
+                            } catch (deleteError) {
+                                console.error(`Failed to delete ${fullPath}: ${deleteError}`);
+                            }
+                        }                        
+                    }
+                }
+            }
+        }
+        
+        console.log(`Finished cleaning .bin files for configuration: ${configuration}`);
+    } catch (error) {
+        console.error(`Error cleaning .bin files: ${error}`);
     }
 }

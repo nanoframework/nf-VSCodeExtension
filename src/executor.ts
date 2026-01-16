@@ -45,11 +45,27 @@ export class Executor {
         return new Promise((resolve) => {
             console.log(`Executing hidden command: ${command}`);
             
+            // Build environment with properly expanded PATH
+            const env = { ...process.env };
+            
+            // On non-Windows platforms, ensure ~/.dotnet/tools is in PATH (expanded)
+            if (os.platform() !== 'win32') {
+                const homeDir = os.homedir();
+                const dotnetToolsPath = `${homeDir}/.dotnet/tools`;
+                const currentPath = env.PATH || '';
+                
+                // Add dotnet tools path if not already present (with expanded home dir)
+                if (!currentPath.includes(dotnetToolsPath)) {
+                    env.PATH = `${dotnetToolsPath}:${currentPath}`;
+                    console.log(`Added ${dotnetToolsPath} to PATH`);
+                }
+            }
+            
             // Use cp.exec with shell option for proper command execution
             // This ensures PATH and environment variables are properly available
             const options: cp.ExecOptions = {
                 maxBuffer: 10 * 1024 * 1024,  // 10MB buffer for large outputs
-                env: process.env,  // Pass current environment variables
+                env: env,  // Pass modified environment variables
                 // Use cmd.exe on Windows for hidden commands to better match interactive terminal behavior
                 // and improve resolution of CLI tools. Use /bin/bash on Unix-like systems.
                 shell: os.platform() === 'win32' ? 'cmd.exe' : '/bin/bash'
