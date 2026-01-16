@@ -58,30 +58,34 @@ export class Executor {
             cp.exec(command, options, (error, stdout, stderr) => {
                 // Try to extract exit code from error if present
                 const exitCode = (error && (error as any).code && typeof (error as any).code === 'number') ? (error as any).code : (error ? null : 0);
+                
+                // Convert stdout/stderr to strings (they may be Buffer in newer Node types)
+                const stdoutStr = stdout?.toString() ?? '';
+                const stderrStr = stderr?.toString() ?? '';
 
                 if (error) {
                     console.error(`Hidden command error: ${error.message}`);
-                    console.error(`stderr: ${stderr}`);
-                    console.log(`stdout: ${stdout}`);
+                    console.error(`stderr: ${stderrStr}`);
+                    console.log(`stdout: ${stdoutStr}`);
                     resolve({
                         success: false,
-                        stdout: stdout,
-                        stderr: stderr || error.message,
+                        stdout: stdoutStr,
+                        stderr: stderrStr || error.message,
                         exitCode: exitCode
                     });
                     return;
                 }
 
                 console.log(`Hidden command completed successfully`);
-                console.log(`stdout: ${stdout}`);
-                if (stderr) {
-                    console.log(`stderr: ${stderr}`);
+                console.log(`stdout: ${stdoutStr}`);
+                if (stderrStr) {
+                    console.log(`stderr: ${stderrStr}`);
                 }
 
                 resolve({
                     success: true,
-                    stdout: stdout,
-                    stderr: stderr,
+                    stdout: stdoutStr,
+                    stderr: stderrStr,
                     exitCode: exitCode
                 });
             });

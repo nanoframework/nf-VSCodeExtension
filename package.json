@@ -93,7 +93,6 @@
           "command": "vscode-nanoframework.nfdeploy",
           "group": "navigation@1"
         },
-        
         {
           "when": "resourceExtname == ",
           "command": "vscode-nanoframework.nfcreate",
@@ -133,34 +132,34 @@
     "deploy": "vsce publish"
   },
   "devDependencies": {
-    "@types/glob": "^8.0.0",
-    "@types/mocha": "^10.0.7",
-    "@types/semver": "^7.5.0",
-    "@types/vscode": "^1.90.0",
-    "@typescript-eslint/eslint-plugin": "^5.36.2",
-    "@typescript-eslint/parser": "^5.36.1",
-    "@vscode/test-electron": "^2.4.1",
-    "download": "^8.0.0",
-    "eslint": "^8.23.0",
-    "glob": "^11.0.0",
-    "gulp": "^5.0.0",
-    "mocha": "^10.7.0",
-    "nerdbank-gitversioning": "^3.6.139",
-    "rimraf": "^5.0.0",
-    "ts-loader": "^9.5.1",
-    "typescript": "^5.5.3",
-    "webpack": "^5.93.0",
-    "webpack-cli": "^5.1.4"
+    "@types/glob": "^9.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/semver": "^7.7.1",
+    "@types/vscode": "^1.108.1",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
+    "@vscode/test-electron": "^2.5.2",
+    "download": "^3.3.0",
+    "eslint": "^9.39.2",
+    "glob": "^13.0.0",
+    "gulp": "^5.0.1",
+    "mocha": "^0.13.0",
+    "nerdbank-gitversioning": "^3.9.50",
+    "rimraf": "^6.1.2",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "webpack": "^5.104.1",
+    "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "@serialport/parser-readline": "^12.0.0",
-    "@types/node": "22.x",
-    "@vscode/vsce": "^2.31.1",
-    "axios": "^1.7.2",
+    "@serialport/parser-readline": "^13.0.0",
+    "@types/node": "25.x",
+    "@vscode/vsce": "^3.7.1",
+    "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
-    "globby": "^11.0.4",
-    "serialport": "^12.0.0",
-    "semver": "^7.6.0",
-    "typed-rest-client": "^2.0.2"
+    "globby": "^16.1.0",
+    "semver": "^7.7.3",
+    "serialport": "^13.0.0",
+    "typed-rest-client": "^2.2.0"
   }
 }
