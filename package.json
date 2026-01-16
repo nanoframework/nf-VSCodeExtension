@@ -145,7 +145,7 @@
     "eslint": "^9.39.2",
     "glob": "^13.0.0",
     "gulp": "^5.0.1",
-    "mocha": "^0.13.0",
+    "mocha": "^11.7.5",
     "nerdbank-gitversioning": "^3.9.50",
     "rimraf": "^6.1.2",
     "ts-loader": "^9.5.4",
@@ -159,7 +159,7 @@
     "@vscode/vsce": "^3.7.1",
     "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
-    "globby": "^16.1.0",
+    "globby": "^11.1.0",
     "semver": "^7.7.3",
     "serialport": "^13.0.0",
     "typed-rest-client": "^2.2.0"
