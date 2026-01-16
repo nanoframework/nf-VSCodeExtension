@@ -27,22 +27,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const platformInfo = getPlatformInfo();
     console.log(`The "vscode-nanoframework" is now active on ${platformInfo.platform} (${platformInfo.arch})`);
 
-    // Validate prerequisites on activation
-    const prereqResult = await validatePrerequisites();
-    if (!prereqResult.allPassed) {
-        // Show issues but don't block activation
-        await showPrerequisiteStatus(prereqResult, false);
-    } else if (prereqResult.warnings.length > 0) {
-        // Show warnings silently (only if there are any)
-        await showPrerequisiteStatus(prereqResult, true);
-    }
-
-    // Check for nanoff tool updates (only if installed)
-    await checkDotNetToolInstalled('nanoff');
-
     const workspaceFolder = getDocumentWorkspaceFolder() || '';
     const nanoFrameworkExtensionPath = path.join(context.extensionPath, 'dist', 'utils');
 
+    // Register all commands FIRST before any async operations that might fail
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfbuild", async (fileUri: vscode.Uri,) => {
         const filePath = await solvePath(fileUri, workspaceFolder);
         const configuration = await vscode.window.showQuickPick(['Debug', 'Release'], { placeHolder: 'Select build configuration', canPickMany: false }) || 'Debug';
@@ -157,6 +145,31 @@ export async function activate(context: vscode.ExtensionContext) {
             await SerialMonitor.reset();
         }
     });
+
+    // Log that all commands are registered
+    console.log('All nanoFramework commands registered successfully');
+
+    // Now run async initialization tasks (these won't block command registration)
+    // Validate prerequisites on activation
+    try {
+        const prereqResult = await validatePrerequisites();
+        if (!prereqResult.allPassed) {
+            // Show issues but don't block activation
+            await showPrerequisiteStatus(prereqResult, false);
+        } else if (prereqResult.warnings.length > 0) {
+            // Show warnings silently (only if there are any)
+            await showPrerequisiteStatus(prereqResult, true);
+        }
+    } catch (error) {
+        console.error('Error validating prerequisites:', error);
+    }
+
+    // Check for nanoff tool updates (only if installed)
+    try {
+        await checkDotNetToolInstalled('nanoff');
+    } catch (error) {
+        console.error('Error checking nanoff tool:', error);
+    }
 }
 
 /**

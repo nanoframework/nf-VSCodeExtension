@@ -44,7 +44,9 @@
   "sponsor": {
     "url": "https://github.com/sponsors/nanoframework"
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "*"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [

@@ -5,8 +5,24 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { SerialPort } from 'serialport';
-import { ReadlineParser } from '@serialport/parser-readline';
+
+// Dynamic import types - we use 'any' for the serial port instance since the module is loaded dynamically
+type SerialPortInstance = any;
+
+// Lazily loaded module
+let serialportModule: typeof import('serialport') | null = null;
+
+async function getSerialPortModule(): Promise<typeof import('serialport')> {
+    if (!serialportModule) {
+        try {
+            serialportModule = await import('serialport');
+        } catch (error) {
+            console.error('Failed to load serialport module:', error);
+            throw new Error('Serial port support is not available. The native module may need to be rebuilt for your VS Code version.');
+        }
+    }
+    return serialportModule;
+}
 
 const DEFAULT_BAUD_RATE = 921600;
 const RECONNECT_INTERVAL_MS = 100;
@@ -17,8 +33,8 @@ const RECONNECT_INTERVAL_MS = 100;
 export class SerialMonitor {
     private static instance: SerialMonitor | null = null;
     private outputChannel: vscode.OutputChannel;
-    private serialPort: SerialPort | null = null;
-    private parser: ReadlineParser | null = null;
+    private serialPort: SerialPortInstance | null = null;
+    private parser: any | null = null;
     private portPath: string = '';
     private baudRate: number = DEFAULT_BAUD_RATE;
     private isRunning: boolean = false;
@@ -88,7 +104,7 @@ export class SerialMonitor {
                 try {
                     // Flush any pending data before closing
                     await new Promise<void>((resolve) => {
-                        this.serialPort!.flush((err) => {
+                        this.serialPort!.flush((err: Error | null) => {
                             if (err) {
                                 console.error('Error flushing serial port:', err);
                             }
@@ -98,7 +114,7 @@ export class SerialMonitor {
 
                     // Close the port
                     await new Promise<void>((resolve) => {
-                        this.serialPort!.close((err) => {
+                        this.serialPort!.close((err: Error | null) => {
                             if (err) {
                                 console.error('Error closing serial port:', err);
                             }
@@ -159,6 +175,9 @@ export class SerialMonitor {
         try {
             console.log(`SerialMonitor.connect() creating port with baudRate=${this.baudRate}`);
             
+            // Dynamically load the serialport module
+            const { SerialPort } = await getSerialPortModule();
+            
             this.serialPort = new SerialPort({
                 path: this.portPath,
                 baudRate: this.baudRate,
@@ -173,7 +192,7 @@ export class SerialMonitor {
             console.log(`SerialPort created with configured baudRate=${this.baudRate}, path=${this.portPath}`);
 
             // Set up event handlers before opening
-            this.serialPort.on('error', (err) => {
+            this.serialPort.on('error', (err: Error) => {
                 this.handleError(err);
             });
 
@@ -183,7 +202,7 @@ export class SerialMonitor {
 
             // Open the port
             await new Promise<void>((resolve, reject) => {
-                this.serialPort!.open((err) => {
+                this.serialPort!.open((err: Error | null) => {
                     if (err) {
                         reject(err);
                     } else {

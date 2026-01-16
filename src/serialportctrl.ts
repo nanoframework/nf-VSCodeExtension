@@ -4,7 +4,21 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { SerialPort } from 'serialport';
+// Dynamic import to avoid loading native module at extension activation
+// This prevents the extension from failing to load if serialport has ABI issues
+let SerialPortModule: typeof import('serialport') | null = null;
+
+async function getSerialPort(): Promise<typeof import('serialport')> {
+  if (!SerialPortModule) {
+    try {
+      SerialPortModule = await import('serialport');
+    } catch (error) {
+      console.error('Failed to load serialport module:', error);
+      throw new Error('Serial port support is not available. The native module may need to be rebuilt for your VS Code version.');
+    }
+  }
+  return SerialPortModule;
+}
 
 export interface ISerialPortDetail {
   port: string;
@@ -30,6 +44,7 @@ export class SerialPortCtrl {
    */
   public static async list(_extensionPath?: string): Promise<ISerialPortDetail[]> {
     try {
+      const { SerialPort } = await getSerialPort();
       const ports = await SerialPort.list();
       
       return ports.map(port => {
@@ -47,7 +62,7 @@ export class SerialPortCtrl {
       });
     } catch (error) {
       console.error('Error listing serial ports:', error);
-      return [];
+      throw error;
     }
   }
 }
