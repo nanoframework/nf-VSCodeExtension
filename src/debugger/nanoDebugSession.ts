@@ -45,6 +45,8 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
 interface IAttachRequestArguments extends DebugProtocol.AttachRequestArguments {
     /** Target device (COM port or IP address) */
     device: string;
+    /** Path to .pe file or directory containing assemblies for symbol loading */
+    program?: string;
     /** Enable verbose logging */
     verbose?: boolean;
 }
@@ -275,12 +277,16 @@ export class NanoDebugSession extends LoggingDebugSession {
         try {
             this._isAttach = true;
 
+            // Log the attach arguments for debugging
+            this.sendEvent(new OutputEvent(`[Debug] Attach args: device=${args.device}, program=${args.program}, verbose=${args.verbose}\n`, 'console'));
+
             // Wait until configuration is done
             await this._configurationDone.wait(3000);
 
             // Attach to the device
             const success = await this._runtime.attach(
                 args.device,
+                args.program,
                 args.verbose || false
             );
 
@@ -399,10 +405,12 @@ export class NanoDebugSession extends LoggingDebugSession {
 
         response.body = {
             stackFrames: stack.frames.map((f, ix) => {
+                // Use source from the frame if available, or construct from file
+                const sourceFile = f.source?.path || f.file;
                 const sf = new StackFrame(
-                    f.index,
+                    f.id,
                     f.name,
-                    f.file ? new Source(path.basename(f.file), f.file) : undefined,
+                    sourceFile ? new Source(path.basename(sourceFile), sourceFile) : undefined,
                     this.convertDebuggerLineToClient(f.line)
                 );
                 if (f.column) {
@@ -418,14 +426,34 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Scopes request - return scopes for a stack frame
      */
-    protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
-
-        response.body = {
-            scopes: [
-                new Scope("Locals", this._variableHandles.create('locals'), false),
-                new Scope("Globals", this._variableHandles.create('globals'), true)
-            ]
-        };
+    protected async scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): Promise<void> {
+        try {
+            // Log the frameId being requested
+            this.sendEvent(new OutputEvent(`[Debug] scopesRequest for frameId: ${args.frameId}\n`, 'console'));
+            
+            if (args.frameId === undefined || args.frameId === null) {
+                // No frameId, return empty scopes
+                response.body = { scopes: [] };
+                this.sendResponse(response);
+                return;
+            }
+            
+            const scopes = await this._runtime.getScopes(args.frameId);
+            
+            response.body = {
+                scopes: scopes.map(s => new Scope(
+                    s.name,
+                    s.variablesReference,
+                    s.expensive || false
+                ))
+            };
+        } catch (error) {
+            // Fallback to empty scopes on error
+            this.sendEvent(new OutputEvent(`[Debug] scopesRequest error: ${error}\n`, 'console'));
+            response.body = {
+                scopes: []
+            };
+        }
         this.sendResponse(response);
     }
 
@@ -433,23 +461,21 @@ export class NanoDebugSession extends LoggingDebugSession {
      * Variables request - return variables for a scope
      */
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request): Promise<void> {
-
-        const reference = this._variableHandles.get(args.variablesReference);
-        
-        if (reference) {
-            const variables = await this._runtime.getVariables(reference);
+        try {
+            // Pass the variablesReference directly to the bridge
+            const variables = await this._runtime.getVariables(args.variablesReference);
             
             response.body = {
                 variables: variables.map(v => ({
                     name: v.name,
                     value: v.value,
                     type: v.type,
-                    variablesReference: v.hasChildren ? this._variableHandles.create(v.reference) : 0,
+                    variablesReference: v.variablesReference || 0,
                     namedVariables: v.namedVariables,
                     indexedVariables: v.indexedVariables
                 }))
             };
-        } else {
+        } catch (error) {
             response.body = {
                 variables: []
             };

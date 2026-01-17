@@ -29,11 +29,12 @@ export interface INanoThread {
  * Stack frame information
  */
 export interface INanoStackFrame {
-    index: number;
+    id: number;
     name: string;
     file: string | undefined;
     line: number;
     column?: number;
+    source?: { path?: string; name?: string } | null;
 }
 
 /**
@@ -53,8 +54,20 @@ export interface INanoVariable {
     type: string;
     hasChildren: boolean;
     reference: string;
+    variablesReference?: number;
     namedVariables?: number;
     indexedVariables?: number;
+}
+
+/**
+ * Scope information
+ */
+export interface INanoScope {
+    name: string;
+    variablesReference: number;
+    namedVariables?: number;
+    indexedVariables?: number;
+    expensive?: boolean;
 }
 
 /**
@@ -139,6 +152,7 @@ export class NanoRuntime extends EventEmitter {
     private setupBridgeEvents(): void {
         this._bridge.on('stopped', (reason: StoppedReason, threadId: number, exception?: string) => {
             this._isPaused = true;
+            this.log(`Stopped event received: reason=${reason}, threadId=${threadId}`);
             switch (reason) {
                 case 'entry':
                     this.emit('stopOnEntry');
@@ -154,6 +168,15 @@ export class NanoRuntime extends EventEmitter {
                     break;
                 case 'data breakpoint':
                     this.emit('stopOnDataBreakpoint');
+                    break;
+                case 'pause':
+                    // Treat pause as entry for attach scenarios
+                    this.emit('stopOnEntry');
+                    break;
+                default:
+                    // Default to entry for unknown reasons
+                    this.log(`Unknown stop reason: ${reason}, treating as entry`);
+                    this.emit('stopOnEntry');
                     break;
             }
         });
@@ -222,7 +245,7 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Attach to a running device
      */
-    public async attach(device: string, verbose?: boolean): Promise<boolean> {
+    public async attach(device: string, program?: string, verbose?: boolean): Promise<boolean> {
         this._verbose = verbose || false;
         
         this.log(`Attaching to device: ${device}`);
@@ -238,6 +261,14 @@ export class NanoRuntime extends EventEmitter {
             if (!await this._bridge.connect()) {
                 this.log('Failed to connect to device');
                 return false;
+            }
+
+            // Load symbols from program path if provided
+            this.log(`Program path for symbols: ${program || '(not provided)'}`);
+            if (program) {
+                await this.loadSymbolsFromProgram(program);
+            } else {
+                this.log('No program path provided, symbols will not be loaded');
             }
 
             // Attach to running CLR
@@ -257,6 +288,31 @@ export class NanoRuntime extends EventEmitter {
         } catch (error) {
             this.log(`Attach failed: ${error}`);
             return false;
+        }
+    }
+
+    /**
+     * Load symbols from the program path
+     */
+    private async loadSymbolsFromProgram(program: string): Promise<void> {
+        try {
+            // Determine the symbol directory from the program path
+            const path = await import('path');
+            let symbolPath: string;
+            
+            if (program.endsWith('.pe')) {
+                // If it's a .pe file, use its directory
+                symbolPath = path.dirname(program);
+            } else {
+                // Otherwise assume it's a directory
+                symbolPath = program;
+            }
+            
+            this.log(`Loading symbols from: ${symbolPath}`);
+            const count = await this._bridge.loadSymbols(symbolPath, true);
+            this.log(`Loaded ${count} symbol file(s)`);
+        } catch (error) {
+            this.log(`Failed to load symbols: ${error}`);
         }
     }
 
@@ -431,10 +487,17 @@ export class NanoRuntime extends EventEmitter {
     }
 
     /**
-     * Get variables for a scope
+     * Get scopes for a frame
      */
-    public async getVariables(scope: string): Promise<INanoVariable[]> {
-        return await this._bridge.getVariables(scope);
+    public async getScopes(frameId: number): Promise<INanoScope[]> {
+        return await this._bridge.getScopes(frameId);
+    }
+
+    /**
+     * Get variables for a scope/reference
+     */
+    public async getVariables(variablesReference: number): Promise<INanoVariable[]> {
+        return await this._bridge.getVariables(variablesReference);
     }
 
     /**

@@ -59,7 +59,7 @@ public class DebugBridgeSession : IDisposable
 
     // Frame ID management  
     private int _nextFrameId = 1;
-    private readonly Dictionary<int, (int ThreadId, int Depth)> _frameIdMap = new();
+    private readonly Dictionary<int, (int ThreadId, int Depth, uint MethodToken, string? AssemblyName)> _frameIdMap = new();
 
     // Breakpoint management
     private int _nextBreakpointId = 1;
@@ -69,6 +69,7 @@ public class DebugBridgeSession : IDisposable
     // Current execution state
     private uint[]? _lastThreadList;
     private uint _stoppedThreadId;
+    private CancellationTokenSource? _breakpointPollCts;
 
     /// <summary>
     /// Event raised when a debug event occurs (stopped, thread, output, etc.)
@@ -166,13 +167,32 @@ public class DebugBridgeSession : IDisposable
             // Subscribe to debug engine events
             _engine.OnMessage += OnEngineMessage;
 
-            // Connect to the device
+            // Connect to the device with retries
             LogMessage("Connecting to debug engine...");
-            bool connected = _engine.Connect(5000, true, true);
+            bool connected = false;
+            int maxRetries = 3;
+            
+            for (int attempt = 1; attempt <= maxRetries && !connected; attempt++)
+            {
+                if (attempt > 1)
+                {
+                    LogMessage($"Retry attempt {attempt}/{maxRetries}...");
+                    await Task.Delay(1000); // Wait a bit before retry
+                }
+                
+                try
+                {
+                    connected = _engine.Connect(5000, true, true);
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Connect attempt {attempt} failed: {ex.Message}");
+                }
+            }
 
             if (!connected)
             {
-                return new ConnectResult(false, "Failed to connect to device debug engine");
+                return new ConnectResult(false, "Failed to connect to device debug engine. Try resetting the device or unplugging and reconnecting it.");
             }
 
             // Update debug flags to enable source-level debugging
@@ -201,6 +221,10 @@ public class DebugBridgeSession : IDisposable
     {
         try
         {
+            // Cancel any polling task
+            _breakpointPollCts?.Cancel();
+            _breakpointPollCts = null;
+            
             if (_engine != null)
             {
                 // Unsubscribe from events
@@ -257,8 +281,33 @@ public class DebugBridgeSession : IDisposable
             
             if (bpLocation != null)
             {
+                // Get the assembly Idx from the device (already in shifted format: assembly_index << 16)
+                var assemblyInfo = _assemblyManager.GetDeviceAssembly(bpLocation.AssemblyName);
+                if (assemblyInfo != null)
+                {
+                    bpLocation.AssemblyIdx = (uint)assemblyInfo.DeviceIndex;
+                    LogMessage($"Assembly '{bpLocation.AssemblyName}' has device Idx 0x{bpLocation.AssemblyIdx:X8}");
+                }
+                else
+                {
+                    // Try to find by assembly name without extension
+                    var assemblyNameNoExt = Path.GetFileNameWithoutExtension(bpLocation.AssemblyName);
+                    assemblyInfo = _assemblyManager.GetDeviceAssembly(assemblyNameNoExt);
+                    if (assemblyInfo != null)
+                    {
+                        bpLocation.AssemblyIdx = (uint)assemblyInfo.DeviceIndex;
+                        LogMessage($"Assembly '{assemblyNameNoExt}' has device Idx 0x{bpLocation.AssemblyIdx:X8}");
+                    }
+                    else
+                    {
+                        LogMessage($"WARNING: Could not find device Idx for assembly '{bpLocation.AssemblyName}'");
+                        // Default to 0x10000 which is assembly index 1 (typical user assembly)
+                        bpLocation.AssemblyIdx = 0x10000;
+                    }
+                }
+                
                 // Symbols found - create a verified breakpoint
-                LogMessage($"Symbol resolved: assembly={bpLocation.AssemblyName}, token={bpLocation.MethodToken:X8}, IL={bpLocation.ILOffset}");
+                LogMessage($"Symbol resolved: assembly={bpLocation.AssemblyName}, pdbxToken=0x{bpLocation.MethodToken:X8}, deviceIndex=0x{bpLocation.DeviceMethodIndex:X8}, IL={bpLocation.ILOffset}");
                 
                 breakpoint = new BreakpointInfo
                 {
@@ -269,19 +318,25 @@ public class DebugBridgeSession : IDisposable
                 };
                 
                 // Create the breakpoint definition for the device
+                // Use DeviceMethodIndex which combines assembly index with method row
                 var bpDef = new WPCommands.Debugging_Execution_BreakpointDef
                 {
                     m_id = (short)breakpointId,
                     m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
-                    m_md = bpLocation.MethodToken,
+                    m_md = bpLocation.DeviceMethodIndex,  // Use device method index, not pdbx token
                     m_IP = bpLocation.ILOffset,
                     m_pid = WPCommands.Debugging_Execution_BreakpointDef.c_PID_ANY,
                     m_depth = 0
                 };
                 _activeBreakpointDefs.Add(bpDef);
                 
+                LogMessage($"Setting breakpoint on device: id={breakpointId}, md=0x{bpDef.m_md:X8}, IP={bpDef.m_IP}, flags=0x{bpDef.m_flags:X4}");
+                LogMessage($"Total active breakpoints: {_activeBreakpointDefs.Count}");
+                
                 // Set breakpoints on the device
                 bool success = _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                LogMessage($"SetBreakpoints returned: {success}");
+                
                 if (!success)
                 {
                     LogMessage("Warning: Failed to set breakpoint on device");
@@ -381,12 +436,19 @@ public class DebugBridgeSession : IDisposable
         {
             LogMessage($"Continuing execution (thread {threadId})");
             
+            // Cancel any existing polling task
+            _breakpointPollCts?.Cancel();
+            _breakpointPollCts = new CancellationTokenSource();
+            
             // Resume execution using Wire Protocol
             bool success = _engine.ResumeExecution();
             
             if (success)
             {
                 LogMessage("Execution resumed");
+                
+                // Start background task to poll for breakpoint hits
+                _ = PollForBreakpointHitAsync(_breakpointPollCts.Token);
             }
             else
             {
@@ -400,6 +462,116 @@ public class DebugBridgeSession : IDisposable
         {
             LogMessage($"Continue error: {ex.Message}");
             return false;
+        }
+    }
+    
+    /// <summary>
+    /// Poll for breakpoint hits in the background
+    /// </summary>
+    private async Task PollForBreakpointHitAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Give the device a moment to process the resume command
+            await Task.Delay(100, cancellationToken);
+            
+            // Check if we're still stopped - might have hit a breakpoint immediately
+            var initialState = _engine.GetExecutionMode();
+            LogMessage($"Initial state after resume: {initialState}");
+            
+            // If still stopped, check if there's a breakpoint hit
+            if (((uint)initialState & 0x80000000) != 0)
+            {
+                LogMessage("Device still stopped after resume - checking for breakpoint hit");
+                
+                var bpStatus = _engine.GetBreakpointStatus();
+                if (bpStatus != null && bpStatus.m_id > 0)
+                {
+                    LogMessage($"Immediate breakpoint hit: id={bpStatus.m_id}, md=0x{bpStatus.m_md:X8}, IP=0x{bpStatus.m_IP:X4}");
+                    
+                    _lastThreadList = _engine.GetThreadList();
+                    if (_lastThreadList != null && _lastThreadList.Length > 0)
+                    {
+                        _stoppedThreadId = _lastThreadList[0];
+                    }
+                    
+                    RaiseEvent("stopped", new StoppedEventBody
+                    {
+                        Reason = "breakpoint",
+                        ThreadId = (int)_stoppedThreadId,
+                        AllThreadsStopped = true,
+                        HitBreakpointIds = new[] { (int)bpStatus.m_id }
+                    });
+                    return;
+                }
+            }
+            
+            // Poll for when execution stops (breakpoint hit)
+            LogMessage("Polling for breakpoint hit...");
+            
+            while (!cancellationToken.IsCancellationRequested && _isConnected && _engine != null)
+            {
+                await Task.Delay(50, cancellationToken);
+                
+                // Check execution state
+                var state = _engine.GetExecutionMode();
+                
+                // State.Stopped = 0x80000000
+                if (((uint)state & 0x80000000) != 0)
+                {
+                    LogMessage($"Device stopped (state={state}) - checking breakpoint status");
+                    
+                    // Check what caused the stop
+                    var bpStatus = _engine.GetBreakpointStatus();
+                    
+                    if (bpStatus != null)
+                    {
+                        LogMessage($"Breakpoint hit: id={bpStatus.m_id}, md=0x{bpStatus.m_md:X8}, IP=0x{bpStatus.m_IP:X4}");
+                        
+                        // Get thread list to find the stopped thread
+                        _lastThreadList = _engine.GetThreadList();
+                        if (_lastThreadList != null && _lastThreadList.Length > 0)
+                        {
+                            _stoppedThreadId = _lastThreadList[0];
+                        }
+                        
+                        // Notify VS Code that we hit a breakpoint
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = bpStatus.m_id > 0 ? "breakpoint" : "step",
+                            ThreadId = (int)_stoppedThreadId,
+                            AllThreadsStopped = true,
+                            HitBreakpointIds = bpStatus.m_id > 0 ? new[] { (int)bpStatus.m_id } : null
+                        });
+                    }
+                    else
+                    {
+                        // Stopped but no breakpoint - likely paused
+                        _lastThreadList = _engine.GetThreadList();
+                        if (_lastThreadList != null && _lastThreadList.Length > 0)
+                        {
+                            _stoppedThreadId = _lastThreadList[0];
+                        }
+                        
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "pause",
+                            ThreadId = (int)_stoppedThreadId,
+                            AllThreadsStopped = true
+                        });
+                    }
+                    
+                    break; // Stop polling
+                }
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Expected when cancellation is requested
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Breakpoint poll error: {ex.Message}");
         }
     }
 
@@ -416,6 +588,9 @@ public class DebugBridgeSession : IDisposable
         try
         {
             LogMessage($"Pausing execution (thread {threadId})");
+            
+            // Cancel polling task
+            _breakpointPollCts?.Cancel();
             
             // Pause execution using Wire Protocol
             bool success = _engine.PauseExecution();
@@ -452,7 +627,7 @@ public class DebugBridgeSession : IDisposable
     }
 
     /// <summary>
-    /// Step over (next line)
+    /// Step over (next line) - Uses temporary breakpoints for source-level stepping
     /// </summary>
     public async Task<bool> StepOver(int threadId)
     {
@@ -465,7 +640,7 @@ public class DebugBridgeSession : IDisposable
         {
             LogMessage($"Step over (thread {threadId})");
             
-            // Get current stack frame to set stepping breakpoint
+            // Get current stack frame
             uint pid = threadId > 0 ? (uint)threadId : _stoppedThreadId;
             var stack = _engine.GetThreadStack(pid);
             
@@ -475,56 +650,433 @@ public class DebugBridgeSession : IDisposable
                 return false;
             }
 
-            var currentFrame = stack.m_data[0];
+            // Find the first frame with symbols (user code)
+            WPCommands.Debugging_Thread_Stack.Reply.Call? userFrame = null;
+            string? assemblyName = null;
+            int userFrameDepth = -1;
             
-            // Create step over breakpoint
-            var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
+            for (int i = 0; i < stack.m_data.Length; i++)
             {
-                m_id = -1, // Stepping breakpoint
-                m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER,
-                m_pid = pid,
-                m_depth = WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_NORMAL,
-                m_md = currentFrame.m_md,
-                m_IP = currentFrame.m_IP
-            };
-            
-            // Set the stepping breakpoint and resume
-            var allBreakpoints = _activeBreakpointDefs.ToList();
-            allBreakpoints.Add(stepBp);
-            _engine.SetBreakpoints(allBreakpoints.ToArray());
-            
-            // Resume execution
-            _engine.ResumeExecution();
-            
-            // The device will hit the stepping breakpoint and we'll get a breakpoint hit notification
-            // For now, simulate the stop after step
-            await Task.Delay(100);
-            
-            // Check for breakpoint hit
-            var bpStatus = _engine.GetBreakpointStatus();
-            if (bpStatus != null)
-            {
-                LogMessage($"Step completed at IP: 0x{bpStatus.m_IP:X4}");
+                var frame = stack.m_data[i];
+                var asmName = GetAssemblyNameForToken(frame.m_md);
+                var methodInfo = _symbolResolver.GetMethodInfo(asmName, frame.m_md);
+                var methodName = _engine.GetMethodName(frame.m_md, true);
+                
+                LogMessage($"Frame {i}: md=0x{frame.m_md:X8}, IP=0x{frame.m_IP:X4}, method={methodName}, hasSymbols={methodInfo != null}");
+                
+                if (methodInfo != null)
+                {
+                    userFrame = frame;
+                    assemblyName = asmName;
+                    userFrameDepth = i;
+                    break;
+                }
             }
             
-            // Pause and notify
-            _engine.PauseExecution();
-            
-            RaiseEvent("stopped", new StoppedEventBody
+            if (userFrame == null || assemblyName == null)
             {
-                Reason = "step",
-                ThreadId = (int)pid,
-                AllThreadsStopped = true
-            });
+                // No user code found, just resume with a simple step
+                LogMessage("No frame with symbols found, using simple step");
+                return await PerformSimpleStep(pid, stack.m_data[0], 
+                    WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER,
+                    WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_NORMAL);
+            }
             
-            await Task.CompletedTask;
-            return true;
+            LogMessage($"User frame at depth {userFrameDepth}: md=0x{userFrame.m_md:X8}, IP=0x{userFrame.m_IP:X4}");
+            
+            // If we're inside a system call (not at user frame), step out first
+            if (userFrameDepth > 0)
+            {
+                LogMessage("Inside system call, stepping out to user code first");
+                return await PerformSimpleStep(pid, userFrame, 
+                    WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT,
+                    WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_RETURN);
+            }
+            
+            // We're at user code - get ALL potential step targets (handles loops)
+            var stepTargets = _symbolResolver.GetAllStepTargets(assemblyName, userFrame.m_md, userFrame.m_IP);
+            
+            if (stepTargets.Count > 0)
+            {
+                LogMessage($"Found {stepTargets.Count} potential step targets");
+                foreach (var target in stepTargets)
+                {
+                    LogMessage($"  Target: IL=0x{target.ILOffset:X4}, Line={target.SourceLine}");
+                }
+                
+                // Set temporary breakpoints at ALL potential next lines
+                return await StepToMultipleTargets(pid, userFrame.m_md, stepTargets);
+            }
+            else
+            {
+                // No targets found - we're at the only line in the method
+                // Use STEP_OVER which should step one IL instruction and potentially return
+                LogMessage("No step targets found, using IL-level step");
+                return await PerformSimpleStep(pid, userFrame,
+                    WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER,
+                    WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_NORMAL);
+            }
         }
         catch (Exception ex)
         {
             LogMessage($"StepOver error: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Step to one of multiple target IL offsets using temporary breakpoints.
+    /// This handles loops where execution might go to any of several lines.
+    /// </summary>
+    private async Task<bool> StepToMultipleTargets(uint pid, uint methodToken, 
+        List<(uint ILOffset, int SourceLine, string? SourceFile)> targets)
+    {
+        var tempBreakpointIds = new List<int>();
+        var targetILOffsets = new HashSet<uint>();
+        var allBreakpoints = _activeBreakpointDefs.ToList();
+        
+        // Create temporary breakpoints at all target offsets
+        foreach (var target in targets)
+        {
+            var tempBpId = _nextBreakpointId++;
+            tempBreakpointIds.Add(tempBpId);
+            targetILOffsets.Add(target.ILOffset);
+            
+            var tempBp = new WPCommands.Debugging_Execution_BreakpointDef
+            {
+                m_id = (short)tempBpId,
+                m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
+                m_pid = 0, // Any thread
+                m_depth = 0,
+                m_md = methodToken,
+                m_IP = target.ILOffset
+            };
+            
+            allBreakpoints.Add(tempBp);
+        }
+        
+        LogMessage($"Setting {tempBreakpointIds.Count} temp breakpoints for step");
+        
+        // Set all breakpoints on device
+        _engine.SetBreakpoints(allBreakpoints.ToArray());
+        
+        // Resume execution
+        _engine.ResumeExecution();
+        
+        // Wait for any breakpoint hit - pass target offsets so we can recognize step complete
+        await WaitForStepTargetHit(pid, tempBreakpointIds, targetILOffsets);
+        
+        // Remove temp breakpoints by resetting to only the active user breakpoints
+        _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+        
+        return true;
+    }
+    
+    /// <summary>
+    /// Wait for step to complete by hitting one of the target IL offsets.
+    /// When a user breakpoint is at the same location as a target, the device reports
+    /// the user breakpoint ID, so we check both the ID and the IP address.
+    /// </summary>
+    private async Task WaitForStepTargetHit(uint pid, List<int> tempBreakpointIds, HashSet<uint> targetILOffsets)
+    {
+        await Task.Delay(50);
+        
+        for (int i = 0; i < 100; i++) // Up to 10 seconds
+        {
+            var state = _engine.GetExecutionMode();
+            bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+            
+            if (isStopped)
+            {
+                var bpStatus = _engine.GetBreakpointStatus();
+                if (bpStatus != null)
+                {
+                    LogMessage($"Breakpoint hit: id={bpStatus.m_id}, IP=0x{bpStatus.m_IP:X4}, flags=0x{bpStatus.m_flags:X4}");
+                    
+                    // Check if we stopped at one of our target IL offsets
+                    // This handles the case where a user breakpoint is at the same location
+                    if (targetILOffsets.Contains(bpStatus.m_IP))
+                    {
+                        // We hit a target location - step complete!
+                        LogMessage($"Hit step target at IP=0x{bpStatus.m_IP:X4} - step complete");
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "step",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true
+                        });
+                        return;
+                    }
+                    else if (bpStatus.m_id > 0 && _activeBreakpointDefs.Any(bp => bp.m_id == bpStatus.m_id))
+                    {
+                        // Hit a user breakpoint that's NOT at a step target
+                        // This means we skipped past our targets (shouldn't normally happen)
+                        LogMessage($"Hit user breakpoint {bpStatus.m_id} at unexpected location");
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "breakpoint",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true,
+                            HitBreakpointIds = new[] { (int)bpStatus.m_id }
+                        });
+                        return;
+                    }
+                }
+                
+                // Stopped but no recognized breakpoint - assume step complete
+                LogMessage("Device stopped, assuming step complete");
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "step",
+                    ThreadId = (int)pid,
+                    AllThreadsStopped = true
+                });
+                return;
+            }
+            
+            await Task.Delay(100);
+        }
+        
+        // Timeout
+        LogMessage("Step timeout, forcing pause");
+        _engine.PauseExecution();
+        
+        RaiseEvent("stopped", new StoppedEventBody
+        {
+            Reason = "step",
+            ThreadId = (int)pid,
+            AllThreadsStopped = true
+        });
+    }
+
+    /// <summary>
+    /// Step to a specific IL offset using a temporary breakpoint
+    /// </summary>
+    private async Task<bool> StepToILOffset(uint pid, uint methodToken, uint ilOffset)
+    {
+        // Create a temporary breakpoint at the target IL offset
+        var tempBpId = _nextBreakpointId++;
+        var tempBp = new WPCommands.Debugging_Execution_BreakpointDef
+        {
+            m_id = (short)tempBpId,
+            m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
+            m_pid = 0, // Any thread
+            m_depth = 0,
+            m_md = methodToken,
+            m_IP = ilOffset
+        };
+        
+        LogMessage($"Setting temp breakpoint {tempBpId} at IL offset 0x{ilOffset:X4}");
+        
+        // Add temp breakpoint to active breakpoints and set on device
+        var allBreakpoints = _activeBreakpointDefs.ToList();
+        allBreakpoints.Add(tempBp);
+        _engine.SetBreakpoints(allBreakpoints.ToArray());
+        
+        // Resume execution
+        _engine.ResumeExecution();
+        
+        // Wait for breakpoint hit
+        await WaitForBreakpointHit(pid, tempBpId);
+        
+        // Remove temp breakpoint
+        _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+        
+        return true;
+    }
+    
+    /// <summary>
+    /// Perform a simple device-level step
+    /// </summary>
+    private async Task<bool> PerformSimpleStep(uint pid, 
+        WPCommands.Debugging_Thread_Stack.Reply.Call targetFrame,
+        ushort stepFlags, uint depth)
+    {
+        LogMessage($"Simple step: flags=0x{stepFlags:X4}, depth=0x{depth:X8}");
+        
+        var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
+        {
+            m_id = -1,
+            m_flags = stepFlags,
+            m_pid = pid,
+            m_depth = depth,
+            m_md = targetFrame.m_md,
+            m_IP = targetFrame.m_IP
+        };
+        
+        var allBreakpoints = _activeBreakpointDefs.ToList();
+        allBreakpoints.Add(stepBp);
+        _engine.SetBreakpoints(allBreakpoints.ToArray());
+        
+        _engine.ResumeExecution();
+        
+        await WaitForStepComplete(pid);
+        
+        return true;
+    }
+    
+    /// <summary>
+    /// Wait for a specific breakpoint to be hit
+    /// </summary>
+    private async Task WaitForBreakpointHit(uint pid, int targetBpId)
+    {
+        await Task.Delay(50);
+        
+        for (int i = 0; i < 100; i++) // Up to 10 seconds
+        {
+            var state = _engine.GetExecutionMode();
+            bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+            
+            if (isStopped)
+            {
+                var bpStatus = _engine.GetBreakpointStatus();
+                if (bpStatus != null)
+                {
+                    LogMessage($"Breakpoint hit: id={bpStatus.m_id}, IP=0x{bpStatus.m_IP:X4}, flags=0x{bpStatus.m_flags:X4}");
+                    
+                    if (bpStatus.m_id == targetBpId)
+                    {
+                        // Hit our temp breakpoint - this is a step completion
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "step",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true
+                        });
+                        return;
+                    }
+                    else if (bpStatus.m_id > 0 && _activeBreakpointDefs.Any(bp => bp.m_id == bpStatus.m_id))
+                    {
+                        // Hit a user breakpoint
+                        LogMessage($"Hit user breakpoint {bpStatus.m_id} while stepping");
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "breakpoint",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true,
+                            HitBreakpointIds = new[] { (int)bpStatus.m_id }
+                        });
+                        return;
+                    }
+                }
+                
+                // Stopped but no recognized breakpoint - assume step complete
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "step",
+                    ThreadId = (int)pid,
+                    AllThreadsStopped = true
+                });
+                return;
+            }
+            
+            await Task.Delay(100);
+        }
+        
+        // Timeout
+        LogMessage("Step timeout, forcing pause");
+        _engine.PauseExecution();
+        
+        RaiseEvent("stopped", new StoppedEventBody
+        {
+            Reason = "step",
+            ThreadId = (int)pid,
+            AllThreadsStopped = true
+        });
+    }
+    
+    /// <summary>
+    /// Get assembly name for a device method token
+    /// </summary>
+    private string GetAssemblyNameForToken(uint methodToken)
+    {
+        // Device token format: (assembly_index << 16) | method_row
+        uint assemblyIdx = methodToken & 0xFFFF0000;
+        
+        // Find the assembly with this index
+        var assemblyInfo = _assemblyManager.GetAssemblyByDeviceIndex((int)assemblyIdx);
+        if (assemblyInfo != null)
+        {
+            return assemblyInfo.Name;
+        }
+        
+        return "unknown";
+    }
+    
+    /// <summary>
+    /// Wait for a step operation to complete
+    /// </summary>
+    private async Task WaitForStepComplete(uint pid)
+    {
+        // Give the device time to execute the step
+        await Task.Delay(50);
+        
+        // Poll for step completion
+        for (int i = 0; i < 50; i++) // Up to 5 seconds
+        {
+            var state = _engine.GetExecutionMode();
+            bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+            
+            if (isStopped)
+            {
+                // Check if we hit the step breakpoint
+                var bpStatus = _engine.GetBreakpointStatus();
+                if (bpStatus != null)
+                {
+                    LogMessage($"Step completed at IP: 0x{bpStatus.m_IP:X4}, flags=0x{bpStatus.m_flags:X4}");
+                    
+                    // Check if this is a step completion (m_id == -1) or a regular breakpoint
+                    if (bpStatus.m_id == -1 || 
+                        (bpStatus.m_flags & WPCommands.Debugging_Execution_BreakpointDef.c_STEP) != 0)
+                    {
+                        // Step completed
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "step",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true
+                        });
+                        return;
+                    }
+                    else if (bpStatus.m_id > 0)
+                    {
+                        // Hit a regular breakpoint while stepping
+                        LogMessage($"Hit breakpoint {bpStatus.m_id} while stepping");
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "breakpoint",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true,
+                            HitBreakpointIds = new[] { (int)bpStatus.m_id }
+                        });
+                        return;
+                    }
+                }
+                
+                // Device is stopped but no breakpoint info - assume step complete
+                LogMessage("Device stopped, assuming step complete");
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "step",
+                    ThreadId = (int)pid,
+                    AllThreadsStopped = true
+                });
+                return;
+            }
+            
+            await Task.Delay(100);
+        }
+        
+        // Timeout - force pause
+        LogMessage("Step timeout, forcing pause");
+        _engine.PauseExecution();
+        
+        RaiseEvent("stopped", new StoppedEventBody
+        {
+            Reason = "step",
+            ThreadId = (int)pid,
+            AllThreadsStopped = true
+        });
     }
 
     /// <summary>
@@ -550,7 +1102,25 @@ public class DebugBridgeSession : IDisposable
                 return false;
             }
 
-            var currentFrame = stack.m_data[0];
+            // Find the first frame that has symbols (user code)
+            WPCommands.Debugging_Thread_Stack.Reply.Call? targetFrame = null;
+            
+            for (int i = 0; i < stack.m_data.Length; i++)
+            {
+                var frame = stack.m_data[i];
+                bool hasSymbols = _symbolResolver.GetMethodInfo(GetAssemblyNameForToken(frame.m_md), frame.m_md) != null;
+                
+                if (hasSymbols)
+                {
+                    targetFrame = frame;
+                    break;
+                }
+            }
+            
+            if (targetFrame == null)
+            {
+                targetFrame = stack.m_data[0];
+            }
             
             // Create step into breakpoint
             var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
@@ -559,8 +1129,8 @@ public class DebugBridgeSession : IDisposable
                 m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_STEP_IN,
                 m_pid = pid,
                 m_depth = WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_CALL,
-                m_md = currentFrame.m_md,
-                m_IP = currentFrame.m_IP
+                m_md = targetFrame.m_md,
+                m_IP = targetFrame.m_IP
             };
             
             var allBreakpoints = _activeBreakpointDefs.ToList();
@@ -569,18 +1139,9 @@ public class DebugBridgeSession : IDisposable
             
             _engine.ResumeExecution();
             
-            await Task.Delay(100);
+            // Wait for step to complete
+            await WaitForStepComplete(pid);
             
-            _engine.PauseExecution();
-            
-            RaiseEvent("stopped", new StoppedEventBody
-            {
-                Reason = "step",
-                ThreadId = (int)pid,
-                AllThreadsStopped = true
-            });
-            
-            await Task.CompletedTask;
             return true;
         }
         catch (Exception ex)
@@ -613,7 +1174,25 @@ public class DebugBridgeSession : IDisposable
                 return false;
             }
 
-            var currentFrame = stack.m_data[0];
+            // Find the first frame that has symbols (user code)
+            WPCommands.Debugging_Thread_Stack.Reply.Call? targetFrame = null;
+            
+            for (int i = 0; i < stack.m_data.Length; i++)
+            {
+                var frame = stack.m_data[i];
+                bool hasSymbols = _symbolResolver.GetMethodInfo(GetAssemblyNameForToken(frame.m_md), frame.m_md) != null;
+                
+                if (hasSymbols)
+                {
+                    targetFrame = frame;
+                    break;
+                }
+            }
+            
+            if (targetFrame == null)
+            {
+                targetFrame = stack.m_data[0];
+            }
             
             // Create step out breakpoint
             var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
@@ -622,8 +1201,8 @@ public class DebugBridgeSession : IDisposable
                 m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT,
                 m_pid = pid,
                 m_depth = WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_RETURN,
-                m_md = currentFrame.m_md,
-                m_IP = currentFrame.m_IP
+                m_md = targetFrame.m_md,
+                m_IP = targetFrame.m_IP
             };
             
             var allBreakpoints = _activeBreakpointDefs.ToList();
@@ -632,18 +1211,9 @@ public class DebugBridgeSession : IDisposable
             
             _engine.ResumeExecution();
             
-            await Task.Delay(100);
+            // Wait for step to complete
+            await WaitForStepComplete(pid);
             
-            _engine.PauseExecution();
-            
-            RaiseEvent("stopped", new StoppedEventBody
-            {
-                Reason = "step",
-                ThreadId = (int)pid,
-                AllThreadsStopped = true
-            });
-            
-            await Task.CompletedTask;
             return true;
         }
         catch (Exception ex)
@@ -725,15 +1295,20 @@ public class DebugBridgeSession : IDisposable
         
         if (!_isConnected || _engine == null)
         {
+            LogMessage("GetStackTrace: Not connected or engine is null");
             return frames;
         }
 
         try
         {
-            LogMessage($"Getting stack trace for thread {threadId}...");
+            LogMessage($"Getting stack trace for thread {threadId} (startFrame={startFrame}, levels={levels})...");
+            
+            // Make sure we have a valid thread ID - use stored ID if 0 was passed
+            uint pid = threadId > 0 ? (uint)threadId : _stoppedThreadId;
+            LogMessage($"Using thread PID: {pid} (passed threadId={threadId}, _stoppedThreadId={_stoppedThreadId})");
             
             // Get thread stack from device
-            var stack = _engine.GetThreadStack((uint)threadId);
+            var stack = _engine.GetThreadStack(pid);
             
             if (stack != null && stack.m_data != null)
             {
@@ -747,7 +1322,6 @@ public class DebugBridgeSession : IDisposable
                 {
                     var frame = stack.m_data[i];
                     var frameId = _nextFrameId++;
-                    _frameIdMap[frameId] = (threadId, i);
                     
                     // Get method name
                     var methodName = _engine.GetMethodName(frame.m_md, true) ?? $"Frame {i}";
@@ -756,11 +1330,12 @@ public class DebugBridgeSession : IDisposable
                     SourceInfo? sourceInfo = null;
                     int line = 0;
                     int column = 0;
+                    string? assemblyName = null;
                     
                     // Look up source location using the symbol resolver
                     // The method token from the device is the nanoFramework token
                     // We need to match it against our loaded .pdbx files
-                    var sourceLocation = TryGetSourceLocationForFrame(frame.m_md, frame.m_IP);
+                    var (sourceLocation, foundAssemblyName) = TryGetSourceLocationForFrame(frame.m_md, frame.m_IP);
                     
                     if (sourceLocation != null)
                     {
@@ -771,8 +1346,12 @@ public class DebugBridgeSession : IDisposable
                         };
                         line = sourceLocation.Line;
                         column = sourceLocation.Column;
+                        assemblyName = foundAssemblyName;
                         LogMessage($"Frame {i}: {methodName} at {sourceLocation.SourceFile}:{line}");
                     }
+                    
+                    // Store frame info including method token and assembly name for variable lookup
+                    _frameIdMap[frameId] = (threadId, i, frame.m_md, assemblyName);
                     
                     var stackFrame = new StackFrameInfo
                     {
@@ -788,11 +1367,22 @@ public class DebugBridgeSession : IDisposable
             }
             else
             {
-                LogMessage("Could not get stack trace from device");
+                LogMessage($"Could not get stack trace from device for thread {pid} (stack={stack}, m_data={(stack?.m_data == null ? "null" : stack.m_data.Length.ToString() + " frames")})");
+                
+                // Try refreshing the thread list to see what's available
+                var currentThreads = _engine.GetThreadList();
+                if (currentThreads != null)
+                {
+                    LogMessage($"Current thread list: [{string.Join(", ", currentThreads)}]");
+                }
+                else
+                {
+                    LogMessage("Current thread list is NULL");
+                }
                 
                 // Return placeholder frame
                 var frameId = _nextFrameId++;
-                _frameIdMap[frameId] = (threadId, 0);
+                _frameIdMap[frameId] = ((int)pid, 0, 0, null);
                 
                 frames.Add(new StackFrameInfo
                 {
@@ -826,8 +1416,8 @@ public class DebugBridgeSession : IDisposable
 
         try
         {
-            var (threadId, depth) = _frameIdMap[frameId];
-            LogMessage($"Getting scopes for frame {frameId} (thread {threadId}, depth {depth})");
+            var (threadId, depth, methodToken, assemblyName) = _frameIdMap[frameId];
+            LogMessage($"Getting scopes for frame {frameId} (thread {threadId}, depth {depth}, method 0x{methodToken:X8}, assembly {assemblyName ?? "unknown"})");
             
             // Get stack frame info to determine number of locals and arguments
             var (numArgs, numLocals, evalStackDepth, success) = _engine.GetStackFrameInfo((uint)threadId, (uint)depth);
@@ -843,7 +1433,9 @@ public class DebugBridgeSession : IDisposable
                     Type = ScopeType.Locals, 
                     ThreadId = threadId, 
                     Depth = depth,
-                    Count = (int)numLocals
+                    Count = (int)numLocals,
+                    MethodToken = methodToken,
+                    AssemblyName = assemblyName
                 };
                 scopes.Add(new ScopeInfo 
                 { 
@@ -862,7 +1454,9 @@ public class DebugBridgeSession : IDisposable
                         Type = ScopeType.Arguments, 
                         ThreadId = threadId, 
                         Depth = depth,
-                        Count = (int)numArgs
+                        Count = (int)numArgs,
+                        MethodToken = methodToken,
+                        AssemblyName = assemblyName
                     };
                     scopes.Add(new ScopeInfo 
                     { 
@@ -883,7 +1477,9 @@ public class DebugBridgeSession : IDisposable
                 { 
                     Type = ScopeType.Locals, 
                     ThreadId = threadId, 
-                    Depth = depth 
+                    Depth = depth,
+                    MethodToken = methodToken,
+                    AssemblyName = assemblyName
                 };
                 scopes.Add(new ScopeInfo { Name = "Locals", VariablesReference = localsRef, Expensive = false });
             }
@@ -917,6 +1513,17 @@ public class DebugBridgeSession : IDisposable
             {
                 LogMessage($"Getting variables for {scopeRef.Type} scope (thread {scopeRef.ThreadId}, depth {scopeRef.Depth})");
                 
+                // Try to get local variable names from PDB
+                string[]? variableNames = null;
+                if (scopeRef.Type == ScopeType.Locals && scopeRef.AssemblyName != null && scopeRef.MethodToken != 0)
+                {
+                    variableNames = _symbolResolver.GetLocalVariableNames(scopeRef.AssemblyName, scopeRef.MethodToken);
+                    if (variableNames != null)
+                    {
+                        LogMessage($"Found {variableNames.Length} local variable names from PDB: [{string.Join(", ", variableNames)}]");
+                    }
+                }
+                
                 int startIndex = start ?? 0;
                 int maxCount = count ?? scopeRef.Count;
                 
@@ -926,24 +1533,35 @@ public class DebugBridgeSession : IDisposable
                         ? Engine.StackValueKind.Argument 
                         : Engine.StackValueKind.Local;
                     
+                    // Determine the variable name
+                    string varName;
+                    if (variableNames != null && i < variableNames.Length)
+                    {
+                        varName = variableNames[i];
+                    }
+                    else
+                    {
+                        varName = scopeRef.Type == ScopeType.Arguments ? $"arg{i}" : $"local{i}";
+                    }
+                    
                     try
                     {
                         var runtimeValue = _engine.GetStackFrameValue(
-                            (uint)scopeRef.ThreadId, 
+                            (uint)scopeRef.ThreadId,
                             (uint)scopeRef.Depth, 
                             kind, 
                             (uint)i);
                         
                         if (runtimeValue != null)
                         {
-                            var varInfo = CreateVariableInfo(runtimeValue, $"[{i}]");
+                            var varInfo = CreateVariableInfo(runtimeValue, varName);
                             variables.Add(varInfo);
                         }
                         else
                         {
                             variables.Add(new VariableInfo
                             {
-                                Name = scopeRef.Type == ScopeType.Arguments ? $"arg{i}" : $"local{i}",
+                                Name = varName,
                                 Value = "<unavailable>",
                                 Type = "unknown",
                                 VariablesReference = 0
@@ -955,7 +1573,7 @@ public class DebugBridgeSession : IDisposable
                         LogMessage($"Error getting variable {i}: {ex.Message}");
                         variables.Add(new VariableInfo
                         {
-                            Name = scopeRef.Type == ScopeType.Arguments ? $"arg{i}" : $"local{i}",
+                            Name = varName,
                             Value = "<error>",
                             Type = "unknown",
                             VariablesReference = 0
@@ -1129,6 +1747,235 @@ public class DebugBridgeSession : IDisposable
         catch (Exception ex)
         {
             return new DeployResult(false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Start execution on the device
+    /// </summary>
+    /// <param name="stopOnEntry">Whether to stop at the entry point</param>
+    /// <returns>True if execution started successfully</returns>
+    public async Task<bool> StartExecution(bool stopOnEntry)
+    {
+        if (!_isConnected || _engine == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            LogMessage($"Starting execution (stopOnEntry: {stopOnEntry})");
+
+            if (stopOnEntry)
+            {
+                // First pause, then we'll get a stopped event
+                _engine.PauseExecution();
+                
+                // Get thread list
+                _lastThreadList = _engine.GetThreadList();
+                _stoppedThreadId = _lastThreadList?.FirstOrDefault() ?? 1u;
+                
+                // Notify that we're stopped at entry
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "entry",
+                    ThreadId = (int)_stoppedThreadId,
+                    AllThreadsStopped = true
+                });
+            }
+            else
+            {
+                // Just resume execution
+                _engine.ResumeExecution();
+            }
+
+            await Task.CompletedTask;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"StartExecution error: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Attach to a running program on the device
+    /// </summary>
+    /// <returns>True if attached successfully</returns>
+    public async Task<bool> Attach()
+    {
+        if (!_isConnected || _engine == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            LogMessage("Attaching to running CLR...");
+            
+            // Check device state
+            LogMessage($"Device connected to nanoCLR: {_engine.IsConnectedTonanoCLR}");
+            LogMessage($"Device connected to nanoBooter: {_engine.IsConnectedTonanoBooter}");
+            
+            // Get initial execution state
+            var initialState = _engine.GetExecutionMode();
+            LogMessage($"Initial execution state: {initialState}");
+
+            // Pause execution to allow debugging
+            LogMessage("Calling PauseExecution...");
+            bool paused = _engine.PauseExecution();
+            LogMessage($"PauseExecution returned: {paused}");
+            
+            if (!paused)
+            {
+                LogMessage("Failed to pause execution for attach");
+                return false;
+            }
+
+            // Wait for the device to actually stop and verify state
+            // The device needs time to process the stop command
+            for (int i = 0; i < 10; i++)
+            {
+                await Task.Delay(200);  // Wait 200ms between checks
+                
+                var state = _engine.GetExecutionMode();
+                LogMessage($"Execution state check {i+1}: {state}");
+                
+                // Check if the Stopped flag is set
+                if (((uint)state & 0x80000000) != 0)  // State.Stopped = 0x80000000
+                {
+                    LogMessage("Device confirmed stopped");
+                    break;
+                }
+                
+                if (i == 9)
+                {
+                    LogMessage("WARNING: Device may not be fully stopped after 2 seconds");
+                }
+            }
+
+            // Query and register device assemblies
+            LogMessage("Querying device assemblies...");
+            var deviceAssemblies = _engine.ResolveAllAssemblies();
+            if (deviceAssemblies != null && deviceAssemblies.Count > 0)
+            {
+                LogMessage($"Device has {deviceAssemblies.Count} assemblies loaded:");
+                foreach (var assembly in deviceAssemblies)
+                {
+                    if (assembly.Result != null)
+                    {
+                        var name = assembly.Result.Name;
+                        var version = new Version(
+                            assembly.Result.Version.MajorVersion,
+                            assembly.Result.Version.MinorVersion,
+                            assembly.Result.Version.BuildNumber,
+                            assembly.Result.Version.RevisionNumber);
+                        // Idx is already in format (assembly_index << 16)
+                        var idx = (int)assembly.Idx;
+                        
+                        LogMessage($"  Assembly Idx=0x{idx:X8}: {name} v{version}");
+                        _assemblyManager.RegisterDeviceAssembly(name, version, 0, idx);
+                    }
+                }
+            }
+            else
+            {
+                LogMessage("WARNING: Could not resolve device assemblies");
+            }
+
+            // Get thread list
+            LogMessage("Getting thread list...");
+            _lastThreadList = _engine.GetThreadList();
+            
+            if (_lastThreadList != null)
+            {
+                LogMessage($"Thread list contains {_lastThreadList.Length} thread(s): [{string.Join(", ", _lastThreadList)}]");
+            }
+            else
+            {
+                LogMessage("Thread list is NULL - device may not have running threads or debugging may not be enabled");
+            }
+            
+            _stoppedThreadId = _lastThreadList?.FirstOrDefault() ?? 1u;
+            LogMessage($"Using stopped thread ID: {_stoppedThreadId}");
+            
+            // Try to get stack for the first thread to verify debugging is working
+            if (_lastThreadList != null && _lastThreadList.Length > 0)
+            {
+                var testStack = _engine.GetThreadStack(_lastThreadList[0]);
+                if (testStack != null && testStack.m_data != null)
+                {
+                    LogMessage($"Test stack has {testStack.m_data.Length} frames - debugging is working!");
+                    foreach (var frame in testStack.m_data)
+                    {
+                        var methodName = _engine.GetMethodName(frame.m_md, true);
+                        LogMessage($"  Frame: {methodName} (token=0x{frame.m_md:X8}, IP=0x{frame.m_IP:X4})");
+                    }
+                }
+                else
+                {
+                    LogMessage("WARNING: Test GetThreadStack returned null or empty data - debugging may not be fully working");
+                }
+            }
+
+            // Notify that we're stopped (attached)
+            RaiseEvent("stopped", new StoppedEventBody
+            {
+                Reason = "pause",
+                ThreadId = (int)_stoppedThreadId,
+                AllThreadsStopped = true,
+                Text = "Attached to device"
+            });
+
+            await Task.CompletedTask;
+            LogMessage("Attached successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Attach error: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Set exception handling options
+    /// </summary>
+    public async Task SetExceptionHandling(bool breakOnAll, bool breakOnUncaught)
+    {
+        LogMessage($"Setting exception handling: breakOnAll={breakOnAll}, breakOnUncaught={breakOnUncaught}");
+        
+        // TODO: Configure the engine for exception handling
+        // This would typically involve setting up breakpoints or flags 
+        // for exception handling
+        
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Terminate the debug session
+    /// </summary>
+    public async Task Terminate()
+    {
+        LogMessage("Terminating debug session");
+        
+        try
+        {
+            if (_engine != null)
+            {
+                // Stop execution
+                _engine.Stop();
+            }
+            
+            await Disconnect();
+            
+            // Notify that debug session has terminated
+            RaiseEvent("terminated", new { });
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Terminate error: {ex.Message}");
         }
     }
 
@@ -1321,23 +2168,37 @@ public class DebugBridgeSession : IDisposable
     /// <summary>
     /// Try to get source location for a stack frame
     /// </summary>
-    private SourceLocation? TryGetSourceLocationForFrame(uint methodToken, uint ilOffset)
+    private (SourceLocation? Location, string? AssemblyName) TryGetSourceLocationForFrame(uint methodToken, uint ilOffset)
     {
-        // The method token from the device includes information about which assembly it belongs to
-        // In nanoFramework, the high bits of the token encode the assembly index
-        // For now, we search all loaded symbols to find a matching method
+        // The method token from the device is in format: (assembly_index << 16) | method_row
+        // Extract the assembly index to try finding the right assembly first
+        uint assemblyIdx = methodToken & 0xFFFF0000;
         
-        // First try using the assembly name from the method resolution
+        // Try to find the assembly by its device index
+        var assemblyInfo = _assemblyManager.GetAssemblyByDeviceIndex((int)assemblyIdx);
+        if (assemblyInfo != null)
+        {
+            var location = _symbolResolver.GetSourceLocation(assemblyInfo.Name, methodToken, ilOffset);
+            if (location != null)
+            {
+                LogMessage($"Source found via assembly index: {assemblyInfo.Name} -> {location.SourceFile}:{location.Line}");
+                return (location, assemblyInfo.Name);
+            }
+        }
+        
+        // Fall back to searching all loaded symbols
         foreach (var assemblyName in _symbolResolver.GetLoadedAssemblies())
         {
             var location = _symbolResolver.GetSourceLocation(assemblyName, methodToken, ilOffset);
             if (location != null)
             {
-                return location;
+                LogMessage($"Source found via search: {assemblyName} -> {location.SourceFile}:{location.Line}");
+                return (location, assemblyName);
             }
         }
         
-        return null;
+        LogMessage($"No source found for token 0x{methodToken:X8}, IL offset {ilOffset}");
+        return (null, null);
     }
 
     #endregion
@@ -1373,6 +2234,16 @@ internal class ScopeReference
     public int ThreadId { get; set; }
     public int Depth { get; set; }
     public int Count { get; set; }
+    
+    /// <summary>
+    /// The method token (device format) for looking up local variable names
+    /// </summary>
+    public uint MethodToken { get; set; }
+    
+    /// <summary>
+    /// The assembly name for looking up local variable names
+    /// </summary>
+    public string? AssemblyName { get; set; }
 }
 
 /// <summary>

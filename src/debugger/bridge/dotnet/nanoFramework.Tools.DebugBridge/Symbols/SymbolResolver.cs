@@ -11,6 +11,22 @@ using System.Xml.Serialization;
 namespace nanoFramework.Tools.DebugBridge.Symbols;
 
 /// <summary>
+/// Interface for PDB readers (both Portable and Windows PDB formats)
+/// </summary>
+public interface IPdbReader : IDisposable
+{
+    List<PdbSequencePoint>? GetSequencePoints(int methodToken);
+    PdbSequencePoint? FindSequencePoint(int methodToken, int ilOffset);
+    
+    /// <summary>
+    /// Get local variable names for a method
+    /// </summary>
+    /// <param name="methodToken">Method metadata token (CLR token 0x06XXXXXX)</param>
+    /// <returns>Array of local variable names indexed by slot, or null if not available</returns>
+    string[]? GetLocalVariableNames(int methodToken);
+}
+
+/// <summary>
 /// Resolves source file locations to IL offsets and vice versa using .pdbx files.
 /// The .pdbx format is an XML-based symbol file generated during nanoFramework compilation
 /// that contains IL mappings between CLR and nanoFramework offsets.
@@ -18,7 +34,7 @@ namespace nanoFramework.Tools.DebugBridge.Symbols;
 public class SymbolResolver : IDisposable
 {
     private readonly ConcurrentDictionary<string, PdbxFile> _loadedSymbols = new();
-    private readonly ConcurrentDictionary<string, PortablePdbReader> _loadedPdbs = new();
+    private readonly ConcurrentDictionary<string, IPdbReader> _loadedPdbs = new();
     private readonly ConcurrentDictionary<string, List<SequencePoint>> _sequencePointCache = new();
     private bool _disposed;
 
@@ -47,11 +63,16 @@ public class SymbolResolver : IDisposable
                 var assemblyKey = pdbxFile.Assembly.FileName ?? pdbxPath;
                 _loadedSymbols[assemblyKey] = pdbxFile;
                 
-                // Try to load the corresponding portable PDB file
-                var pdbReader = LoadPortablePdb(pdbxPath);
+                // Try to load the corresponding PDB file (Portable or Windows)
+                var pdbReader = LoadPdb(pdbxPath);
                 if (pdbReader != null)
                 {
                     _loadedPdbs[assemblyKey] = pdbReader;
+                    Console.Error.WriteLine($"[DebugBridge] Loaded PDB for {assemblyKey}");
+                }
+                else
+                {
+                    Console.Error.WriteLine($"[DebugBridge] No PDB loaded for {assemblyKey} - source locations will not be available");
                 }
                 
                 // Build sequence point cache for this assembly
@@ -69,9 +90,9 @@ public class SymbolResolver : IDisposable
     }
 
     /// <summary>
-    /// Try to load a portable PDB file for a given pdbx file
+    /// Try to load a PDB file for a given pdbx file (supports both Portable and Windows PDB formats)
     /// </summary>
-    private PortablePdbReader? LoadPortablePdb(string pdbxPath)
+    private IPdbReader? LoadPdb(string pdbxPath)
     {
         // Try common PDB locations relative to pdbx file
         var directory = Path.GetDirectoryName(pdbxPath) ?? "";
@@ -80,27 +101,63 @@ public class SymbolResolver : IDisposable
         // Try: same directory, with .pdb extension
         var pdbPath = Path.Combine(directory, baseName + ".pdb");
         
-        var reader = new PortablePdbReader();
-        
-        if (File.Exists(pdbPath) && reader.Load(pdbPath))
+        if (File.Exists(pdbPath))
         {
-            return reader;
+            // Check if it's a Portable PDB or Windows PDB
+            if (PortablePdbReader.IsPortablePdb(pdbPath))
+            {
+                Console.Error.WriteLine($"[DebugBridge] Loading Portable PDB: {pdbPath}");
+                var portableReader = new PortablePdbReader();
+                if (portableReader.Load(pdbPath))
+                {
+                    return portableReader;
+                }
+                portableReader.Dispose();
+            }
+            else
+            {
+                // It's a Windows PDB - try to load with WindowsPdbReader (using Mono.Cecil)
+                Console.Error.WriteLine($"[DebugBridge] Loading Windows PDB with Mono.Cecil: {pdbPath}");
+                var windowsReader = new WindowsPdbReader();
+                
+                // Find the PE file
+                var pePath = Path.Combine(directory, baseName + ".exe");
+                if (!File.Exists(pePath))
+                {
+                    pePath = Path.Combine(directory, baseName + ".dll");
+                }
+                
+                if (windowsReader.Load(pdbPath, pePath))
+                {
+                    Console.Error.WriteLine($"[DebugBridge] Loaded {windowsReader.MethodSequencePoints.Count} methods with sequence points from {pdbPath}");
+                    foreach (var doc in windowsReader.Documents)
+                    {
+                        Console.Error.WriteLine($"[DebugBridge]   Source document: {doc.Name}");
+                    }
+                    return windowsReader;
+                }
+                windowsReader.Dispose();
+            }
         }
 
         // Try: PE file with embedded PDB
+        var portableEmbeddedReader = new PortablePdbReader();
+        
         var dllPath = Path.Combine(directory, baseName + ".dll");
-        if (File.Exists(dllPath) && reader.LoadFromEmbeddedPdb(dllPath))
+        if (File.Exists(dllPath) && portableEmbeddedReader.LoadFromEmbeddedPdb(dllPath))
         {
-            return reader;
+            Console.Error.WriteLine($"[DebugBridge] Loaded embedded PDB from: {dllPath}");
+            return portableEmbeddedReader;
         }
 
         var exePath = Path.Combine(directory, baseName + ".exe");
-        if (File.Exists(exePath) && reader.LoadFromEmbeddedPdb(exePath))
+        if (File.Exists(exePath) && portableEmbeddedReader.LoadFromEmbeddedPdb(exePath))
         {
-            return reader;
+            Console.Error.WriteLine($"[DebugBridge] Loaded embedded PDB from: {exePath}");
+            return portableEmbeddedReader;
         }
 
-        reader.Dispose();
+        portableEmbeddedReader.Dispose();
         return null;
     }
 
@@ -176,7 +233,18 @@ public class SymbolResolver : IDisposable
     /// <returns>Source location info, or null if not found</returns>
     public SourceLocation? GetSourceLocation(string assemblyName, uint methodToken, uint ilOffset)
     {
-        var key = $"{assemblyName}::{methodToken:X8}";
+        // The methodToken from the device is in format: (assembly_index << 16) | method_row
+        // e.g., 0x00010001 = assembly 1, method row 1
+        // The pdbx nanoCLR token is in format: (table_type << 24) | method_row
+        // e.g., 0x06000001 = MethodDef table (0x06), method row 1
+        // We need to convert device token to pdbx token for lookup
+        
+        // Extract method row from device token (lower 16 bits)
+        uint methodRow = methodToken & 0xFFFF;
+        // Convert to pdbx token format (MethodDef table type = 0x06)
+        uint pdbxToken = 0x06000000 | methodRow;
+        
+        var key = $"{assemblyName}::{pdbxToken:X8}";
         
         if (_sequencePointCache.TryGetValue(key, out var sequencePoints))
         {
@@ -216,23 +284,56 @@ public class SymbolResolver : IDisposable
     /// Get method information by token
     /// </summary>
     /// <param name="assemblyName">Assembly name</param>
-    /// <param name="methodToken">Method token</param>
+    /// <param name="methodToken">Device method token in format (assembly_index << 16) | method_row</param>
     /// <returns>Method info or null if not found</returns>
     public MethodInfo? GetMethodInfo(string assemblyName, uint methodToken)
     {
-        if (_loadedSymbols.TryGetValue(assemblyName, out var pdbxFile))
+        // Convert device token to pdbx token format
+        uint methodRow = methodToken & 0xFFFF;
+        uint pdbxToken = 0x06000000 | methodRow;
+        
+        // Try to find the assembly with various name formats
+        PdbxFile? pdbxFile = null;
+        string? resolvedName = null;
+        
+        // Try exact name first
+        if (_loadedSymbols.TryGetValue(assemblyName, out pdbxFile))
+        {
+            resolvedName = assemblyName;
+        }
+        // Try with .exe extension
+        else if (_loadedSymbols.TryGetValue(assemblyName + ".exe", out pdbxFile))
+        {
+            resolvedName = assemblyName + ".exe";
+        }
+        // Try with .dll extension
+        else if (_loadedSymbols.TryGetValue(assemblyName + ".dll", out pdbxFile))
+        {
+            resolvedName = assemblyName + ".dll";
+        }
+        // Try without extension
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+            if (_loadedSymbols.TryGetValue(nameWithoutExt, out pdbxFile))
+            {
+                resolvedName = nameWithoutExt;
+            }
+        }
+        
+        if (pdbxFile != null && resolvedName != null)
         {
             foreach (var cls in pdbxFile.Assembly?.Classes ?? Array.Empty<PdbxClass>())
             {
                 foreach (var method in cls.Methods ?? Array.Empty<PdbxMethod>())
                 {
-                    if (method.Token?.NanoCLR == methodToken)
+                    if (method.Token?.NanoCLR == pdbxToken)
                     {
                         return new MethodInfo
                         {
                             Name = method.Name ?? "unknown",
                             ClassName = cls.Name ?? "unknown",
-                            AssemblyName = assemblyName,
+                            AssemblyName = resolvedName,
                             Token = methodToken,
                             HasSymbols = method.ILMap != null && method.ILMap.Length > 0
                         };
@@ -245,11 +346,193 @@ public class SymbolResolver : IDisposable
     }
 
     /// <summary>
+    /// Get local variable names for a method
+    /// </summary>
+    /// <param name="assemblyName">Assembly name</param>
+    /// <param name="deviceMethodToken">Device method token (format: assembly_index << 16 | method_row)</param>
+    /// <returns>Array of local variable names indexed by slot, or null if not available</returns>
+    public string[]? GetLocalVariableNames(string assemblyName, uint deviceMethodToken)
+    {
+        // Convert device token to CLR token format for PDB lookup
+        uint methodRow = deviceMethodToken & 0xFFFF;
+        int clrToken = (int)(0x06000000 | methodRow);
+        
+        // Try various name formats
+        IPdbReader? pdbReader = null;
+        
+        if (_loadedPdbs.TryGetValue(assemblyName, out pdbReader))
+        {
+            // Found with exact name
+        }
+        else if (_loadedPdbs.TryGetValue(assemblyName + ".exe", out pdbReader))
+        {
+            // Found with .exe extension
+        }
+        else if (_loadedPdbs.TryGetValue(assemblyName + ".dll", out pdbReader))
+        {
+            // Found with .dll extension
+        }
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+            _loadedPdbs.TryGetValue(nameWithoutExt, out pdbReader);
+        }
+        
+        if (pdbReader != null)
+        {
+            return pdbReader.GetLocalVariableNames(clrToken);
+        }
+        
+        return null;
+    }
+
+    /// <summary>
+    /// Get the IL offset for the next source line after the current position.
+    /// Used for implementing source-level step over.
+    /// </summary>
+    /// <param name="assemblyName">Assembly name</param>
+    /// <param name="methodToken">Device method token</param>
+    /// <param name="currentILOffset">Current nano IL offset</param>
+    /// <returns>IL offset and source line for the next line, or null if not found</returns>
+    public (uint ILOffset, int SourceLine, string? SourceFile)? GetNextSourceLine(
+        string assemblyName, uint methodToken, uint currentILOffset)
+    {
+        // Try to resolve assembly name
+        string? resolvedName = null;
+        if (_loadedSymbols.ContainsKey(assemblyName))
+            resolvedName = assemblyName;
+        else if (_loadedSymbols.ContainsKey(assemblyName + ".exe"))
+            resolvedName = assemblyName + ".exe";
+        else if (_loadedSymbols.ContainsKey(assemblyName + ".dll"))
+            resolvedName = assemblyName + ".dll";
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+            if (_loadedSymbols.ContainsKey(nameWithoutExt))
+                resolvedName = nameWithoutExt;
+        }
+        
+        if (resolvedName == null) return null;
+
+        // Build the cache key for this method
+        uint pdbxToken = 0x06000000 | (methodToken & 0xFFFF);
+        var key = $"{resolvedName}::{pdbxToken:X8}";
+        
+        if (!_sequencePointCache.TryGetValue(key, out var sequencePoints))
+        {
+            return null;
+        }
+        
+        // Find current sequence point (the one at or before current IL offset)
+        SequencePoint? currentSp = null;
+        int currentLine = 0;
+        
+        foreach (var sp in sequencePoints)
+        {
+            if (sp.ILOffsetNanoCLR <= currentILOffset && sp.SourceFile != null)
+            {
+                currentSp = sp;
+                currentLine = sp.StartLine;
+            }
+        }
+        
+        if (currentSp == null)
+        {
+            return null;
+        }
+        
+        // Find the next sequence point that's on a different source line
+        foreach (var sp in sequencePoints)
+        {
+            if (sp.ILOffsetNanoCLR > currentILOffset && 
+                sp.SourceFile != null && 
+                sp.StartLine != currentLine)
+            {
+                return (sp.ILOffsetNanoCLR, sp.StartLine, sp.SourceFile);
+            }
+        }
+        
+        // No next line found in this method - return null to indicate step out needed
+        return null;
+    }
+
+    /// <summary>
+    /// Get ALL potential next source lines for stepping. This handles loops
+    /// where execution may jump back to earlier lines.
+    /// Returns all sequence points that are on different lines than the current line.
+    /// </summary>
+    public List<(uint ILOffset, int SourceLine, string? SourceFile)> GetAllStepTargets(
+        string assemblyName, uint methodToken, uint currentILOffset)
+    {
+        var result = new List<(uint ILOffset, int SourceLine, string? SourceFile)>();
+        
+        // Try to resolve assembly name
+        string? resolvedName = null;
+        if (_loadedSymbols.ContainsKey(assemblyName))
+            resolvedName = assemblyName;
+        else if (_loadedSymbols.ContainsKey(assemblyName + ".exe"))
+            resolvedName = assemblyName + ".exe";
+        else if (_loadedSymbols.ContainsKey(assemblyName + ".dll"))
+            resolvedName = assemblyName + ".dll";
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+            if (_loadedSymbols.ContainsKey(nameWithoutExt))
+                resolvedName = nameWithoutExt;
+        }
+        
+        if (resolvedName == null) return result;
+
+        // Build the cache key for this method
+        uint pdbxToken = 0x06000000 | (methodToken & 0xFFFF);
+        var key = $"{resolvedName}::{pdbxToken:X8}";
+        
+        if (!_sequencePointCache.TryGetValue(key, out var sequencePoints))
+        {
+            return result;
+        }
+        
+        // Find current line
+        int currentLine = 0;
+        foreach (var sp in sequencePoints)
+        {
+            if (sp.ILOffsetNanoCLR <= currentILOffset && sp.SourceFile != null)
+            {
+                currentLine = sp.StartLine;
+            }
+        }
+        
+        if (currentLine == 0) return result;
+        
+        // Collect all sequence points on different lines
+        var seenLines = new HashSet<int> { currentLine };
+        
+        foreach (var sp in sequencePoints)
+        {
+            if (sp.SourceFile != null && !seenLines.Contains(sp.StartLine))
+            {
+                result.Add((sp.ILOffsetNanoCLR, sp.StartLine, sp.SourceFile));
+                seenLines.Add(sp.StartLine);
+            }
+        }
+        
+        return result;
+    }
+
+    /// <summary>
     /// Check if symbols are loaded for an assembly
     /// </summary>
     public bool HasSymbolsForAssembly(string assemblyName)
     {
-        return _loadedSymbols.ContainsKey(assemblyName);
+        if (_loadedSymbols.ContainsKey(assemblyName))
+            return true;
+        if (_loadedSymbols.ContainsKey(assemblyName + ".exe"))
+            return true;
+        if (_loadedSymbols.ContainsKey(assemblyName + ".dll"))
+            return true;
+        
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+        return _loadedSymbols.ContainsKey(nameWithoutExt);
     }
 
     /// <summary>
@@ -274,11 +557,13 @@ public class SymbolResolver : IDisposable
         _sequencePointCache.Clear();
     }
 
-    private void BuildSequencePointCache(PdbxFile pdbxFile, PortablePdbReader? pdbReader)
+    private void BuildSequencePointCache(PdbxFile pdbxFile, IPdbReader? pdbReader)
     {
         if (pdbxFile.Assembly == null) return;
 
         var assemblyName = pdbxFile.Assembly.FileName ?? "unknown";
+        int methodsWithSymbols = 0;
+        int methodsWithoutSymbols = 0;
 
         foreach (var cls in pdbxFile.Assembly.Classes ?? Array.Empty<PdbxClass>())
         {
@@ -298,9 +583,18 @@ public class SymbolResolver : IDisposable
                 {
                     // CLR token in pdbx is the metadata token used in PDB
                     pdbSequencePoints = pdbReader.GetSequencePoints((int)method.Token.CLR);
+                    if (pdbSequencePoints != null && pdbSequencePoints.Count > 0)
+                    {
+                        methodsWithSymbols++;
+                    }
+                    else
+                    {
+                        methodsWithoutSymbols++;
+                    }
                 }
 
                 // Build sequence points from IL map, correlating with PDB data
+                bool hasSourceInfo = false;
                 foreach (var il in method.ILMap)
                 {
                     var sp = new SequencePoint
@@ -323,10 +617,21 @@ public class SymbolResolver : IDisposable
                             sp.StartColumn = pdbSp.StartColumn;
                             sp.EndLine = pdbSp.EndLine;
                             sp.EndColumn = pdbSp.EndColumn;
+                            hasSourceInfo = true;
                         }
                     }
 
                     sequencePoints.Add(sp);
+                }
+
+                // Log first method with source info for debugging
+                if (hasSourceInfo && methodsWithSymbols == 1)
+                {
+                    var firstSp = sequencePoints.FirstOrDefault(s => s.SourceFile != null);
+                    if (firstSp != null)
+                    {
+                        Console.Error.WriteLine($"[DebugBridge] Example source mapping: {cls.Name}::{method.Name} -> {firstSp.SourceFile}:{firstSp.StartLine}");
+                    }
                 }
 
                 // Sort by nanoFramework IL offset
@@ -334,6 +639,8 @@ public class SymbolResolver : IDisposable
                 _sequencePointCache[key] = sequencePoints;
             }
         }
+
+        Console.Error.WriteLine($"[DebugBridge] {assemblyName}: {methodsWithSymbols} methods with source info, {methodsWithoutSymbols} methods without");
     }
 
     /// <summary>
@@ -375,7 +682,34 @@ public class SymbolResolver : IDisposable
 public class BreakpointLocation
 {
     public string AssemblyName { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// The nanoCLR token from the pdbx file (e.g., 0x06000001 for MethodDef row 1)
+    /// </summary>
     public uint MethodToken { get; set; }
+    
+    /// <summary>
+    /// The assembly Idx from ResolveAllAssemblies.
+    /// This is already in the format (assembly_index << 16), e.g., 0x10000 for assembly 1.
+    /// </summary>
+    public uint AssemblyIdx { get; set; }
+    
+    /// <summary>
+    /// Gets the device method index in the format expected by the debugger protocol.
+    /// Format: (assembly_idx) | method_row where assembly_idx is already shifted.
+    /// This is what should be passed to SetBreakpoints m_md field.
+    /// </summary>
+    public uint DeviceMethodIndex
+    {
+        get
+        {
+            // Extract the method row from the token (bottom 24 bits)
+            uint methodRow = MethodToken & 0x00FFFFFF;
+            // AssemblyIdx is already in format (assembly_index << 16), just OR with method row
+            return AssemblyIdx | methodRow;
+        }
+    }
+    
     public uint ILOffset { get; set; }
     public string SourceFile { get; set; } = string.Empty;
     public int Line { get; set; }

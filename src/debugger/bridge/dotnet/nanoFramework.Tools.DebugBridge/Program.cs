@@ -118,11 +118,23 @@ class Program
                 case "deploy":
                     response = await HandleDeploy(request);
                     break;
+                case "startExecution":
+                    response = await HandleStartExecution(request);
+                    break;
+                case "attach":
+                    response = await HandleAttach(request);
+                    break;
+                case "setExceptionHandling":
+                    response = await HandleSetExceptionHandling(request);
+                    break;
                 case "reboot":
                     response = await HandleReboot(request);
                     break;
                 case "loadSymbols":
                     response = await HandleLoadSymbols(request);
+                    break;
+                case "terminate":
+                    response = await HandleTerminate(request);
                     break;
                 case "exit":
                     _running = false;
@@ -331,7 +343,7 @@ class Program
         {
             Id = request.Id,
             Success = true,
-            Data = frames
+            Data = new { frames = frames, totalFrames = frames.Count }
         };
     }
 
@@ -417,6 +429,52 @@ class Program
 
         var result = await _session.Deploy(args.AssembliesPath);
         return new BridgeResponse { Id = request.Id, Success = result.Success, Error = result.Error };
+    }
+
+    private static async Task<BridgeResponse> HandleStartExecution(BridgeRequest request)
+    {
+        if (_session == null)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "Session not initialized" };
+        }
+
+        var args = JsonSerializer.Deserialize<StartExecutionArgs>(request.Args?.ToString() ?? "{}", _jsonOptions);
+        var result = await _session.StartExecution(args?.StopOnEntry ?? true);
+        return new BridgeResponse { Id = request.Id, Success = result };
+    }
+
+    private static async Task<BridgeResponse> HandleAttach(BridgeRequest request)
+    {
+        if (_session == null)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "Session not initialized" };
+        }
+
+        var result = await _session.Attach();
+        return new BridgeResponse { Id = request.Id, Success = result };
+    }
+
+    private static async Task<BridgeResponse> HandleSetExceptionHandling(BridgeRequest request)
+    {
+        if (_session == null)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "Session not initialized" };
+        }
+
+        var args = JsonSerializer.Deserialize<SetExceptionHandlingArgs>(request.Args?.ToString() ?? "{}", _jsonOptions);
+        await _session.SetExceptionHandling(args?.BreakOnAll ?? false, args?.BreakOnUncaught ?? true);
+        return new BridgeResponse { Id = request.Id, Success = true };
+    }
+
+    private static async Task<BridgeResponse> HandleTerminate(BridgeRequest request)
+    {
+        if (_session == null)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "Session not initialized" };
+        }
+
+        await _session.Terminate();
+        return new BridgeResponse { Id = request.Id, Success = true };
     }
 
     private static async Task<BridgeResponse> HandleReboot(BridgeRequest request)

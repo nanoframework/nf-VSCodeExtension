@@ -5,6 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>nanoFramework.Tools.DebugBridge</RootNamespace>
     <AssemblyName>nanoFramework.Tools.DebugBridge</AssemblyName>
     <Description>Debug bridge process for VS Code nanoFramework debugging</Description>
@@ -22,6 +23,8 @@
     <PackageReference Include="System.Text.Json" Version="8.*" />
     <!-- For parsing portable PDB files to extract source line information -->
     <PackageReference Include="System.Reflection.Metadata" Version="8.*" />
+    <!-- For reading Windows PDB files using Mono.Cecil -->
+    <PackageReference Include="Mono.Cecil" Version="0.11.*" />
   </ItemGroup>
 
 </Project>

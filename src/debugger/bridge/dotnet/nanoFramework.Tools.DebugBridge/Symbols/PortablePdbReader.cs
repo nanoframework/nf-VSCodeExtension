@@ -15,7 +15,7 @@ namespace nanoFramework.Tools.DebugBridge.Symbols;
 /// Portable PDB is the standard debug symbol format for .NET that contains IL offset to
 /// source location mappings.
 /// </summary>
-public class PortablePdbReader : IDisposable
+public class PortablePdbReader : IPdbReader, IDisposable
 {
     private MetadataReaderProvider? _pdbReaderProvider;
     private MetadataReader? _pdbReader;
@@ -32,6 +32,36 @@ public class PortablePdbReader : IDisposable
     /// Method sequence points indexed by method token
     /// </summary>
     public Dictionary<int, List<PdbSequencePoint>> MethodSequencePoints { get; } = new();
+
+    /// <summary>
+    /// Check if a file is a Portable PDB (vs Windows PDB)
+    /// </summary>
+    /// <param name="pdbPath">Path to the .pdb file</param>
+    /// <returns>True if it's a Portable PDB, false if Windows PDB or unknown</returns>
+    public static bool IsPortablePdb(string pdbPath)
+    {
+        if (string.IsNullOrEmpty(pdbPath) || !File.Exists(pdbPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(pdbPath);
+            var buffer = new byte[4];
+            if (stream.Read(buffer, 0, 4) != 4)
+            {
+                return false;
+            }
+
+            // Portable PDB magic: "BSJB" (0x42, 0x53, 0x4A, 0x42)
+            return buffer[0] == 0x42 && buffer[1] == 0x53 && buffer[2] == 0x4A && buffer[3] == 0x42;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Load a portable PDB file
@@ -268,8 +298,72 @@ public class PortablePdbReader : IDisposable
         return best;
     }
 
-    /// <summary>
-    /// Find the sequence point for a given source location
+    /// <summary>    /// Get local variable names for a method
+    /// </summary>
+    /// <param name="methodToken">Method metadata token (CLR token 0x06XXXXXX)</param>
+    /// <returns>Array of local variable names indexed by slot, or null if not available</returns>
+    public string[]? GetLocalVariableNames(int methodToken)
+    {
+        if (_pdbReader == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Get the method handle from the token
+            int rowNumber = methodToken & 0x00FFFFFF;
+            var methodHandle = MetadataTokens.MethodDefinitionHandle(rowNumber);
+            
+            // Get local scopes for this method
+            var localScopes = _pdbReader.GetLocalScopes(methodHandle);
+            
+            var localVars = new List<(int Index, string Name)>();
+            
+            foreach (var scopeHandle in localScopes)
+            {
+                var scope = _pdbReader.GetLocalScope(scopeHandle);
+                
+                foreach (var varHandle in scope.GetLocalVariables())
+                {
+                    var variable = _pdbReader.GetLocalVariable(varHandle);
+                    string name = _pdbReader.GetString(variable.Name);
+                    localVars.Add((variable.Index, name));
+                }
+            }
+
+            if (localVars.Count > 0)
+            {
+                int maxIndex = localVars.Max(v => v.Index);
+                var names = new string[maxIndex + 1];
+                
+                // Fill with default names
+                for (int i = 0; i < names.Length; i++)
+                {
+                    names[i] = $"local{i}";
+                }
+                
+                // Override with actual names where available
+                foreach (var (index, name) in localVars)
+                {
+                    if (index >= 0 && index < names.Length)
+                    {
+                        names[index] = name;
+                    }
+                }
+                
+                return names;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error getting local variables: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    /// <summary>    /// Find the sequence point for a given source location
     /// </summary>
     /// <param name="filePath">Source file path</param>
     /// <param name="line">Line number (1-based)</param>

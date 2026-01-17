@@ -257,6 +257,21 @@ public class AssemblyManager : IDisposable
     }
 
     /// <summary>
+    /// Get device assembly by its device index (in shifted format, e.g., 0x00010000)
+    /// </summary>
+    public AssemblyInfo? GetAssemblyByDeviceIndex(int deviceIdx)
+    {
+        foreach (var assembly in _deviceAssemblies.Values)
+        {
+            if (assembly.DeviceIndex == deviceIdx)
+            {
+                return assembly;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Get local assembly info by name
     /// </summary>
     public LocalAssemblyInfo? GetLocalAssembly(string name)

@@ -14,6 +14,7 @@ import {
     INanoEvalResult,
     INanoModule,
     INanoExceptionInfo,
+    INanoScope,
     StoppedReason
 } from '../nanoRuntime';
 import { DebugProtocol } from '@vscode/debugprotocol';
@@ -47,12 +48,14 @@ export class NanoBridge extends EventEmitter {
     private _requestId = 1;
     private _verbose = false;
     private _buffer = '';
+    private _device?: string;
 
     /**
      * Initialize the bridge
      */
     public async initialize(device?: string, verbose?: boolean): Promise<boolean> {
         this._verbose = verbose || false;
+        this._device = device;
 
         try {
             // Find the bridge executable path
@@ -108,7 +111,7 @@ export class NanoBridge extends EventEmitter {
      * Connect to device
      */
     public async connect(): Promise<boolean> {
-        const response = await this.sendCommand('connect', {});
+        const response = await this.sendCommand('connect', { device: this._device });
         return response?.success || false;
     }
 
@@ -140,7 +143,7 @@ export class NanoBridge extends EventEmitter {
      * Set a breakpoint
      */
     public async setBreakpoint(path: string, line: number, id: number): Promise<boolean> {
-        const response = await this.sendCommand('setBreakpoint', { path, line, id });
+        const response = await this.sendCommand('setBreakpoint', { file: path, line, id });
         return response?.data?.verified || false;
     }
 
@@ -206,23 +209,31 @@ export class NanoBridge extends EventEmitter {
      */
     public async getThreads(): Promise<INanoThread[]> {
         const response = await this.sendCommand('getThreads', {});
-        return response?.data?.threads || [];
+        return response?.data?.threads || response?.data || [];
     }
 
     /**
      * Get stack trace
      */
     public async getStackTrace(threadId: number, startFrame: number, maxLevels: number): Promise<INanoStackTrace> {
-        const response = await this.sendCommand('getStackTrace', { threadId, startFrame, maxLevels });
+        const response = await this.sendCommand('getStackTrace', { threadId, startFrame, levels: maxLevels });
         return response?.data || { frames: [], totalFrames: 0 };
+    }
+
+    /**
+     * Get scopes for a frame
+     */
+    public async getScopes(frameId: number): Promise<INanoScope[]> {
+        const response = await this.sendCommand('getScopes', { frameId });
+        return response?.data || [];
     }
 
     /**
      * Get variables
      */
-    public async getVariables(scope: string): Promise<INanoVariable[]> {
-        const response = await this.sendCommand('getVariables', { scope });
-        return response?.data?.variables || [];
+    public async getVariables(variablesReference: number): Promise<INanoVariable[]> {
+        const response = await this.sendCommand('getVariables', { variablesReference });
+        return response?.data?.variables || response?.data || [];
     }
 
     /**
@@ -259,6 +270,14 @@ export class NanoBridge extends EventEmitter {
     public async getModules(): Promise<INanoModule[]> {
         const response = await this.sendCommand('getModules', {});
         return response?.data?.modules || [];
+    }
+
+    /**
+     * Load symbols from a path (directory or .pdbx file)
+     */
+    public async loadSymbols(symbolPath: string, recursive: boolean = true): Promise<number> {
+        const response = await this.sendCommand('loadSymbols', { path: symbolPath, recursive });
+        return response?.data?.symbolsLoaded || 0;
     }
 
     /**
@@ -365,20 +384,31 @@ export class NanoBridge extends EventEmitter {
                 return;
             }
 
-            // Handle events
-            switch (message.type) {
-                case 'stopped':
-                    this.emit('stopped', message.payload.reason, message.payload.threadId, message.payload.exception);
-                    break;
-                case 'breakpointValidated':
-                    this.emit('breakpointValidated', message.payload);
-                    break;
-                case 'output':
-                    this.emit('output', message.payload.text, message.payload.category || 'console');
-                    break;
-                case 'terminated':
-                    this.emit('terminated');
-                    break;
+            // Handle events (bridge sends "event" and "body" properties)
+            const eventType = message.event || message.type;
+            const eventBody = message.body || message.payload;
+            
+            if (eventType) {
+                switch (eventType) {
+                    case 'stopped':
+                        this.emit('stopped', eventBody?.reason, eventBody?.threadId, eventBody?.text);
+                        break;
+                    case 'breakpointValidated':
+                    case 'breakpoint':
+                        this.emit('breakpointValidated', eventBody);
+                        break;
+                    case 'output':
+                        this.emit('output', eventBody?.output || eventBody?.text, eventBody?.category || 'console');
+                        break;
+                    case 'terminated':
+                        this.emit('terminated');
+                        break;
+                    case 'initialized':
+                        this.emit('initialized');
+                        break;
+                    default:
+                        this.log(`Unknown event type: ${eventType}`);
+                }
             }
         } catch (error) {
             this.log(`Failed to parse message: ${json}`);
@@ -386,11 +416,14 @@ export class NanoBridge extends EventEmitter {
     }
 
     /**
-     * Log a message
+     * Log a message - emits output event for verbose logging
      */
     private log(message: string): void {
         if (this._verbose) {
-            console.log(`[NanoBridge] ${message}`);
+            // Emit as output event so it shows in Debug Console
+            this.emit('output', `[NanoBridge] ${message}`, 'console');
+            // Also log to stderr for debugging
+            console.error(`[NanoBridge] ${message}`);
         }
     }
 }

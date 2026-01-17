@@ -189,6 +189,36 @@ public class DeployArgs
 }
 
 /// <summary>
+/// Arguments for starting execution
+/// </summary>
+public class StartExecutionArgs
+{
+    /// <summary>
+    /// Whether to stop at the entry point
+    /// </summary>
+    [JsonPropertyName("stopOnEntry")]
+    public bool StopOnEntry { get; set; } = true;
+}
+
+/// <summary>
+/// Arguments for setting exception handling options
+/// </summary>
+public class SetExceptionHandlingArgs
+{
+    /// <summary>
+    /// Whether to break on all exceptions
+    /// </summary>
+    [JsonPropertyName("breakOnAll")]
+    public bool BreakOnAll { get; set; }
+
+    /// <summary>
+    /// Whether to break on uncaught exceptions
+    /// </summary>
+    [JsonPropertyName("breakOnUncaught")]
+    public bool BreakOnUncaught { get; set; } = true;
+}
+
+/// <summary>
 /// Arguments for rebooting the device
 /// </summary>
 public class RebootArgs
