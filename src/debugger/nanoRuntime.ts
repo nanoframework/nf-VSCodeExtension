@@ -77,7 +77,7 @@ export interface INanoEvalResult {
     value: string;
     type: string;
     hasChildren: boolean;
-    reference: string;
+    variablesReference: number;
 }
 
 /**

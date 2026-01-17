@@ -542,7 +542,7 @@ export class NanoDebugSession extends LoggingDebugSession {
             response.body = {
                 result: result.value,
                 type: result.type,
-                variablesReference: result.hasChildren ? this._variableHandles.create(result.reference) : 0
+                variablesReference: result.variablesReference || 0
             };
         } else {
             response.body = {
@@ -568,7 +568,7 @@ export class NanoDebugSession extends LoggingDebugSession {
         response.body = {
             value: result.value,
             type: result.type,
-            variablesReference: result.hasChildren ? this._variableHandles.create(result.reference) : 0
+            variablesReference: result.variablesReference || 0
         };
         this.sendResponse(response);
     }

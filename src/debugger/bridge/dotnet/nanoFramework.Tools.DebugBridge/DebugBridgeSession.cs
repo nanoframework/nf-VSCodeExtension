@@ -28,6 +28,17 @@ public record SetBreakpointResult(bool Success, int BreakpointId = 0, string? Er
 public record EvaluateResult(bool Success, object? Value = null, string? Error = null);
 
 /// <summary>
+/// Data returned from successful evaluation
+/// </summary>
+public class EvaluateResultData
+{
+    public string Value { get; set; } = "";
+    public string Type { get; set; } = "";
+    public bool HasChildren { get; set; }
+    public int VariablesReference { get; set; }
+}
+
+/// <summary>
 /// Result of a deploy operation
 /// </summary>
 public record DeployResult(bool Success, string? Error = null);
@@ -1920,27 +1931,119 @@ public class DebugBridgeSession : IDisposable
     /// </summary>
     public async Task<EvaluateResult> Evaluate(string expression, int? frameId, string? context)
     {
-        if (!_isConnected)
+        if (!_isConnected || _engine == null)
         {
             return new EvaluateResult(false, Error: "Not connected");
         }
 
         try
         {
-            // TODO: Implement expression evaluation
-            // This is complex and may require:
-            // 1. Parsing the expression
-            // 2. Looking up variables in scope
-            // 3. Using Debugging_Value_* commands to read values
-            // 4. For method calls, potentially using Debugging_Thread_CreateVirtual
+            LogMessage($"Evaluate: expression='{expression}', frameId={frameId}, context={context}");
             
+            // For simple variable lookups, try to find the variable in the current frame
+            if (frameId.HasValue && _frameIdMap.TryGetValue(frameId.Value, out var frameInfo))
+            {
+                var (threadId, depth, methodToken, assemblyName) = frameInfo;
+                
+                // Get local variable names from PDB
+                string[]? variableNames = null;
+                if (assemblyName != null && methodToken != 0)
+                {
+                    variableNames = _symbolResolver.GetLocalVariableNames(assemblyName, methodToken);
+                }
+                
+                // Get stack frame info using the tuple-returning method
+                var (numArgs, numLocals, evalStackDepth, success) = _engine.GetStackFrameInfo((uint)threadId, (uint)depth);
+                if (success)
+                {
+                    // Search in local variables
+                    for (int i = 0; i < (int)numLocals; i++)
+                    {
+                        string varName;
+                        if (variableNames != null && i < variableNames.Length)
+                        {
+                            varName = variableNames[i];
+                        }
+                        else
+                        {
+                            varName = $"local{i}";
+                        }
+                        
+                        if (varName.Equals(expression, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Found matching variable
+                            try
+                            {
+                                var runtimeValue = _engine.GetStackFrameValue(
+                                    (uint)threadId, (uint)depth, 
+                                    Engine.StackValueKind.Local, (uint)i);
+                                
+                                if (runtimeValue != null)
+                                {
+                                    var varInfo = CreateVariableInfo(runtimeValue, varName);
+                                    LogMessage($"Evaluate result: {varName} = {varInfo.Value}");
+                                    
+                                    return new EvaluateResult(true, new EvaluateResultData
+                                    {
+                                        Value = varInfo.Value,
+                                        Type = varInfo.Type,
+                                        HasChildren = varInfo.VariablesReference > 0,
+                                        VariablesReference = varInfo.VariablesReference
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                LogMessage($"Error getting variable {varName}: {ex.Message}");
+                            }
+                        }
+                    }
+                    
+                    // Search in arguments
+                    for (int i = 0; i < (int)numArgs; i++)
+                    {
+                        string argName = $"arg{i}";
+                        // TODO: Get argument names from PDB if available
+                        
+                        if (argName.Equals(expression, StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                var runtimeValue = _engine.GetStackFrameValue(
+                                    (uint)threadId, (uint)depth,
+                                    Engine.StackValueKind.Argument, (uint)i);
+                                
+                                if (runtimeValue != null)
+                                {
+                                    var varInfo = CreateVariableInfo(runtimeValue, argName);
+                                    LogMessage($"Evaluate result: {argName} = {varInfo.Value}");
+                                    
+                                    return new EvaluateResult(true, new EvaluateResultData
+                                    {
+                                        Value = varInfo.Value,
+                                        Type = varInfo.Type,
+                                        HasChildren = varInfo.VariablesReference > 0,
+                                        VariablesReference = varInfo.VariablesReference
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                LogMessage($"Error getting argument {argName}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Variable not found or no frame specified
+            LogMessage($"Evaluate: variable '{expression}' not found");
             await Task.CompletedTask;
-            
-            // Placeholder
-            return new EvaluateResult(true, $"Evaluated: {expression}");
+            return new EvaluateResult(false, Error: $"Cannot evaluate '{expression}'");
         }
         catch (Exception ex)
         {
+            LogMessage($"Evaluate error: {ex.Message}");
             return new EvaluateResult(false, Error: ex.Message);
         }
     }
