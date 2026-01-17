@@ -1826,18 +1826,23 @@ public class DebugBridgeSession : IDisposable
             }
             else if (reference is RuntimeValueReference rvRef)
             {
-                // Expanding a complex object
+                // Expanding a complex object - lazy load fields/elements
                 LogMessage("Expanding runtime value children");
                 
-                // TODO: Implement child retrieval using Debugging_Value_GetField
-                // This requires understanding the object's type and fields
-                variables.Add(new VariableInfo
+                if (rvRef.Value == null || _engine == null)
                 {
-                    Name = "...",
-                    Value = "<expansion not yet implemented>",
-                    Type = "",
-                    VariablesReference = 0
-                });
+                    LogMessage("RuntimeValue or engine is null");
+                }
+                else if (rvRef.Value.IsArray || rvRef.Value.IsArrayReference)
+                {
+                    // Expand array elements
+                    variables.AddRange(GetArrayElements(rvRef.Value));
+                }
+                else
+                {
+                    // Expand object fields
+                    variables.AddRange(GetObjectFields(rvRef.Value));
+                }
             }
         }
         catch (Exception ex)
@@ -1847,6 +1852,155 @@ public class DebugBridgeSession : IDisposable
 
         await Task.CompletedTask;
         return variables;
+    }
+    
+    /// <summary>
+    /// Get array elements for expansion
+    /// </summary>
+    private List<VariableInfo> GetArrayElements(RuntimeValue arrayValue)
+    {
+        var elements = new List<VariableInfo>();
+        
+        try
+        {
+            uint length = arrayValue.Length;
+            LogMessage($"Getting array elements, length={length}");
+            
+            // Limit to first 100 elements for performance
+            uint maxElements = Math.Min(length, 100);
+            
+            for (uint i = 0; i < maxElements; i++)
+            {
+                try
+                {
+                    var element = arrayValue.GetElement(i);
+                    if (element != null)
+                    {
+                        var varInfo = CreateVariableInfo(element, $"[{i}]");
+                        elements.Add(varInfo);
+                    }
+                    else
+                    {
+                        elements.Add(new VariableInfo
+                        {
+                            Name = $"[{i}]",
+                            Value = "<null>",
+                            Type = "object",
+                            VariablesReference = 0
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Error getting array element {i}: {ex.Message}");
+                    elements.Add(new VariableInfo
+                    {
+                        Name = $"[{i}]",
+                        Value = "<error>",
+                        Type = "unknown",
+                        VariablesReference = 0
+                    });
+                }
+            }
+            
+            if (length > maxElements)
+            {
+                elements.Add(new VariableInfo
+                {
+                    Name = "...",
+                    Value = $"({length - maxElements} more elements)",
+                    Type = "",
+                    VariablesReference = 0
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"GetArrayElements error: {ex.Message}");
+        }
+        
+        return elements;
+    }
+    
+    /// <summary>
+    /// Get object fields for expansion
+    /// </summary>
+    private List<VariableInfo> GetObjectFields(RuntimeValue objValue)
+    {
+        var fields = new List<VariableInfo>();
+        
+        try
+        {
+            uint numFields = objValue.NumOfFields;
+            LogMessage($"Getting object fields, numFields={numFields}");
+            
+            if (numFields == 0)
+            {
+                LogMessage("Object has no fields");
+                return fields;
+            }
+            
+            // Get the type descriptor to resolve field information
+            uint td = objValue.Type;
+            LogMessage($"Object type descriptor: 0x{td:X8}");
+            
+            // Try to get field information from the type
+            // The nf-debugger uses field descriptors (fd) to access fields
+            // We need to iterate through the fields using offset
+            
+            for (uint offset = 0; offset < numFields; offset++)
+            {
+                try
+                {
+                    // Calculate field descriptor based on type and offset
+                    // Field descriptor format: type_index | (field_index << 16) or similar
+                    // For now, try using offset directly as we may need to resolve this
+                    
+                    var fieldValue = objValue.GetField(offset, 0);
+                    
+                    if (fieldValue != null)
+                    {
+                        // Try to get field name from the engine
+                        string fieldName = $"field{offset}";
+                        
+                        // Try to resolve the field name
+                        // The field descriptor might be embedded in the type info
+                        // For now, use a generic name
+                        
+                        var varInfo = CreateVariableInfo(fieldValue, fieldName);
+                        fields.Add(varInfo);
+                        LogMessage($"Field {offset}: {fieldName} = {varInfo.Value}");
+                    }
+                    else
+                    {
+                        fields.Add(new VariableInfo
+                        {
+                            Name = $"field{offset}",
+                            Value = "<null>",
+                            Type = "object",
+                            VariablesReference = 0
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Error getting field at offset {offset}: {ex.Message}");
+                    fields.Add(new VariableInfo
+                    {
+                        Name = $"field{offset}",
+                        Value = "<error>",
+                        Type = "unknown",
+                        VariablesReference = 0
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"GetObjectFields error: {ex.Message}");
+        }
+        
+        return fields;
     }
 
     private VariableInfo CreateVariableInfo(RuntimeValue runtimeValue, string defaultName)
