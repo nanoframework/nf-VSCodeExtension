@@ -627,7 +627,8 @@ public class DebugBridgeSession : IDisposable
     }
 
     /// <summary>
-    /// Step over (next line) - Uses temporary breakpoints for source-level stepping
+    /// Step over (next line) - Uses device-level stepping like VS extension
+    /// The device handles stepping using the c_STEP_OVER flag with stack depth tracking.
     /// </summary>
     public async Task<bool> StepOver(int threadId)
     {
@@ -677,51 +678,282 @@ public class DebugBridgeSession : IDisposable
             {
                 // No user code found, just resume with a simple step
                 LogMessage("No frame with symbols found, using simple step");
-                return await PerformSimpleStep(pid, stack.m_data[0], 
-                    WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER,
-                    WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_NORMAL);
+                return await PerformDeviceStepOver(pid, stack.m_data[0], 0);
             }
             
             LogMessage($"User frame at depth {userFrameDepth}: md=0x{userFrame.m_md:X8}, IP=0x{userFrame.m_IP:X4}");
             
-            // If we're inside a system call (not at user frame), step out first
-            if (userFrameDepth > 0)
+            // Get current source line info for logging
+            var currentLine = _symbolResolver.GetSourceLocation(assemblyName, userFrame.m_md, userFrame.m_IP);
+            if (currentLine != null)
             {
-                LogMessage("Inside system call, stepping out to user code first");
-                return await PerformSimpleStep(pid, userFrame, 
-                    WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT,
-                    WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_RETURN);
+                LogMessage($"Current location: {Path.GetFileName(currentLine.SourceFile)}:{currentLine.Line}");
             }
             
-            // We're at user code - get ALL potential step targets (handles loops)
-            var stepTargets = _symbolResolver.GetAllStepTargets(assemblyName, userFrame.m_md, userFrame.m_IP);
-            
-            if (stepTargets.Count > 0)
-            {
-                LogMessage($"Found {stepTargets.Count} potential step targets");
-                foreach (var target in stepTargets)
-                {
-                    LogMessage($"  Target: IL=0x{target.ILOffset:X4}, Line={target.SourceLine}");
-                }
-                
-                // Set temporary breakpoints at ALL potential next lines
-                return await StepToMultipleTargets(pid, userFrame.m_md, stepTargets);
-            }
-            else
-            {
-                // No targets found - we're at the only line in the method
-                // Use STEP_OVER which should step one IL instruction and potentially return
-                LogMessage("No step targets found, using IL-level step");
-                return await PerformSimpleStep(pid, userFrame,
-                    WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER,
-                    WPCommands.Debugging_Execution_BreakpointDef.c_DEPTH_STEP_NORMAL);
-            }
+            // Use device-level stepping with c_STEP_OVER flag
+            // The device will step over function calls and stop at next IL instruction
+            // We track stack depth to ensure we stop at the right level
+            return await PerformDeviceStepOver(pid, userFrame, (uint)userFrameDepth);
         }
         catch (Exception ex)
         {
             LogMessage($"StepOver error: {ex.Message}");
             return false;
         }
+    }
+    
+    /// <summary>
+    /// Perform device-level step over using c_STEP_OVER flag.
+    /// The device does IL-level stepping, so we loop until we reach a different source line.
+    /// </summary>
+    private async Task<bool> PerformDeviceStepOver(uint pid, 
+        WPCommands.Debugging_Thread_Stack.Reply.Call currentFrame, uint frameDepth)
+    {
+        LogMessage($"Device step over: pid={pid}, depth={frameDepth}, md=0x{currentFrame.m_md:X8}, IP=0x{currentFrame.m_IP:X4}");
+        
+        // Get the current source line - we'll keep stepping until we're on a different line
+        var assemblyName = GetAssemblyNameForToken(currentFrame.m_md);
+        var startLocation = _symbolResolver.GetSourceLocation(assemblyName, currentFrame.m_md, currentFrame.m_IP);
+        int startLine = startLocation?.Line ?? -1;
+        string? startFile = startLocation?.SourceFile;
+        
+        LogMessage($"Starting step from line {startLine} in {Path.GetFileName(startFile ?? "unknown")}");
+        
+        // Create step breakpoint using VS extension approach
+        ushort stepFlags = (ushort)(
+            WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER |
+            WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT |
+            WPCommands.Debugging_Execution_BreakpointDef.c_EXCEPTION_CAUGHT |
+            WPCommands.Debugging_Execution_BreakpointDef.c_THREAD_TERMINATED);
+        
+        // Loop until we reach a different source line (source-level stepping)
+        int maxSteps = 1000; // Safety limit to prevent infinite loops
+        for (int stepCount = 0; stepCount < maxSteps; stepCount++)
+        {
+            // Get current frame state
+            var stack = _engine.GetThreadStack(pid);
+            if (stack == null || stack.m_data == null || stack.m_data.Length == 0)
+            {
+                LogMessage("Lost thread stack during step");
+                break;
+            }
+            
+            var frame = stack.m_data[0];
+            
+            var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
+            {
+                m_id = -1,
+                m_flags = stepFlags,
+                m_pid = pid,
+                m_depth = (uint)stack.m_data.Length - 1,  // Use actual current depth
+                m_md = frame.m_md,
+                m_IP = frame.m_IP,
+                m_IPStart = 0,
+                m_IPEnd = 0
+            };
+            
+            // Add step breakpoint along with existing user breakpoints
+            var allBreakpoints = _activeBreakpointDefs.ToList();
+            allBreakpoints.Add(stepBp);
+            _engine.SetBreakpoints(allBreakpoints.ToArray());
+            
+            // Resume execution
+            _engine.ResumeExecution();
+            
+            // Wait for step to complete (IL-level)
+            var (stopped, hitUserBreakpoint, userBpId) = await WaitForSingleILStep(pid);
+            
+            if (!stopped)
+            {
+                LogMessage("Step did not complete");
+                break;
+            }
+            
+            if (hitUserBreakpoint)
+            {
+                // Hit a user breakpoint - stop here
+                LogMessage($"Hit user breakpoint {userBpId} during step");
+                _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "breakpoint",
+                    ThreadId = (int)pid,
+                    AllThreadsStopped = true,
+                    HitBreakpointIds = new[] { userBpId }
+                });
+                return true;
+            }
+            
+            // Check if we're now on a different source line
+            var newStack = _engine.GetThreadStack(pid);
+            if (newStack == null || newStack.m_data == null || newStack.m_data.Length == 0)
+            {
+                LogMessage("Lost thread stack after step");
+                break;
+            }
+            
+            var newFrame = newStack.m_data[0];
+            var newAssemblyName = GetAssemblyNameForToken(newFrame.m_md);
+            var newLocation = _symbolResolver.GetSourceLocation(newAssemblyName, newFrame.m_md, newFrame.m_IP);
+            int newLine = newLocation?.Line ?? -1;
+            string? newFile = newLocation?.SourceFile;
+            
+            // Check if we've moved to a different source line
+            bool differentLine = (newLine != startLine) || 
+                                 (newFile != startFile) ||
+                                 (newFrame.m_md != currentFrame.m_md);  // Different method
+            
+            // Also check if stack depth changed (stepped into or out of a method)
+            bool depthChanged = newStack.m_data.Length != (frameDepth + 1);
+            
+            if (differentLine || depthChanged || newLine < 0)
+            {
+                LogMessage($"Step complete: moved from line {startLine} to line {newLine} (steps={stepCount + 1})");
+                _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "step",
+                    ThreadId = (int)pid,
+                    AllThreadsStopped = true
+                });
+                return true;
+            }
+            
+            // Still on same line - continue stepping
+            if (stepCount % 10 == 0)
+            {
+                LogMessage($"Still on line {newLine}, continuing (step {stepCount + 1}, IP=0x{newFrame.m_IP:X4})");
+            }
+        }
+        
+        // Safety limit reached or error
+        LogMessage("Step limit reached or error");
+        _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+        RaiseEvent("stopped", new StoppedEventBody
+        {
+            Reason = "step",
+            ThreadId = (int)pid,
+            AllThreadsStopped = true
+        });
+        return true;
+    }
+    
+    /// <summary>
+    /// Wait for a single IL-level step to complete.
+    /// Returns (stopped, hitUserBreakpoint, userBpId)
+    /// </summary>
+    private async Task<(bool stopped, bool hitUserBreakpoint, int userBpId)> WaitForSingleILStep(uint pid)
+    {
+        await Task.Delay(20);
+        
+        for (int i = 0; i < 100; i++) // Up to 10 seconds
+        {
+            var state = _engine.GetExecutionMode();
+            bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+            
+            if (isStopped)
+            {
+                var bpStatus = _engine.GetBreakpointStatus();
+                if (bpStatus != null)
+                {
+                    // Check if we hit a user breakpoint
+                    if (bpStatus.m_id > 0 && _activeBreakpointDefs.Any(bp => bp.m_id == bpStatus.m_id))
+                    {
+                        return (true, true, (int)bpStatus.m_id);
+                    }
+                }
+                
+                // Step completed normally
+                return (true, false, 0);
+            }
+            
+            await Task.Delay(100);
+        }
+        
+        // Timeout - force pause
+        _engine.PauseExecution();
+        return (true, false, 0);
+    }
+    
+    /// <summary>
+    /// Wait for device-level step to complete (legacy - kept for reference).
+    /// </summary>
+    private async Task WaitForDeviceStepComplete(uint pid, uint expectedDepth)
+    {
+        await Task.Delay(50);
+        
+        for (int i = 0; i < 100; i++) // Up to 10 seconds
+        {
+            var state = _engine.GetExecutionMode();
+            bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+            
+            if (isStopped)
+            {
+                var bpStatus = _engine.GetBreakpointStatus();
+                if (bpStatus != null)
+                {
+                    LogMessage($"Step stopped: id={bpStatus.m_id}, IP=0x{bpStatus.m_IP:X4}, flags=0x{bpStatus.m_flags:X4}, depth={bpStatus.m_depth}");
+                    
+                    // Check if this is a step completion (flags indicate step)
+                    ushort stepMask = (ushort)(
+                        WPCommands.Debugging_Execution_BreakpointDef.c_STEP_IN |
+                        WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER |
+                        WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT);
+                    
+                    bool isStepComplete = (bpStatus.m_flags & stepMask) != 0;
+                    bool isUserBreakpoint = bpStatus.m_id > 0 && _activeBreakpointDefs.Any(bp => bp.m_id == bpStatus.m_id);
+                    
+                    if (isStepComplete && !isUserBreakpoint)
+                    {
+                        // Step completed - check if we're at correct depth
+                        LogMessage($"Step complete at depth {bpStatus.m_depth}");
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "step",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true
+                        });
+                        return;
+                    }
+                    else if (isUserBreakpoint)
+                    {
+                        // Hit a user breakpoint during step
+                        LogMessage($"Hit user breakpoint {bpStatus.m_id} during step");
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "breakpoint",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true,
+                            HitBreakpointIds = new[] { (int)bpStatus.m_id }
+                        });
+                        return;
+                    }
+                }
+                
+                // Stopped for unknown reason - assume step complete
+                LogMessage("Device stopped, assuming step complete");
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "step",
+                    ThreadId = (int)pid,
+                    AllThreadsStopped = true
+                });
+                return;
+            }
+            
+            await Task.Delay(100);
+        }
+        
+        // Timeout
+        LogMessage("Step timeout, forcing pause");
+        _engine.PauseExecution();
+        
+        RaiseEvent("stopped", new StoppedEventBody
+        {
+            Reason = "step",
+            ThreadId = (int)pid,
+            AllThreadsStopped = true
+        });
     }
 
     /// <summary>

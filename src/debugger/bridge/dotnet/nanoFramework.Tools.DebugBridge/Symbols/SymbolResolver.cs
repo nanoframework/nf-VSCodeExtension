@@ -36,6 +36,7 @@ public class SymbolResolver : IDisposable
     private readonly ConcurrentDictionary<string, PdbxFile> _loadedSymbols = new();
     private readonly ConcurrentDictionary<string, IPdbReader> _loadedPdbs = new();
     private readonly ConcurrentDictionary<string, List<SequencePoint>> _sequencePointCache = new();
+    private readonly ConcurrentDictionary<string, string[]?> _localVariableNamesCache = new();
     private bool _disposed;
 
     /// <summary>
@@ -199,28 +200,84 @@ public class SymbolResolver : IDisposable
         // Normalize the source file path
         var normalizedPath = Path.GetFullPath(sourceFile).ToLowerInvariant();
         
-        // Look for sequence points that match this source location
+        // Collect all sequence points for this file from all methods
+        var candidatePoints = new List<SequencePoint>();
+        
         foreach (var kvp in _sequencePointCache)
         {
             foreach (var sp in kvp.Value)
             {
                 if (sp.SourceFile != null && 
-                    Path.GetFullPath(sp.SourceFile).ToLowerInvariant() == normalizedPath &&
-                    sp.StartLine <= line && line <= sp.EndLine)
+                    Path.GetFullPath(sp.SourceFile).ToLowerInvariant() == normalizedPath)
                 {
-                    return new BreakpointLocation
-                    {
-                        AssemblyName = sp.AssemblyName,
-                        MethodToken = sp.MethodToken,
-                        ILOffset = sp.ILOffsetNanoCLR,
-                        SourceFile = sourceFile,
-                        Line = sp.StartLine,
-                        Verified = true
-                    };
+                    candidatePoints.Add(sp);
                 }
             }
         }
-
+        
+        if (candidatePoints.Count == 0)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetBreakpointLocation: No sequence points found for {sourceFile}");
+            return null;
+        }
+        
+        // Sort by start line to find the best match
+        candidatePoints.Sort((a, b) => a.StartLine.CompareTo(b.StartLine));
+        
+        Console.Error.WriteLine($"[DebugBridge] GetBreakpointLocation: Looking for line {line}, have {candidatePoints.Count} sequence points");
+        Console.Error.WriteLine($"[DebugBridge] Sequence points: {string.Join(", ", candidatePoints.Select(sp => $"L{sp.StartLine}-{sp.EndLine}(IL={sp.ILOffsetNanoCLR})"))}");
+        
+        // First, try to find exact match on StartLine
+        var exactMatch = candidatePoints.FirstOrDefault(sp => sp.StartLine == line);
+        if (exactMatch != null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetBreakpointLocation: Exact match for line {line} -> IL offset {exactMatch.ILOffsetNanoCLR}");
+            return new BreakpointLocation
+            {
+                AssemblyName = exactMatch.AssemblyName,
+                MethodToken = exactMatch.MethodToken,
+                ILOffset = exactMatch.ILOffsetNanoCLR,
+                SourceFile = sourceFile,
+                Line = exactMatch.StartLine,
+                Verified = true
+            };
+        }
+        
+        // Second, check if the line falls within any sequence point's range
+        var containingMatch = candidatePoints.FirstOrDefault(sp => sp.StartLine <= line && line <= sp.EndLine);
+        if (containingMatch != null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetBreakpointLocation: Line {line} is within range {containingMatch.StartLine}-{containingMatch.EndLine} -> IL offset {containingMatch.ILOffsetNanoCLR}");
+            return new BreakpointLocation
+            {
+                AssemblyName = containingMatch.AssemblyName,
+                MethodToken = containingMatch.MethodToken,
+                ILOffset = containingMatch.ILOffsetNanoCLR,
+                SourceFile = sourceFile,
+                Line = containingMatch.StartLine,
+                Verified = true
+            };
+        }
+        
+        // Third, find the NEXT sequence point AFTER the requested line (standard debugger behavior)
+        // When you set a breakpoint on a non-code line, it moves to the next code line
+        var nextMatch = candidatePoints.FirstOrDefault(sp => sp.StartLine > line);
+        if (nextMatch != null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetBreakpointLocation: Moving breakpoint from line {line} to next code line {nextMatch.StartLine} -> IL offset {nextMatch.ILOffsetNanoCLR}");
+            return new BreakpointLocation
+            {
+                AssemblyName = nextMatch.AssemblyName,
+                MethodToken = nextMatch.MethodToken,
+                ILOffset = nextMatch.ILOffsetNanoCLR,
+                SourceFile = sourceFile,
+                Line = nextMatch.StartLine, // Report the actual line where breakpoint will hit
+                Verified = true
+            };
+        }
+        
+        // No suitable sequence point found
+        Console.Error.WriteLine($"[DebugBridge] GetBreakpointLocation: No suitable sequence point found for line {line}");
         return null;
     }
 
@@ -244,9 +301,31 @@ public class SymbolResolver : IDisposable
         // Convert to pdbx token format (MethodDef table type = 0x06)
         uint pdbxToken = 0x06000000 | methodRow;
         
-        var key = $"{assemblyName}::{pdbxToken:X8}";
+        // Try to find sequence points with various assembly name formats
+        List<SequencePoint>? sequencePoints = null;
+        string key;
         
-        if (_sequencePointCache.TryGetValue(key, out var sequencePoints))
+        // Try exact name first
+        key = $"{assemblyName}::{pdbxToken:X8}";
+        if (!_sequencePointCache.TryGetValue(key, out sequencePoints))
+        {
+            // Try with .exe extension
+            key = $"{assemblyName}.exe::{pdbxToken:X8}";
+            if (!_sequencePointCache.TryGetValue(key, out sequencePoints))
+            {
+                // Try with .dll extension
+                key = $"{assemblyName}.dll::{pdbxToken:X8}";
+                if (!_sequencePointCache.TryGetValue(key, out sequencePoints))
+                {
+                    // Try without extension
+                    var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+                    key = $"{nameWithoutExt}::{pdbxToken:X8}";
+                    _sequencePointCache.TryGetValue(key, out sequencePoints);
+                }
+            }
+        }
+        
+        if (sequencePoints != null)
         {
             // Find the sequence point that contains this IL offset
             // Sequence points are sorted by IL offset, find the last one <= ilOffset
@@ -353,6 +432,15 @@ public class SymbolResolver : IDisposable
     /// <returns>Array of local variable names indexed by slot, or null if not available</returns>
     public string[]? GetLocalVariableNames(string assemblyName, uint deviceMethodToken)
     {
+        // Build cache key
+        string cacheKey = $"{assemblyName}::{deviceMethodToken:X8}";
+        
+        // Check cache first
+        if (_localVariableNamesCache.TryGetValue(cacheKey, out var cachedNames))
+        {
+            return cachedNames;
+        }
+        
         // Convert device token to CLR token format for PDB lookup
         uint methodRow = deviceMethodToken & 0xFFFF;
         int clrToken = (int)(0x06000000 | methodRow);
@@ -378,12 +466,16 @@ public class SymbolResolver : IDisposable
             _loadedPdbs.TryGetValue(nameWithoutExt, out pdbReader);
         }
         
+        string[]? result = null;
         if (pdbReader != null)
         {
-            return pdbReader.GetLocalVariableNames(clrToken);
+            result = pdbReader.GetLocalVariableNames(clrToken);
         }
         
-        return null;
+        // Cache the result (even if null, to avoid repeated lookups)
+        _localVariableNamesCache[cacheKey] = result;
+        
+        return result;
     }
 
     /// <summary>
@@ -555,6 +647,7 @@ public class SymbolResolver : IDisposable
         _loadedPdbs.Clear();
         _loadedSymbols.Clear();
         _sequencePointCache.Clear();
+        _localVariableNamesCache.Clear();
     }
 
     private void BuildSequencePointCache(PdbxFile pdbxFile, IPdbReader? pdbReader)
