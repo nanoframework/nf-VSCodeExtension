@@ -74,6 +74,10 @@ export class NanoDebugSession extends LoggingDebugSession {
     public constructor() {
         super("nanoframework-debug.log");
 
+        // Both client and debugger use 1-based line numbers
+        this.setDebuggerLinesStartAt1(true);
+        this.setDebuggerColumnsStartAt1(true);
+
         // Create the runtime that communicates with the device
         this._runtime = new NanoRuntime();
 
