@@ -510,8 +510,8 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Set a variable value
      */
-    public async setVariable(scope: string, name: string, value: string): Promise<INanoEvalResult> {
-        return await this._bridge.setVariable(scope, name, value);
+    public async setVariable(variablesReference: number, name: string, value: string): Promise<INanoEvalResult> {
+        return await this._bridge.setVariable(variablesReference, name, value);
     }
 
     /**

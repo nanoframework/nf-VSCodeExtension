@@ -560,7 +560,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments): Promise<void> {
 
         const result = await this._runtime.setVariable(
-            this._variableHandles.get(args.variablesReference) || '',
+            args.variablesReference,
             args.name,
             args.value
         );

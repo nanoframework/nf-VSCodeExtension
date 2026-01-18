@@ -247,9 +247,9 @@ export class NanoBridge extends EventEmitter {
     /**
      * Set variable value
      */
-    public async setVariable(scope: string, name: string, value: string): Promise<INanoEvalResult> {
-        const response = await this.sendCommand('setVariable', { scope, name, value });
-        return response?.data || { value: value, type: 'unknown', hasChildren: false, reference: '' };
+    public async setVariable(variablesReference: number, name: string, value: string): Promise<INanoEvalResult> {
+        const response = await this.sendCommand('setVariable', { variablesReference, name, value });
+        return response?.data || { value: value, type: 'unknown', hasChildren: false, variablesReference: 0 };
     }
 
     /**

@@ -2217,6 +2217,323 @@ public class DebugBridgeSession : IDisposable
     // Track which types have had their field tables built
     private readonly HashSet<uint> _typeFieldTablesBuilt = new();
 
+    /// <summary>
+    /// Set the value of a variable
+    /// </summary>
+    /// <param name="variablesReference">The scope or parent variable reference</param>
+    /// <param name="name">The name of the variable to set</param>
+    /// <param name="value">The new value as a string</param>
+    /// <returns>Result containing the new value if successful</returns>
+    public async Task<(bool Success, SetVariableResult? Result, string? Error)> SetVariable(int variablesReference, string name, string value)
+    {
+        if (!_isConnected || _engine == null)
+        {
+            return (false, null, "Not connected");
+        }
+
+        if (!_variablesReferences.TryGetValue(variablesReference, out var reference))
+        {
+            return (false, null, "Invalid variables reference");
+        }
+
+        try
+        {
+            LogMessage($"SetVariable: variablesReference={variablesReference}, name='{name}', value='{value}'");
+
+            RuntimeValue? targetValue = null;
+            string? typeName = null;
+
+            if (reference is ScopeReference scopeRef)
+            {
+                // Setting a local variable or argument
+                LogMessage($"Setting variable in {scopeRef.Type} scope (thread {scopeRef.ThreadId}, depth {scopeRef.Depth})");
+
+                // Get local variable names from PDB to find the index
+                string[]? variableNames = null;
+                if (scopeRef.AssemblyName != null && scopeRef.MethodToken != 0)
+                {
+                    variableNames = _symbolResolver.GetLocalVariableNames(scopeRef.AssemblyName, scopeRef.MethodToken);
+                }
+
+                // Find the variable index by name
+                int varIndex = -1;
+                if (scopeRef.Type == ScopeType.Arguments)
+                {
+                    // For arguments, parse "arg0", "arg1" etc if numeric, otherwise search by name
+                    if (name.StartsWith("arg") && int.TryParse(name.Substring(3), out varIndex))
+                    {
+                        // Already have index from name
+                    }
+                    else
+                    {
+                        // TODO: Could get argument names from PDB in the future
+                        return (false, null, $"Cannot find argument '{name}'");
+                    }
+                }
+                else
+                {
+                    // For locals, search by name in variable names array
+                    if (variableNames != null)
+                    {
+                        for (int i = 0; i < variableNames.Length; i++)
+                        {
+                            if (variableNames[i] == name)
+                            {
+                                varIndex = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (varIndex < 0)
+                    {
+                        // Try parsing "local0", "local1" format
+                        if (name.StartsWith("local") && int.TryParse(name.Substring(5), out varIndex))
+                        {
+                            // Already have index from name
+                        }
+                        else
+                        {
+                            return (false, null, $"Cannot find local variable '{name}'");
+                        }
+                    }
+                }
+
+                // Get the current runtime value for this variable
+                Engine.StackValueKind kind = scopeRef.Type == ScopeType.Arguments
+                    ? Engine.StackValueKind.Argument
+                    : Engine.StackValueKind.Local;
+
+                targetValue = _engine.GetStackFrameValue(
+                    (uint)scopeRef.ThreadId,
+                    (uint)scopeRef.Depth,
+                    kind,
+                    (uint)varIndex);
+
+                if (targetValue == null)
+                {
+                    return (false, null, $"Cannot get runtime value for '{name}'");
+                }
+            }
+            else if (reference is RuntimeValueReference rvRef)
+            {
+                // Setting a field or array element within an object
+                if (rvRef.Value == null)
+                {
+                    return (false, null, "Parent value is null");
+                }
+
+                if (rvRef.Value.IsArray || rvRef.Value.IsArrayReference)
+                {
+                    // Array element: name should be "[index]"
+                    if (name.StartsWith("[") && name.EndsWith("]"))
+                    {
+                        string indexStr = name.Substring(1, name.Length - 2);
+                        if (uint.TryParse(indexStr, out uint index))
+                        {
+                            targetValue = rvRef.Value.GetElement(index);
+                        }
+                        else
+                        {
+                            return (false, null, $"Invalid array index: {name}");
+                        }
+                    }
+                    else
+                    {
+                        return (false, null, $"Expected array index format '[n]', got '{name}'");
+                    }
+                }
+                else
+                {
+                    // Object field: find by name
+                    uint numFields = rvRef.Value.NumOfFields;
+                    uint td = rvRef.Value.Type;
+                    uint assemblyIdx = (td >> 16) & 0xFFFF;
+
+                    for (uint offset = 0; offset < numFields; offset++)
+                    {
+                        string? fieldName = TryResolveFieldName(td, assemblyIdx, offset, numFields);
+                        if (fieldName == name)
+                        {
+                            targetValue = rvRef.Value.GetField(offset, 0);
+                            break;
+                        }
+                    }
+
+                    if (targetValue == null)
+                    {
+                        return (false, null, $"Cannot find field '{name}'");
+                    }
+                }
+            }
+            else
+            {
+                return (false, null, "Invalid reference type");
+            }
+
+            // Now set the value
+            if (targetValue == null)
+            {
+                return (false, null, "Target value not found");
+            }
+
+            // Resolve type name
+            if (_engine != null && targetValue.Type != 0)
+            {
+                try
+                {
+                    var typeInfo = _engine.ResolveType(targetValue.Type);
+                    typeName = typeInfo?.m_name;
+                }
+                catch { }
+            }
+
+            // Parse and set the value based on the target type
+            bool setSuccess = false;
+            object? newValue = null;
+
+            if (targetValue.IsPrimitive)
+            {
+                // Parse the string value based on the data type
+                newValue = ParsePrimitiveValue(targetValue, value);
+                if (newValue != null)
+                {
+                    targetValue.Value = newValue;
+                    setSuccess = true;
+                }
+                else
+                {
+                    return (false, null, $"Cannot parse '{value}' as {typeName ?? "primitive"}");
+                }
+            }
+            else if (value == "null")
+            {
+                // Setting to null (for reference types)
+                // This requires using Assign with a null reference
+                // For now, return error - full null assignment requires more complex handling
+                return (false, null, "Setting to null is not currently supported");
+            }
+            else
+            {
+                // Non-primitive types can't be easily set from a string value
+                return (false, null, $"Cannot set value for type {typeName ?? "object"} - only primitive types supported");
+            }
+
+            if (!setSuccess)
+            {
+                return (false, null, "Failed to set variable value");
+            }
+
+            // Return the new value info
+            var result = new SetVariableResult
+            {
+                Value = newValue?.ToString() ?? "null",
+                Type = typeName ?? "unknown",
+                VariablesReference = 0 // Primitives don't have children
+            };
+
+            LogMessage($"Successfully set {name} = {result.Value}");
+
+            await Task.CompletedTask;
+            return (true, result, null);
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"SetVariable error: {ex.Message}");
+            return (false, null, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Parse a string value into the appropriate primitive type
+    /// </summary>
+    private object? ParsePrimitiveValue(RuntimeValue targetValue, string value)
+    {
+        try
+        {
+            var dataType = targetValue.DataType;
+            
+            switch (dataType)
+            {
+                case nanoClrDataType.DATATYPE_BOOLEAN:
+                    if (bool.TryParse(value, out bool boolVal))
+                        return boolVal;
+                    if (value == "1" || value.ToLower() == "true")
+                        return true;
+                    if (value == "0" || value.ToLower() == "false")
+                        return false;
+                    break;
+
+                case nanoClrDataType.DATATYPE_I1:
+                    if (sbyte.TryParse(value, out sbyte sbyteVal))
+                        return sbyteVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_U1:
+                    if (byte.TryParse(value, out byte byteVal))
+                        return byteVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_CHAR:
+                    if (value.Length == 1)
+                        return value[0];
+                    if (value.Length == 3 && value.StartsWith("'") && value.EndsWith("'"))
+                        return value[1];
+                    if (char.TryParse(value, out char charVal))
+                        return charVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_I2:
+                    if (short.TryParse(value, out short shortVal))
+                        return shortVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_U2:
+                    if (ushort.TryParse(value, out ushort ushortVal))
+                        return ushortVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_I4:
+                    if (int.TryParse(value, out int intVal))
+                        return intVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_U4:
+                    if (uint.TryParse(value, out uint uintVal))
+                        return uintVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_I8:
+                    if (long.TryParse(value, out long longVal))
+                        return longVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_U8:
+                    if (ulong.TryParse(value, out ulong ulongVal))
+                        return ulongVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_R4:
+                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, 
+                        System.Globalization.CultureInfo.InvariantCulture, out float floatVal))
+                        return floatVal;
+                    break;
+
+                case nanoClrDataType.DATATYPE_R8:
+                    if (double.TryParse(value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double doubleVal))
+                        return doubleVal;
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Error parsing primitive value: {ex.Message}");
+        }
+
+        return null;
+    }
+
     private VariableInfo CreateVariableInfo(RuntimeValue runtimeValue, string defaultName)
     {
         string name = defaultName;

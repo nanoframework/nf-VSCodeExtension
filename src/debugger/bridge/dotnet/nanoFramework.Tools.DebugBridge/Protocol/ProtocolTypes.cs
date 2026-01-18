@@ -261,4 +261,25 @@ public class VariableInfo
     public int? IndexedVariables { get; set; }
 }
 
+/// <summary>
+/// Result of setting a variable value
+/// </summary>
+public class SetVariableResult
+{
+    [JsonPropertyName("value")]
+    public string Value { get; set; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
+    [JsonPropertyName("variablesReference")]
+    public int VariablesReference { get; set; }
+
+    [JsonPropertyName("namedVariables")]
+    public int? NamedVariables { get; set; }
+
+    [JsonPropertyName("indexedVariables")]
+    public int? IndexedVariables { get; set; }
+}
+
 #endregion

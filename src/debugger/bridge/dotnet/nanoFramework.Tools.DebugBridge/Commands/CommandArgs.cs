@@ -247,3 +247,27 @@ public class LoadSymbolsArgs
     [JsonPropertyName("recursive")]
     public bool? Recursive { get; set; }
 }
+
+/// <summary>
+/// Arguments for setting a variable value
+/// </summary>
+public class SetVariableArgs
+{
+    /// <summary>
+    /// The variables reference (identifies the scope or parent container)
+    /// </summary>
+    [JsonPropertyName("variablesReference")]
+    public int VariablesReference { get; set; }
+
+    /// <summary>
+    /// The name of the variable to set
+    /// </summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The new value for the variable (as a string)
+    /// </summary>
+    [JsonPropertyName("value")]
+    public string Value { get; set; } = string.Empty;
+}

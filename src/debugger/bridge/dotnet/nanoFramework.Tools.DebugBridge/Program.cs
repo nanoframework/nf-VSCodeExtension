@@ -112,6 +112,9 @@ class Program
                 case "getVariables":
                     response = await HandleGetVariables(request);
                     break;
+                case "setVariable":
+                    response = await HandleSetVariable(request);
+                    break;
                 case "evaluate":
                     response = await HandleEvaluate(request);
                     break;
@@ -388,6 +391,29 @@ class Program
             Id = request.Id,
             Success = true,
             Data = variables
+        };
+    }
+
+    private static async Task<BridgeResponse> HandleSetVariable(BridgeRequest request)
+    {
+        if (_session == null)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "Session not initialized" };
+        }
+
+        var args = JsonSerializer.Deserialize<SetVariableArgs>(request.Args?.ToString() ?? "{}", _jsonOptions);
+        if (args == null)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "Invalid setVariable arguments" };
+        }
+
+        var (success, result, error) = await _session.SetVariable(args.VariablesReference, args.Name, args.Value);
+        return new BridgeResponse
+        {
+            Id = request.Id,
+            Success = success,
+            Data = result,
+            Error = error
         };
     }
 
