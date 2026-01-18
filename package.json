@@ -5,7 +5,7 @@
   "icon": "assets/nF-logo-128.png",
   "license": "MIT",
   "preview": true,
-  "version": "0.0.0-placeholder",
+  "version": "2.0.0",
   "overview": "assets/marketplace/vscode-marketplace-overview.md",
   "priceCategory": "free",
   "publisher": "nanoframework",
@@ -268,6 +268,7 @@
     "axios": "^1.7.2",
     "extract-zip": "^2.0.1",
     "globby": "^11.0.4",
+    "node-gyp": "^12.1.0",
     "node-usb-native": "^0.0.20"
   }
 }

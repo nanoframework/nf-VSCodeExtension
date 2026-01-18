@@ -64,7 +64,7 @@ class NanoDebugConfigurationProvider implements vscode.DebugConfigurationProvide
                 config.type = 'nanoframework';
                 config.name = 'nanoFramework: Launch';
                 config.request = 'launch';
-                config.program = '${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe';
+                config.program = '${workspaceFolder}/bin/Debug/';
                 config.stopOnEntry = true;
             }
         }
@@ -151,12 +151,10 @@ class NanoDebugConfigurationProvider implements vscode.DebugConfigurationProvide
         return [
             {
                 type: 'nanoframework',
-                request: 'launch',
+                request: 'deployAndRun',
                 name: 'nanoFramework: Launch and Debug',
-                program: '${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe',
-                device: '',
-                stopOnEntry: true,
-                deployAssemblies: true
+                program: '${workspaceFolder}/bin/Debug',
+                device: ''
             },
             {
                 type: 'nanoframework',

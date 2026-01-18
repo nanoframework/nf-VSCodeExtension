@@ -1,0 +1,3 @@
+[submodule "DbConnector"]
+        path = nanoFirmwareFlasher
+        url = https://github.com/nanoframework/nanoFirmwareFlasher

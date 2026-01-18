@@ -2790,24 +2790,41 @@ public class DebugBridgeSession : IDisposable
 
         try
         {
-            // TODO: Implement deployment using nf-debugger deployment APIs
-            // var assemblies = Directory.GetFiles(assembliesPath, "*.pe");
-            // foreach (var assembly in assemblies)
-            // {
-            //     var data = File.ReadAllBytes(assembly);
-            //     await _engine.DeployAsync(data);
-            // }
-            
-            await Task.CompletedTask;
-            
+        //TODO: Implement deployment using nf-debugger deployment APIs
+            var assemblies = Directory.GetFiles(assembliesPath, "*.pe");
+            var deployBytes = assemblies.Select(x => File.ReadAllBytes(x)).ToList();
+
+            IProgress<MessageWithProgress> progress = new Progress<MessageWithProgress>(percent =>
+            {
+                // Send progress events
+                RaiseEvent("output", new OutputEventBody
+                {
+                    Category = "console",
+                    Output = $"Deployment progress: {percent}%\n"
+                });
+            });
+
+            IProgress<string> progressLog = new Progress<string>(log =>
+            {
+                // Send log output
+                RaiseEvent("output", new OutputEventBody
+                {
+                    Category = "console",
+                    Output = $"Deployment log: {log}%\n"
+                });
+            });
+
+
             // Send progress events
             RaiseEvent("output", new OutputEventBody
             {
                 Category = "console",
-                Output = $"Deploying assemblies from {assembliesPath}...\n"
+                Output = $"Deploying assemblies from {assembliesPath}, amount {deployBytes.Count}...\n"
             });
+
+            var result = _engine!.DeploymentExecute(deployBytes, true, false, progress, progressLog);           
             
-            return new DeployResult(true);
+            return new DeployResult(result);
         }
         catch (Exception ex)
         {
