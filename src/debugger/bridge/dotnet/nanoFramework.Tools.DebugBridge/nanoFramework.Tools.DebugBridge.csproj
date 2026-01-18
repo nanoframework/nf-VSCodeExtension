@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -19,10 +19,10 @@
   <ItemGroup>
     <!-- Reference to nf-debugger library -->
     <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="*" />
-    <PackageReference Include="System.IO.Ports" Version="8.*" />
-    <PackageReference Include="System.Text.Json" Version="8.*" />
+    <PackageReference Include="System.IO.Ports" Version="9.*" />
+    <PackageReference Include="System.Text.Json" Version="9.*" />
     <!-- For parsing portable PDB files to extract source line information -->
-    <PackageReference Include="System.Reflection.Metadata" Version="8.*" />
+    <PackageReference Include="System.Reflection.Metadata" Version="9.*" />
     <!-- For reading Windows PDB files using Mono.Cecil -->
     <PackageReference Include="Mono.Cecil" Version="0.11.*" />
   </ItemGroup>
