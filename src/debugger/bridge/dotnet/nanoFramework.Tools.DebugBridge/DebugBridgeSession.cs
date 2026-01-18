@@ -2534,29 +2534,74 @@ public class DebugBridgeSession : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Get the type name for a runtime value, with fallback to data type name
+    /// </summary>
+    private string GetTypeName(RuntimeValue runtimeValue)
+    {
+        // First, try to resolve from the type descriptor
+        if (_engine != null && runtimeValue.Type != 0)
+        {
+            try
+            {
+                var typeInfo = _engine.ResolveType(runtimeValue.Type);
+                if (typeInfo != null && !string.IsNullOrEmpty(typeInfo.m_name))
+                {
+                    LogMessage($"GetTypeName: Resolved type 0x{runtimeValue.Type:X8} to '{typeInfo.m_name}'");
+                    return typeInfo.m_name;
+                }
+                else
+                {
+                    LogMessage($"GetTypeName: ResolveType returned null/empty for type 0x{runtimeValue.Type:X8}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"GetTypeName: Exception resolving type 0x{runtimeValue.Type:X8}: {ex.Message}");
+            }
+        }
+        else
+        {
+            LogMessage($"GetTypeName: Type is 0 or engine is null, DataType={runtimeValue.DataType}");
+        }
+
+        // Fallback: use the DataType enum to provide a meaningful name
+        var dataType = runtimeValue.DataType;
+        var fallbackName = dataType switch
+        {
+            nanoClrDataType.DATATYPE_BOOLEAN => "Boolean",
+            nanoClrDataType.DATATYPE_I1 => "SByte",
+            nanoClrDataType.DATATYPE_U1 => "Byte",
+            nanoClrDataType.DATATYPE_CHAR => "Char",
+            nanoClrDataType.DATATYPE_I2 => "Int16",
+            nanoClrDataType.DATATYPE_U2 => "UInt16",
+            nanoClrDataType.DATATYPE_I4 => "Int32",
+            nanoClrDataType.DATATYPE_U4 => "UInt32",
+            nanoClrDataType.DATATYPE_I8 => "Int64",
+            nanoClrDataType.DATATYPE_U8 => "UInt64",
+            nanoClrDataType.DATATYPE_R4 => "Single",
+            nanoClrDataType.DATATYPE_R8 => "Double",
+            nanoClrDataType.DATATYPE_STRING => "String",
+            nanoClrDataType.DATATYPE_DATETIME => "DateTime",
+            nanoClrDataType.DATATYPE_TIMESPAN => "TimeSpan",
+            nanoClrDataType.DATATYPE_SZARRAY => "Array",
+            nanoClrDataType.DATATYPE_OBJECT => "Object",
+            nanoClrDataType.DATATYPE_CLASS => "Class",
+            nanoClrDataType.DATATYPE_VALUETYPE => "ValueType",
+            nanoClrDataType.DATATYPE_BYREF => "ByRef",
+            _ => $"Unknown({dataType})"
+        };
+        
+        LogMessage($"GetTypeName: Using fallback name '{fallbackName}' for DataType={dataType}");
+        return fallbackName;
+    }
+
     private VariableInfo CreateVariableInfo(RuntimeValue runtimeValue, string defaultName)
     {
         string name = defaultName;
         string value;
-        string typeName = "object";
+        string typeName = GetTypeName(runtimeValue);
         int childRef = 0;
-        
-        try
-        {
-            // Try to resolve the type name
-            if (_engine != null && runtimeValue.Type != 0)
-            {
-                var typeInfo = _engine.ResolveType(runtimeValue.Type);
-                if (typeInfo != null)
-                {
-                    typeName = typeInfo.m_name ?? "object";
-                }
-            }
-        }
-        catch
-        {
-            // Use default type name on error
-        }
         
         // Format the value based on its type
         if (runtimeValue.IsNull)
@@ -2593,7 +2638,7 @@ public class DebugBridgeSession : IDisposable
         }
         else
         {
-            // Reference type
+            // Reference type - show full type name
             value = $"{{{typeName}}}";
             if (runtimeValue.NumOfFields > 0)
             {
