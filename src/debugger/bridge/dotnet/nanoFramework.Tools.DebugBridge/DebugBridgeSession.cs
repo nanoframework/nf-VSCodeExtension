@@ -1965,14 +1965,6 @@ public class DebugBridgeSession : IDisposable
                 }
             }
             
-            // Ensure we scan the correct assembly for this object's type
-            if (!_scannedAssemblies.Contains(assemblyIdx))
-            {
-                LogMessage($"Pre-scanning assembly {assemblyIdx} for type 0x{td:X8}");
-                ScanAssemblyFields(assemblyIdx);
-                _scannedAssemblies.Add(assemblyIdx);
-            }
-            
             for (uint offset = 0; offset < numFields; offset++)
             {
                 try
@@ -2026,7 +2018,8 @@ public class DebugBridgeSession : IDisposable
     }
     
     /// <summary>
-    /// Try to resolve a field name using the engine's GetFieldName API
+    /// Try to resolve a field name by directly querying the engine for field descriptors.
+    /// This is the most efficient approach - no assembly scanning needed.
     /// </summary>
     private string? TryResolveFieldName(uint td, uint assemblyIdx, uint fieldOffset, uint numFields)
     {
@@ -2034,53 +2027,44 @@ public class DebugBridgeSession : IDisposable
         
         try
         {
-            // Build cache key for this type and field offset
+            // Check cache first
             string cacheKey = $"{td}:{fieldOffset}";
             if (_fieldNameCache.TryGetValue(cacheKey, out string? cachedName))
             {
                 return cachedName;
             }
             
-            // Method 1: Scan the assembly if not already done
-            if (!_scannedAssemblies.Contains(assemblyIdx))
+            // Strategy: Build a field table for this type by querying fields from the type's assembly
+            // The fd (field descriptor) format is: (assemblyIdx << 16) | fieldIdx
+            // We query fields and match by m_td (declaring type) and m_offset
+            
+            // First, ensure we have the field table for this type's assembly
+            if (!_typeFieldTablesBuilt.Contains(td))
             {
-                LogMessage($"Scanning field table for assembly {assemblyIdx} (td=0x{td:X8})");
-                ScanAssemblyFields(assemblyIdx);
-                _scannedAssemblies.Add(assemblyIdx);
+                BuildTypeFieldTable(td, assemblyIdx);
+                _typeFieldTablesBuilt.Add(td);
             }
             
-            // Check cache after scanning
-            if (_fieldNameCache.TryGetValue(cacheKey, out cachedName))
+            // Try to find the field in our cached table
+            if (_typeFieldTables.TryGetValue(td, out var fieldTable))
             {
-                return cachedName;
-            }
-            
-            // Method 2: Try using ResolveField directly by searching for matching td and offset
-            // This requires iterating over field descriptors
-            LogMessage($"Field not found in cache for td=0x{td:X8}, offset={fieldOffset}, trying direct resolve...");
-            
-            // Try a range of field descriptors for this assembly
-            for (uint fieldIdx = 0; fieldIdx < 500; fieldIdx++)
-            {
-                uint fd = (assemblyIdx << 16) | fieldIdx;
-                try
+                if (fieldTable.TryGetValue(fieldOffset, out string? fieldName))
                 {
-                    var fieldInfo = _engine.ResolveField(fd);
-                    if (fieldInfo != null && fieldInfo.m_td == td && fieldInfo.m_offset == fieldOffset)
-                    {
-                        LogMessage($"Found field via ResolveField: fd=0x{fd:X8}, name={fieldInfo.m_name}");
-                        _fieldNameCache[cacheKey] = fieldInfo.m_name;
-                        return fieldInfo.m_name;
-                    }
-                }
-                catch
-                {
-                    // Ignore individual field lookup failures
+                    _fieldNameCache[cacheKey] = fieldName;
+                    return fieldName;
                 }
             }
             
-            // If still not found, the field might be inherited from a base class
-            LogMessage($"Field not found for td=0x{td:X8}, offset={fieldOffset} after all methods");
+            // Field not found for this type - might be an inherited field
+            // Try looking it up directly by scanning a small range of field descriptors
+            string? resolvedName = TryResolveFieldByScanning(td, assemblyIdx, fieldOffset);
+            if (resolvedName != null)
+            {
+                _fieldNameCache[cacheKey] = resolvedName;
+                return resolvedName;
+            }
+            
+            LogMessage($"Field not found for td=0x{td:X8}, offset={fieldOffset}");
         }
         catch (Exception ex)
         {
@@ -2091,35 +2075,43 @@ public class DebugBridgeSession : IDisposable
     }
     
     /// <summary>
-    /// Scan all fields in an assembly and cache their names
+    /// Build a field table for a specific type by querying field descriptors
     /// </summary>
-    private void ScanAssemblyFields(uint assemblyIdx)
+    private void BuildTypeFieldTable(uint td, uint assemblyIdx)
     {
         if (_engine == null) return;
         
-        uint maxFieldsToScan = 1000; // Reasonable limit for most assemblies
-        int consecutiveFailures = 0;
-        int fieldsFound = 0;
+        LogMessage($"Building field table for type 0x{td:X8} in assembly {assemblyIdx}");
         
-        for (uint fieldIdx = 0; fieldIdx < maxFieldsToScan; fieldIdx++)
+        var fieldTable = new Dictionary<uint, string>();
+        
+        // Query fields from this type's assembly
+        // Field descriptors are sequential: (assemblyIdx << 16) | fieldIdx
+        // We scan until we find all fields for this type
+        
+        int fieldsFound = 0;
+        int maxFieldIdx = 500; // Reasonable limit per assembly type
+        int consecutiveFailures = 0;
+        
+        for (uint fieldIdx = 0; fieldIdx < maxFieldIdx; fieldIdx++)
         {
             uint fd = (assemblyIdx << 16) | fieldIdx;
             
             try
             {
-                // Use ResolveField which returns td, offset, and name
                 var result = _engine.ResolveField(fd);
                 
                 if (result != null && !string.IsNullOrEmpty(result.m_name))
                 {
                     consecutiveFailures = 0;
-                    fieldsFound++;
                     
-                    // Cache this field name: key is "{type_td}:{offset_within_type}"
-                    string fieldCacheKey = $"{result.m_td}:{result.m_offset}";
-                    _fieldNameCache[fieldCacheKey] = result.m_name;
-                    
-                    LogMessage($"Scanned field: fd=0x{fd:X8}, td=0x{result.m_td:X8}, offset={result.m_offset}, name={result.m_name}");
+                    // If this field belongs to our target type, add it to the table
+                    if (result.m_td == td)
+                    {
+                        fieldTable[result.m_offset] = result.m_name;
+                        fieldsFound++;
+                        LogMessage($"Found field for type: fd=0x{fd:X8}, offset={result.m_offset}, name={result.m_name}");
+                    }
                 }
                 else
                 {
@@ -2131,22 +2123,80 @@ public class DebugBridgeSession : IDisposable
                 consecutiveFailures++;
             }
             
-            // If we've had many consecutive failures, we're probably past the field table
-            if (consecutiveFailures > 50 && fieldsFound > 0)
+            // Stop if we've had too many consecutive failures
+            if (consecutiveFailures > 50)
             {
-                LogMessage($"Stopping field scan after {fieldsFound} fields found, {consecutiveFailures} consecutive failures");
                 break;
             }
         }
         
-        LogMessage($"Assembly {assemblyIdx} scan complete: {fieldsFound} fields cached");
+        _typeFieldTables[td] = fieldTable;
+        LogMessage($"Field table for type 0x{td:X8}: {fieldsFound} fields found");
     }
     
-    // Cache for field names: key = "td:offset", value = field name
+    /// <summary>
+    /// Try to resolve a field by scanning a range of field descriptors
+    /// This handles inherited fields by checking multiple assemblies
+    /// </summary>
+    private string? TryResolveFieldByScanning(uint td, uint assemblyIdx, uint fieldOffset)
+    {
+        if (_engine == null) return null;
+        
+        // For inherited fields, we need to look in other assemblies
+        // Common base type assemblies: 0 (mscorlib), 1-3 (nanoFramework.*)
+        uint[] assembliesToCheck = { assemblyIdx, 0, 1, 2, 3 };
+        
+        foreach (uint asmIdx in assembliesToCheck)
+        {
+            // Scan a limited range of field descriptors
+            for (uint fieldIdx = 0; fieldIdx < 200; fieldIdx++)
+            {
+                uint fd = (asmIdx << 16) | fieldIdx;
+                
+                try
+                {
+                    var result = _engine.ResolveField(fd);
+                    
+                    if (result != null && !string.IsNullOrEmpty(result.m_name))
+                    {
+                        // Check if this field matches our criteria:
+                        // - Same offset as what we're looking for
+                        // - Could be from this type or a base type
+                        if (result.m_offset == fieldOffset)
+                        {
+                            // Store in type field table for future lookups
+                            if (!_typeFieldTables.ContainsKey(result.m_td))
+                            {
+                                _typeFieldTables[result.m_td] = new Dictionary<uint, string>();
+                            }
+                            _typeFieldTables[result.m_td][result.m_offset] = result.m_name;
+                            
+                            // For the original type, cache this mapping too
+                            string cacheKey = $"{td}:{fieldOffset}";
+                            _fieldNameCache[cacheKey] = result.m_name;
+                            
+                            return result.m_name;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore errors, continue scanning
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    // Cache for field names: key = "{td}:{offset}", value = field name
     private readonly Dictionary<string, string> _fieldNameCache = new();
     
-    // Track which assemblies have been scanned
-    private readonly HashSet<uint> _scannedAssemblies = new();
+    // Field tables per type: key = td, value = dictionary of offset -> name
+    private readonly Dictionary<uint, Dictionary<uint, string>> _typeFieldTables = new();
+    
+    // Track which types have had their field tables built
+    private readonly HashSet<uint> _typeFieldTablesBuilt = new();
 
     private VariableInfo CreateVariableInfo(RuntimeValue runtimeValue, string defaultName)
     {

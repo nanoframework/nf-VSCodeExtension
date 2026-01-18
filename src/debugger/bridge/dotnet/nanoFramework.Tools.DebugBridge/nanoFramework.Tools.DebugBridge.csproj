@@ -14,6 +14,7 @@
     <Copyright>Copyright (c) .NET Foundation and Contributors</Copyright>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
+    <RollForward>LatestMinor</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
