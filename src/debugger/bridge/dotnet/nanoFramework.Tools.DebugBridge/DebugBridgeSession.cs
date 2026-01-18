@@ -1777,14 +1777,33 @@ public class DebugBridgeSession : IDisposable
                         : Engine.StackValueKind.Local;
                     
                     // Determine the variable name
-                    string varName;
+                    string? varName = null;
+                    bool isUserVariable = true;
+                    
                     if (variableNames != null && i < variableNames.Length)
                     {
                         varName = variableNames[i];
+                        // Check if this is a compiler-generated variable (name like "local0", "local1", etc.)
+                        // These are internal compiler variables that shouldn't be shown to the user
+                        if (System.Text.RegularExpressions.Regex.IsMatch(varName, @"^local\d+$"))
+                        {
+                            isUserVariable = false;
+                        }
                     }
                     else
                     {
+                        // No symbol info for this variable - it's likely a compiler-generated temporary
                         varName = scopeRef.Type == ScopeType.Arguments ? $"arg{i}" : $"local{i}";
+                        // For locals without symbol names, hide them (compiler-generated)
+                        // For arguments, we always show them
+                        isUserVariable = scopeRef.Type == ScopeType.Arguments;
+                    }
+                    
+                    // Skip compiler-generated variables (locals without proper names from PDB)
+                    if (!isUserVariable)
+                    {
+                        LogMessage($"Skipping compiler-generated variable: {varName}");
+                        continue;
                     }
                     
                     try
