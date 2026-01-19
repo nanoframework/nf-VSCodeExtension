@@ -28,7 +28,7 @@ if (-not $script:IsWindowsOS -and $PSVersionTable.PSVersion.Major -lt 7) {
 ## Defining variables
 $outputDirectory = "dist"
 $extName = "VS2022ext"
-$vsExtensionVersion = "v2022.3.0.86"
+$vsExtensionVersion = "v2022.14.1.5"
 $zipFile = "$extName.zip"
 
 # Clean if requested
