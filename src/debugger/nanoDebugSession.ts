@@ -115,7 +115,9 @@ export class NanoDebugSession extends LoggingDebugSession {
         });
 
         this._runtime.on('output', (text: string, category: string) => {
-            const e: DebugProtocol.OutputEvent = new OutputEvent(text + '\n', category);
+            // Trim any trailing whitespace/newlines and add a single newline
+            const cleanText = text.replace(/[\r\n]+$/, '');
+            const e: DebugProtocol.OutputEvent = new OutputEvent(cleanText + '\n', category);
             this.sendEvent(e);
         });
 
