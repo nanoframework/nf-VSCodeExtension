@@ -131,7 +131,7 @@
         "nanoFramework.showTerminalOutput": {
           "type": "boolean",
           "default": true,
-          "description": "Show command output in the terminal. When disabled, commands run in the background."
+          "description": "Show command output in the terminal. When disabled, commands run in the background and key elements are displayed in the Output window."
         }
       }
     }
@@ -173,7 +173,7 @@
   },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
-    "@types/node": "25.x",
+    "@types/node": "^20",
     "@vscode/vsce": "^3.7.1",
     "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
