@@ -47,7 +47,47 @@ export class Executor {
     }
 
     /**
-     * Runs a command hidden (not in terminal) and returns the result
+     * Parses a command string into command and arguments array.
+     * Handles quoted arguments properly to avoid shell injection.
+     * @param commandString The full command string to parse
+     * @returns Object with command and args array
+     */
+    private static parseCommand(commandString: string): { command: string; args: string[] } {
+        const tokens: string[] = [];
+        let current = '';
+        let inQuote = false;
+        let quoteChar = '';
+
+        for (let i = 0; i < commandString.length; i++) {
+            const char = commandString[i];
+
+            if (!inQuote && (char === '"' || char === "'")) {
+                inQuote = true;
+                quoteChar = char;
+            } else if (inQuote && char === quoteChar) {
+                inQuote = false;
+                quoteChar = '';
+            } else if (!inQuote && char === ' ') {
+                if (current.length > 0) {
+                    tokens.push(current);
+                    current = '';
+                }
+            } else {
+                current += char;
+            }
+        }
+
+        if (current.length > 0) {
+            tokens.push(current);
+        }
+
+        const [command, ...args] = tokens;
+        return { command: command || '', args };
+    }
+
+    /**
+     * Runs a command hidden (not in terminal) and returns the result.
+     * Uses spawn internally to avoid shell injection vulnerabilities.
      * @param command command to be executed
      * @returns Promise with success status and output
      */
@@ -55,63 +95,75 @@ export class Executor {
         return new Promise((resolve) => {
             console.log(`Executing hidden command: ${command}`);
             
-            // Build environment with properly expanded PATH
-            const env = { ...process.env };
+            // Parse command string into command and arguments to avoid shell injection
+            const parsed = this.parseCommand(command);
             
-            // On non-Windows platforms, ensure ~/.dotnet/tools is in PATH (expanded)
-            if (os.platform() !== 'win32') {
-                const homeDir = os.homedir();
-                const dotnetToolsPath = `${homeDir}/.dotnet/tools`;
-                const currentPath = env.PATH || '';
-                
-                // Add dotnet tools path if not already present (with expanded home dir)
-                if (!currentPath.includes(dotnetToolsPath)) {
-                    env.PATH = `${dotnetToolsPath}:${currentPath}`;
-                    console.log(`Added ${dotnetToolsPath} to PATH`);
-                }
+            if (!parsed.command) {
+                resolve({
+                    success: false,
+                    stdout: '',
+                    stderr: 'Empty command',
+                    exitCode: null
+                });
+                return;
             }
+
+            const env = this.buildEnvironment();
             
-            // Use cp.exec with shell option for proper command execution
-            // This ensures PATH and environment variables are properly available
-            const options: cp.ExecOptions = {
-                maxBuffer: 10 * 1024 * 1024,  // 10MB buffer for large outputs
-                env: env,  // Pass modified environment variables
-                // Use cmd.exe on Windows for hidden commands to better match interactive terminal behavior
-                // and improve resolution of CLI tools. Use /bin/bash on Unix-like systems.
-                shell: os.platform() === 'win32' ? 'cmd.exe' : '/bin/bash'
+            const spawnOptions: cp.SpawnOptions = {
+                env: env,
+                stdio: ['pipe', 'pipe', 'pipe']
             };
+
+            console.log(`Parsed command: ${parsed.command}, args: ${JSON.stringify(parsed.args)}`);
             
-            cp.exec(command, options, (error, stdout, stderr) => {
-                // Try to extract exit code from error if present
-                const exitCode = (error && (error as any).code && typeof (error as any).code === 'number') ? (error as any).code : (error ? null : 0);
-                
-                // Convert stdout/stderr to strings (they may be Buffer in newer Node types)
-                const stdoutStr = stdout?.toString() ?? '';
-                const stderrStr = stderr?.toString() ?? '';
+            const child = cp.spawn(parsed.command, parsed.args, spawnOptions);
 
-                if (error) {
-                    console.error(`Hidden command error: ${error.message}`);
-                    console.error(`stderr: ${stderrStr}`);
-                    console.log(`stdout: ${stdoutStr}`);
-                    resolve({
-                        success: false,
-                        stdout: stdoutStr,
-                        stderr: stderrStr || error.message,
-                        exitCode: exitCode
-                    });
-                    return;
-                }
+            let stdout = '';
+            let stderr = '';
 
-                console.log(`Hidden command completed successfully`);
-                console.log(`stdout: ${stdoutStr}`);
-                if (stderrStr) {
-                    console.log(`stderr: ${stderrStr}`);
+            if (child.stdout) {
+                child.stdout.on('data', (data: Buffer) => {
+                    stdout += data.toString();
+                });
+            }
+
+            if (child.stderr) {
+                child.stderr.on('data', (data: Buffer) => {
+                    stderr += data.toString();
+                });
+            }
+
+            child.on('error', (error) => {
+                console.error(`Hidden command error: ${error.message}`);
+                resolve({
+                    success: false,
+                    stdout: stdout,
+                    stderr: stderr || error.message,
+                    exitCode: null
+                });
+            });
+
+            child.on('close', (code) => {
+                const exitCode = code;
+                const success = code === 0;
+
+                if (!success) {
+                    console.error(`Hidden command failed with exit code: ${code}`);
+                    console.error(`stderr: ${stderr}`);
+                    console.log(`stdout: ${stdout}`);
+                } else {
+                    console.log(`Hidden command completed successfully`);
+                    console.log(`stdout: ${stdout}`);
+                    if (stderr) {
+                        console.log(`stderr: ${stderr}`);
+                    }
                 }
 
                 resolve({
-                    success: true,
-                    stdout: stdoutStr,
-                    stderr: stderrStr,
+                    success: success,
+                    stdout: stdout,
+                    stderr: stderr,
                     exitCode: exitCode
                 });
             });
