@@ -272,6 +272,51 @@ public class AssemblyManager : IDisposable
     }
 
     /// <summary>
+    /// Get the device assembly index by assembly name
+    /// </summary>
+    /// <param name="name">Assembly name (may include or exclude file extension)</param>
+    /// <returns>Assembly index or null if not found</returns>
+    public uint? GetAssemblyIndex(string name)
+    {
+        // Try exact match first
+        if (_deviceAssemblies.TryGetValue(name, out var info))
+        {
+            return (uint)info.DeviceIndex;
+        }
+        
+        // Try with .exe extension
+        if (_deviceAssemblies.TryGetValue(name + ".exe", out info))
+        {
+            return (uint)info.DeviceIndex;
+        }
+        
+        // Try with .dll extension
+        if (_deviceAssemblies.TryGetValue(name + ".dll", out info))
+        {
+            return (uint)info.DeviceIndex;
+        }
+        
+        // Try without extension
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(name);
+        if (_deviceAssemblies.TryGetValue(nameWithoutExt, out info))
+        {
+            return (uint)info.DeviceIndex;
+        }
+        
+        // Try searching all assemblies for a partial match
+        foreach (var assembly in _deviceAssemblies.Values)
+        {
+            var asmNameWithoutExt = Path.GetFileNameWithoutExtension(assembly.Name);
+            if (string.Equals(asmNameWithoutExt, nameWithoutExt, StringComparison.OrdinalIgnoreCase))
+            {
+                return (uint)assembly.DeviceIndex;
+            }
+        }
+        
+        return null;
+    }
+
+    /// <summary>
     /// Get local assembly info by name
     /// </summary>
     public LocalAssemblyInfo? GetLocalAssembly(string name)

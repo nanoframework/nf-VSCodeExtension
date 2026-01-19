@@ -612,6 +612,97 @@ public class SymbolResolver : IDisposable
     }
 
     /// <summary>
+    /// Find a field by name in the class containing the specified method.
+    /// This is used to look up static fields when evaluating expressions.
+    /// NOTE: The pdbx file does NOT contain field names, only tokens.
+    /// This method returns the type token so the caller can query the device for fields.
+    /// </summary>
+    /// <param name="assemblyName">Assembly name</param>
+    /// <param name="methodToken">Device method token to identify the class context</param>
+    /// <param name="fieldName">Name of the field to find (not used - pdbx doesn't have names)</param>
+    /// <returns>Type token and assembly info for querying fields, or null if not found</returns>
+    public (uint TypeToken, string AssemblyName)? GetClassForMethod(
+        string assemblyName, uint methodToken)
+    {
+        // Convert device token to pdbx token format
+        uint methodRow = methodToken & 0xFFFF;
+        uint pdbxToken = 0x06000000 | methodRow;
+        
+        Console.Error.WriteLine($"[DebugBridge] GetClassForMethod: Looking for method 0x{pdbxToken:X8} (from device token 0x{methodToken:X8})");
+        
+        // Try to find the assembly with various name formats
+        PdbxFile? pdbxFile = null;
+        string? resolvedName = null;
+        
+        if (_loadedSymbols.TryGetValue(assemblyName, out pdbxFile))
+        {
+            resolvedName = assemblyName;
+        }
+        else if (_loadedSymbols.TryGetValue(assemblyName + ".exe", out pdbxFile))
+        {
+            resolvedName = assemblyName + ".exe";
+        }
+        else if (_loadedSymbols.TryGetValue(assemblyName + ".dll", out pdbxFile))
+        {
+            resolvedName = assemblyName + ".dll";
+        }
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+            if (_loadedSymbols.TryGetValue(nameWithoutExt, out pdbxFile))
+            {
+                resolvedName = nameWithoutExt;
+            }
+        }
+        
+        if (pdbxFile?.Assembly?.Classes == null || resolvedName == null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetClassForMethod: Could not find pdbx for assembly '{assemblyName}'");
+            return null;
+        }
+        
+        // Find the class containing this method
+        foreach (var cls in pdbxFile.Assembly.Classes)
+        {
+            foreach (var method in cls.Methods ?? Array.Empty<PdbxMethod>())
+            {
+                if (method.Token?.NanoCLR == pdbxToken)
+                {
+                    if (cls.Token?.NanoCLR != null)
+                    {
+                        Console.Error.WriteLine($"[DebugBridge] GetClassForMethod: Found class with type token 0x{cls.Token.NanoCLR:X8}");
+                        return (cls.Token.NanoCLR, resolvedName);
+                    }
+                }
+            }
+        }
+        
+        Console.Error.WriteLine($"[DebugBridge] GetClassForMethod: Could not find class for method 0x{pdbxToken:X8}");
+        return null;
+    }
+
+    /// <summary>
+    /// Find a field by name in the class containing the specified method.
+    /// This is used to look up static fields when evaluating expressions.
+    /// NOTE: The pdbx file does NOT contain field names, only tokens.
+    /// This method returns the type token so the caller can query the device for fields.
+    /// </summary>
+    /// <param name="assemblyName">Assembly name</param>
+    /// <param name="methodToken">Device method token to identify the class context</param>
+    /// <param name="fieldName">Name of the field to find (not used - pdbx doesn't have names)</param>
+    /// <returns>Field info (nanoCLR token and type token) or null if not found</returns>
+    public (uint FieldToken, uint TypeToken, string AssemblyName)? FindFieldByName(
+        string assemblyName, uint methodToken, string fieldName)
+    {
+        // The pdbx file does NOT contain field names - only tokens.
+        // We need to use the engine to resolve field names from the device.
+        // This method is now deprecated - callers should use GetClassForMethod + engine.ResolveField
+        Console.Error.WriteLine($"[DebugBridge] FindFieldByName: pdbx files don't contain field names, returning null");
+        Console.Error.WriteLine($"[DebugBridge] FindFieldByName: Use GetClassForMethod + engine.ResolveField to find fields by name");
+        return null;
+    }
+
+    /// <summary>
     /// Check if symbols are loaded for an assembly
     /// </summary>
     public bool HasSymbolsForAssembly(string assemblyName)
@@ -782,14 +873,13 @@ public class BreakpointLocation
     public uint MethodToken { get; set; }
     
     /// <summary>
-    /// The assembly Idx from ResolveAllAssemblies.
-    /// This is already in the format (assembly_index << 16), e.g., 0x10000 for assembly 1.
+    /// The assembly index from ResolveAllAssemblies (e.g., 1, 2, 3, etc.)
     /// </summary>
     public uint AssemblyIdx { get; set; }
     
     /// <summary>
     /// Gets the device method index in the format expected by the debugger protocol.
-    /// Format: (assembly_idx) | method_row where assembly_idx is already shifted.
+    /// Format: (assembly_index << 16) | method_row
     /// This is what should be passed to SetBreakpoints m_md field.
     /// </summary>
     public uint DeviceMethodIndex
@@ -798,8 +888,8 @@ public class BreakpointLocation
         {
             // Extract the method row from the token (bottom 24 bits)
             uint methodRow = MethodToken & 0x00FFFFFF;
-            // AssemblyIdx is already in format (assembly_index << 16), just OR with method row
-            return AssemblyIdx | methodRow;
+            // Shift assembly index and OR with method row
+            return (AssemblyIdx << 16) | methodRow;
         }
     }
     

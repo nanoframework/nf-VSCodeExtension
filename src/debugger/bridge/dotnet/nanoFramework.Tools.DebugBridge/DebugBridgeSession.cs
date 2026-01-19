@@ -208,7 +208,22 @@ public class DebugBridgeSession : IDisposable
 
             // Update debug flags to enable source-level debugging
             LogMessage("Enabling source-level debugging...");
-            _engine.UpdateDebugFlags();
+            bool debugFlagsUpdated = _engine.UpdateDebugFlags();
+            LogMessage($"UpdateDebugFlags returned: {debugFlagsUpdated}");
+            
+            // Get current execution mode to verify
+            var executionMode = _engine.GetExecutionMode();
+            LogMessage($"Current execution mode: 0x{(uint)executionMode:X8}");
+            
+            // If device is already running and we haven't enabled source-level debugging, do it explicitly
+            if (!debugFlagsUpdated)
+            {
+                LogMessage("Explicitly setting SourceLevelDebugging mode...");
+                bool modeSet = _engine.SetExecutionMode(
+                    nanoFramework.Tools.Debugger.WireProtocol.Commands.DebuggingExecutionChangeConditions.State.SourceLevelDebugging, 
+                    0);
+                LogMessage($"SetExecutionMode returned: {modeSet}");
+            }
 
             _isConnected = true;
             
@@ -2669,6 +2684,7 @@ public class DebugBridgeSession : IDisposable
         try
         {
             LogMessage($"Evaluate: expression='{expression}', frameId={frameId}, context={context}");
+            LogMessage($"Evaluate: _frameIdMap has {_frameIdMap.Count} entries: [{string.Join(", ", _frameIdMap.Keys)}]");
             
             // For simple variable lookups, try to find the variable in the current frame
             if (frameId.HasValue && _frameIdMap.TryGetValue(frameId.Value, out var frameInfo))
@@ -2761,6 +2777,119 @@ public class DebugBridgeSession : IDisposable
                             {
                                 LogMessage($"Error getting argument {argName}: {ex.Message}");
                             }
+                        }
+                    }
+                    
+                    // Try to find the variable as a static field by scanning all fields
+                    // Note: pdbx files don't contain field names, only tokens
+                    // So we need to query the device directly for field names
+                    if (assemblyName != null)
+                    {
+                        LogMessage($"Evaluate: Looking for static field '{expression}' by scanning device fields");
+                        
+                        // Get assembly index
+                        uint? assemblyIdx = _assemblyManager.GetAssemblyIndex(assemblyName);
+                        if (!assemblyIdx.HasValue)
+                        {
+                            assemblyIdx = _assemblyManager.GetAssemblyIndex(assemblyName + ".exe");
+                        }
+                        if (!assemblyIdx.HasValue)
+                        {
+                            assemblyIdx = _assemblyManager.GetAssemblyIndex(assemblyName + ".dll");
+                        }
+                        
+                        if (assemblyIdx.HasValue)
+                        {
+                            LogMessage($"Evaluate: Scanning fields in assembly index {assemblyIdx.Value} for '{expression}'");
+                            
+                            // Scan fields in this assembly to find one with the matching name
+                            uint? foundFd = null;
+                            int fieldsFound = 0;
+                            int consecutiveFailures = 0;
+                            
+                            for (uint fieldIdx = 0; fieldIdx < 500 && consecutiveFailures < 50; fieldIdx++)
+                            {
+                                uint fd = (assemblyIdx.Value << 16) | fieldIdx;
+                                
+                                try
+                                {
+                                    var resolved = _engine.ResolveField(fd);
+                                    if (resolved != null && !string.IsNullOrEmpty(resolved.m_name))
+                                    {
+                                        fieldsFound++;
+                                        consecutiveFailures = 0;
+                                        
+                                        // Log first few fields to help debug
+                                        if (fieldsFound <= 10)
+                                        {
+                                            LogMessage($"Evaluate: Found field at fd=0x{fd:X8}: '{resolved.m_name}' (type=0x{resolved.m_td:X8})");
+                                        }
+                                        
+                                        // Field names from device are fully qualified: "Namespace.Class::FieldName"
+                                        // Extract just the field name for comparison
+                                        string fieldNameOnly = resolved.m_name;
+                                        int separatorIdx = resolved.m_name.LastIndexOf("::", StringComparison.Ordinal);
+                                        if (separatorIdx >= 0)
+                                        {
+                                            fieldNameOnly = resolved.m_name.Substring(separatorIdx + 2);
+                                        }
+                                        
+                                        if (string.Equals(fieldNameOnly, expression, StringComparison.Ordinal))
+                                        {
+                                            LogMessage($"Evaluate: MATCH! Field '{expression}' found at fd=0x{fd:X8} (full name: '{resolved.m_name}')");
+                                            foundFd = fd;
+                                            break;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        consecutiveFailures++;
+                                    }
+                                }
+                                catch
+                                {
+                                    consecutiveFailures++;
+                                }
+                            }
+                            
+                            LogMessage($"Evaluate: Scanned fields, found {fieldsFound} total fields in assembly");
+                            
+                            if (foundFd.HasValue)
+                            {
+                                try
+                                {
+                                    var runtimeValue = _engine.GetStaticFieldValue(foundFd.Value);
+                                    if (runtimeValue != null)
+                                    {
+                                        var varInfo = CreateVariableInfo(runtimeValue, expression);
+                                        LogMessage($"Evaluate result: static field {expression} = {varInfo.Value}");
+                                        
+                                        return new EvaluateResult(true, new EvaluateResultData
+                                        {
+                                            Value = varInfo.Value,
+                                            Type = varInfo.Type,
+                                            HasChildren = varInfo.VariablesReference > 0,
+                                            VariablesReference = varInfo.VariablesReference
+                                        });
+                                    }
+                                    else
+                                    {
+                                        LogMessage($"Evaluate: GetStaticFieldValue returned null for fd=0x{foundFd.Value:X8}");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    LogMessage($"Error getting static field {expression}: {ex.Message}");
+                                }
+                            }
+                            else
+                            {
+                                LogMessage($"Evaluate: Field '{expression}' not found in assembly {assemblyIdx.Value} (scanned {fieldsFound} fields)");
+                            }
+                        }
+                        else
+                        {
+                            LogMessage($"Evaluate: Could not get assembly index for '{assemblyName}'");
                         }
                     }
                 }
@@ -2936,10 +3065,11 @@ public class DebugBridgeSession : IDisposable
                             assembly.Result.Version.MinorVersion,
                             assembly.Result.Version.BuildNumber,
                             assembly.Result.Version.RevisionNumber);
-                        // Idx is already in format (assembly_index << 16)
-                        var idx = (int)assembly.Idx;
+                        // Idx from device is in format (assembly_index << 16), extract actual index
+                        var rawIdx = assembly.Idx;
+                        var idx = (int)(rawIdx >> 16);
                         
-                        LogMessage($"  Assembly Idx=0x{idx:X8}: {name} v{version}");
+                        LogMessage($"  Assembly Idx=0x{rawIdx:X8} (index={idx}): {name} v{version}");
                         _assemblyManager.RegisterDeviceAssembly(name, version, 0, idx);
                     }
                 }
