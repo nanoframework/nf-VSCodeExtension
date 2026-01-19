@@ -118,8 +118,8 @@ export class NanoBridge extends EventEmitter {
     /**
      * Deploy application
      */
-    public async deploy(program: string): Promise<boolean> {
-        const response = await this.sendCommand('deploy', { program });
+    public async deploy(assembliesPath: string): Promise<boolean> {
+        const response = await this.sendCommand('deploy', { assembliesPath });
         return response?.success || false;
     }
 

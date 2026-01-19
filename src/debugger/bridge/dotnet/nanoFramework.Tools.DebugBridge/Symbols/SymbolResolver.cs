@@ -282,6 +282,140 @@ public class SymbolResolver : IDisposable
     }
 
     /// <summary>
+    /// Get the breakpoint location for the next source line after the given position.
+    /// Used for breakpoint-based step over to avoid rapid IL stepping.
+    /// </summary>
+    /// <param name="sourceFile">Current source file</param>
+    /// <param name="currentLine">Current line number</param>
+    /// <param name="currentMethodToken">Current method token (to handle stepping out of method)</param>
+    /// <returns>Location of next line, or null if not found</returns>
+    public BreakpointLocation? GetNextLineBreakpointLocation(string sourceFile, int currentLine, int currentMethodToken)
+    {
+        // Normalize the source file path
+        var normalizedPath = Path.GetFullPath(sourceFile).ToLowerInvariant();
+        
+        // Collect all sequence points for this file from all methods
+        var candidatePoints = new List<SequencePoint>();
+        
+        foreach (var kvp in _sequencePointCache)
+        {
+            foreach (var sp in kvp.Value)
+            {
+                if (sp.SourceFile != null && 
+                    Path.GetFullPath(sp.SourceFile).ToLowerInvariant() == normalizedPath)
+                {
+                    candidatePoints.Add(sp);
+                }
+            }
+        }
+        
+        if (candidatePoints.Count == 0)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetNextLineBreakpointLocation: No sequence points found for {sourceFile}");
+            return null;
+        }
+        
+        // Sort by start line, then by IL offset for same line
+        candidatePoints.Sort((a, b) => 
+        {
+            int lineCompare = a.StartLine.CompareTo(b.StartLine);
+            if (lineCompare != 0) return lineCompare;
+            return a.ILOffsetNanoCLR.CompareTo(b.ILOffsetNanoCLR);
+        });
+        
+        // Find the first sequence point on a line AFTER currentLine
+        // Note: We don't filter by method token because the device method index (e.g., 0x00010001)
+        // is different from the PDB method token (e.g., 0x06000001). For step-over, we just
+        // want the next line in the same source file - any method is fine since we'll set a 
+        // breakpoint at that location.
+        SequencePoint? nextLinePoint = null;
+        
+        foreach (var sp in candidatePoints)
+        {
+            if (sp.StartLine > currentLine)
+            {
+                nextLinePoint = sp;
+                break;
+            }
+        }
+        
+        // If we found a next line, use it
+        if (nextLinePoint != null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetNextLineBreakpointLocation: Found next line {nextLinePoint.StartLine} (current: {currentLine}) at IL={nextLinePoint.ILOffsetNanoCLR}, method=0x{nextLinePoint.MethodToken:X8}");
+            return new BreakpointLocation
+            {
+                AssemblyName = nextLinePoint.AssemblyName,
+                MethodToken = nextLinePoint.MethodToken,
+                ILOffset = nextLinePoint.ILOffsetNanoCLR,
+                SourceFile = sourceFile,
+                Line = nextLinePoint.StartLine,
+                Verified = true
+            };
+        }
+        
+        Console.Error.WriteLine($"[DebugBridge] GetNextLineBreakpointLocation: No next line found after line {currentLine} in {Path.GetFileName(sourceFile)}");
+        return null;
+    }
+
+    /// <summary>
+    /// Get the entry point location (first executable line in the user assembly)
+    /// This is typically the first sequence point in the Main method or the first loaded assembly.
+    /// </summary>
+    /// <returns>The entry point location, or null if not found</returns>
+    public BreakpointLocation? GetEntryPointLocation()
+    {
+        // Find the first sequence point across all loaded symbols
+        // Prefer user assemblies (not mscorlib, System.*, nanoFramework.*)
+        SequencePoint? entryPoint = null;
+        
+        foreach (var kvp in _sequencePointCache)
+        {
+            var assemblyName = kvp.Key.Split('|')[0]; // Key format is "assemblyName|methodToken"
+            
+            // Skip system assemblies
+            if (assemblyName.StartsWith("mscorlib", StringComparison.OrdinalIgnoreCase) ||
+                assemblyName.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
+                assemblyName.StartsWith("nanoFramework.", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            
+            foreach (var sp in kvp.Value)
+            {
+                // Skip hidden/generated sequence points
+                if (sp.StartLine <= 0 || sp.SourceFile == null)
+                    continue;
+                
+                // Take the first non-hidden sequence point (by IL offset 0 or lowest line number)
+                if (entryPoint == null || sp.StartLine < entryPoint.StartLine)
+                {
+                    entryPoint = sp;
+                }
+            }
+        }
+        
+        if (entryPoint == null)
+        {
+            Console.Error.WriteLine("[DebugBridge] GetEntryPointLocation: No entry point found");
+            return null;
+        }
+        
+        Console.Error.WriteLine($"[DebugBridge] GetEntryPointLocation: Found entry at {Path.GetFileName(entryPoint.SourceFile ?? "unknown")}:{entryPoint.StartLine}, " +
+                               $"assembly={entryPoint.AssemblyName}, method=0x{entryPoint.MethodToken:X8}, IL={entryPoint.ILOffsetNanoCLR}");
+        
+        return new BreakpointLocation
+        {
+            AssemblyName = entryPoint.AssemblyName,
+            MethodToken = entryPoint.MethodToken,
+            ILOffset = entryPoint.ILOffsetNanoCLR,
+            SourceFile = entryPoint.SourceFile,
+            Line = entryPoint.StartLine,
+            Verified = true
+        };
+    }
+
+    /// <summary>
     /// Get source location from an IL offset (for stack traces)
     /// </summary>
     /// <param name="assemblyName">Assembly name</param>

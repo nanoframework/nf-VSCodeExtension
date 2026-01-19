@@ -216,8 +216,23 @@ export class NanoRuntime extends EventEmitter {
                 return false;
             }
 
+            // Determine the assemblies directory (the program path might be the bin/Debug folder)
+            const path = await import('path');
+            let assembliesPath = program;
+            
+            // If program is a file path, get the directory
+            if (program.endsWith('.pe') || program.endsWith('.exe')) {
+                assembliesPath = path.dirname(program);
+            }
+            
+            this.log(`Assemblies path for deployment: ${assembliesPath}`);
+            
+            // Load symbols first (from the same directory)
+            await this.loadSymbolsFromProgram(assembliesPath);
+
             // Deploy the application
-            if (!await this._bridge.deploy(program)) {
+            this.log(`Deploying assemblies from: ${assembliesPath}`);
+            if (!await this._bridge.deploy(assembliesPath)) {
                 this.log('Failed to deploy application');
                 return false;
             }

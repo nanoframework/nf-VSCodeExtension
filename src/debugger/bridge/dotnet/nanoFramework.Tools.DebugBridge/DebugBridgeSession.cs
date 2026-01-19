@@ -296,12 +296,17 @@ public class DebugBridgeSession : IDisposable
 
         try
         {
-            LogMessage($"Setting breakpoint at {file}:{line}");
+            LogMessage($"SetBreakpoint: Requested breakpoint at {file}:{line}");
             
             var breakpointId = _nextBreakpointId++;
             
             // Try to resolve the source location to an IL offset using loaded symbols
             var bpLocation = _symbolResolver.GetBreakpointLocation(file, line);
+            
+            if (bpLocation != null)
+            {
+                LogMessage($"SetBreakpoint: Resolved to line {bpLocation.Line}, IL offset {bpLocation.ILOffset}");
+            }
             
             BreakpointInfo breakpoint;
             
@@ -677,25 +682,28 @@ public class DebugBridgeSession : IDisposable
                 return false;
             }
 
-            // Find the first frame with symbols (user code)
+            // Find the first frame with source location (user code)
+            // Use TryGetSourceLocationForFrame which works with both pdbx files and Portable PDBs
             WPCommands.Debugging_Thread_Stack.Reply.Call? userFrame = null;
             string? assemblyName = null;
             int userFrameDepth = -1;
+            SourceLocation? currentLocation = null;
             
             for (int i = 0; i < stack.m_data.Length; i++)
             {
                 var frame = stack.m_data[i];
-                var asmName = GetAssemblyNameForToken(frame.m_md);
-                var methodInfo = _symbolResolver.GetMethodInfo(asmName, frame.m_md);
                 var methodName = _engine.GetMethodName(frame.m_md, true);
+                var (location, asmName) = TryGetSourceLocationForFrame(frame.m_md, frame.m_IP);
+                bool hasSource = location != null;
                 
-                LogMessage($"Frame {i}: md=0x{frame.m_md:X8}, IP=0x{frame.m_IP:X4}, method={methodName}, hasSymbols={methodInfo != null}");
+                LogMessage($"Frame {i}: md=0x{frame.m_md:X8}, IP=0x{frame.m_IP:X4}, method={methodName}, hasSource={hasSource}");
                 
-                if (methodInfo != null)
+                if (hasSource && location != null && asmName != null)
                 {
                     userFrame = frame;
                     assemblyName = asmName;
                     userFrameDepth = i;
+                    currentLocation = location;
                     break;
                 }
             }
@@ -703,17 +711,16 @@ public class DebugBridgeSession : IDisposable
             if (userFrame == null || assemblyName == null)
             {
                 // No user code found, just resume with a simple step
-                LogMessage("No frame with symbols found, using simple step");
+                LogMessage("No frame with source found, using simple step");
                 return await PerformDeviceStepOver(pid, stack.m_data[0], 0);
             }
             
             LogMessage($"User frame at depth {userFrameDepth}: md=0x{userFrame.m_md:X8}, IP=0x{userFrame.m_IP:X4}");
             
-            // Get current source line info for logging
-            var currentLine = _symbolResolver.GetSourceLocation(assemblyName, userFrame.m_md, userFrame.m_IP);
-            if (currentLine != null)
+            // Log current source line info
+            if (currentLocation != null)
             {
-                LogMessage($"Current location: {Path.GetFileName(currentLine.SourceFile)}:{currentLine.Line}");
+                LogMessage($"Current location: {Path.GetFileName(currentLocation.SourceFile)}:{currentLocation.Line}");
             }
             
             // Use device-level stepping with c_STEP_OVER flag
@@ -737,13 +744,224 @@ public class DebugBridgeSession : IDisposable
     {
         LogMessage($"Device step over: pid={pid}, depth={frameDepth}, md=0x{currentFrame.m_md:X8}, IP=0x{currentFrame.m_IP:X4}");
         
-        // Get the current source line - we'll keep stepping until we're on a different line
-        var assemblyName = GetAssemblyNameForToken(currentFrame.m_md);
-        var startLocation = _symbolResolver.GetSourceLocation(assemblyName, currentFrame.m_md, currentFrame.m_IP);
+        // Get the current source line - we'll step to the next different line
+        var (startLocation, _) = TryGetSourceLocationForFrame(currentFrame.m_md, currentFrame.m_IP);
         int startLine = startLocation?.Line ?? -1;
         string? startFile = startLocation?.SourceFile;
         
         LogMessage($"Starting step from line {startLine} in {Path.GetFileName(startFile ?? "unknown")}");
+        
+        // BREAKPOINT-BASED STEP OVER:
+        // Instead of rapid IL stepping (which causes issues with native code),
+        // we set a temporary breakpoint at the next source line and resume.
+        
+        if (startFile != null && startLine > 0)
+        {
+            // Try to find the next source line's IL offset
+            var nextLineLocation = _symbolResolver.GetNextLineBreakpointLocation(startFile, startLine, (int)currentFrame.m_md);
+            
+            if (nextLineLocation != null)
+            {
+                LogMessage($"Using breakpoint-based step: setting temp bp at line {nextLineLocation.Line}, IL={nextLineLocation.ILOffset}");
+                
+                // Resolve the assembly index for the device using _assemblyManager
+                uint? deviceAssemblyIndex = null;
+                var assemblyInfo = _assemblyManager.GetDeviceAssembly(nextLineLocation.AssemblyName);
+                if (assemblyInfo != null)
+                {
+                    deviceAssemblyIndex = (uint)assemblyInfo.DeviceIndex;
+                }
+                else
+                {
+                    // Try without extension
+                    var assemblyNameNoExt = Path.GetFileNameWithoutExtension(nextLineLocation.AssemblyName);
+                    assemblyInfo = _assemblyManager.GetDeviceAssembly(assemblyNameNoExt);
+                    if (assemblyInfo != null)
+                    {
+                        deviceAssemblyIndex = (uint)assemblyInfo.DeviceIndex;
+                    }
+                }
+                
+                if (deviceAssemblyIndex.HasValue)
+                {
+                    // Create temporary step breakpoint at the next line
+                    var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
+                    {
+                        m_id = -100, // Special ID for step breakpoint
+                        m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
+                        m_pid = 0,
+                        m_depth = 0,
+                        m_md = (deviceAssemblyIndex.Value << 16) | ((uint)nextLineLocation.MethodToken & 0xFFFF),
+                        m_IP = (uint)nextLineLocation.ILOffset,
+                        m_IPStart = 0,
+                        m_IPEnd = 0
+                    };
+                    
+                    // Also add step-out breakpoint in case we step out of the method
+                    var stepOutBp = new WPCommands.Debugging_Execution_BreakpointDef
+                    {
+                        m_id = -101, // Special ID for step-out
+                        m_flags = (ushort)(WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT |
+                                          WPCommands.Debugging_Execution_BreakpointDef.c_EXCEPTION_CAUGHT |
+                                          WPCommands.Debugging_Execution_BreakpointDef.c_THREAD_TERMINATED),
+                        m_pid = pid,
+                        m_depth = (uint)frameDepth,
+                        m_md = currentFrame.m_md,
+                        m_IP = currentFrame.m_IP,
+                        m_IPStart = 0,
+                        m_IPEnd = 0
+                    };
+                    
+                    // Set breakpoints: user breakpoints + temp step breakpoint + step-out
+                    var allBreakpoints = _activeBreakpointDefs.ToList();
+                    allBreakpoints.Add(stepBp);
+                    allBreakpoints.Add(stepOutBp);
+                    _engine.SetBreakpoints(allBreakpoints.ToArray());
+                    
+                    LogMessage($"Set temp breakpoint at md=0x{stepBp.m_md:X8}, IP={stepBp.m_IP}");
+                    
+                    // Resume execution (not step!)
+                    _engine.ResumeExecution();
+                    
+                    // Wait for breakpoint or reboot
+                    var result = await WaitForBreakpointBasedStep(pid, nextLineLocation.Line, stepBp.m_IP, stepBp.m_md);
+                    
+                    // Restore original breakpoints
+                    _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                    
+                    if (result.deviceRebooted)
+                    {
+                        LogMessage("Device rebooted during breakpoint-based step");
+                        await HandleDeviceRebootDuringDebug();
+                        return true;
+                    }
+                    
+                    if (result.hitUserBreakpoint)
+                    {
+                        LogMessage($"Hit user breakpoint {result.userBpId} during step");
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "breakpoint",
+                            ThreadId = (int)pid,
+                            AllThreadsStopped = true,
+                            HitBreakpointIds = new[] { result.userBpId }
+                        });
+                        return true;
+                    }
+                    
+                    // Normal step completion
+                    LogMessage($"Breakpoint-based step complete");
+                    RaiseEvent("stopped", new StoppedEventBody
+                    {
+                        Reason = "step",
+                        ThreadId = (int)pid,
+                        AllThreadsStopped = true
+                    });
+                    return true;
+                }
+            }
+        }
+        
+        // Fallback to IL-based stepping if we couldn't find next line
+        // (e.g., at end of method, or no symbols)
+        LogMessage("Falling back to IL-based stepping");
+        return await PerformILBasedStepOver(pid, currentFrame, frameDepth, startLine, startFile);
+    }
+    
+    /// <summary>
+    /// Wait for a breakpoint-based step to complete.
+    /// Returns when device stops at breakpoint, user breakpoint, or reboots.
+    /// </summary>
+    private async Task<(bool stopped, bool hitUserBreakpoint, int userBpId, bool deviceRebooted)> WaitForBreakpointBasedStep(
+        uint pid, int targetLine, uint targetIP, uint targetMd)
+    {
+        await Task.Delay(20);
+        
+        for (int i = 0; i < 200; i++) // Up to 20 seconds
+        {
+            try
+            {
+                if (!_engine.IsConnectedTonanoCLR)
+                {
+                    LogMessage("Lost connection to nanoCLR during breakpoint-based step");
+                    return (true, false, 0, true);
+                }
+                
+                var state = _engine.GetExecutionMode();
+                bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+                
+                if (isStopped)
+                {
+                    var threads = _engine.GetThreadList();
+                    if (threads == null || threads.Length == 0)
+                    {
+                        LogMessage("Device rebooted during breakpoint-based step (no threads)");
+                        return (true, false, 0, true);
+                    }
+                    
+                    var stack = _engine.GetThreadStack(pid);
+                    if (stack == null || stack.m_data == null || stack.m_data.Length == 0)
+                    {
+                        LogMessage("Lost thread during breakpoint-based step");
+                        return (true, false, 0, false);
+                    }
+                    
+                    uint currentIP = stack.m_data[0].m_IP;
+                    uint currentMd = stack.m_data[0].m_md;
+                    
+                    // Check if we hit a user breakpoint
+                    var userBp = _activeBreakpointDefs.FirstOrDefault(bp => 
+                        bp.m_IP == currentIP && bp.m_md == currentMd);
+                    
+                    if (userBp != null)
+                    {
+                        LogMessage($"Hit user breakpoint {userBp.m_id} at IP={currentIP}");
+                        return (true, true, (int)userBp.m_id, false);
+                    }
+                    
+                    // Otherwise, step completed (hit our temp breakpoint or stepped out)
+                    LogMessage($"Breakpoint-based step stopped at IP=0x{currentIP:X4}, md=0x{currentMd:X8}");
+                    return (true, false, 0, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Error during breakpoint-based step wait: {ex.Message}");
+                if (!_engine.IsConnectedTonanoCLR)
+                {
+                    return (true, false, 0, true);
+                }
+            }
+            
+            await Task.Delay(100);
+        }
+        
+        // Timeout - try to pause
+        LogMessage("Breakpoint-based step timeout");
+        try
+        {
+            if (_engine.IsConnectedTonanoCLR)
+            {
+                _engine.PauseExecution();
+            }
+            else
+            {
+                return (true, false, 0, true);
+            }
+        }
+        catch { }
+        
+        return (true, false, 0, false);
+    }
+    
+    /// <summary>
+    /// Fallback IL-based step over (when breakpoint-based stepping isn't possible).
+    /// </summary>
+    private async Task<bool> PerformILBasedStepOver(uint pid, 
+        WPCommands.Debugging_Thread_Stack.Reply.Call currentFrame, uint frameDepth,
+        int startLine, string? startFile)
+    {
+        LogMessage($"IL-based step starting from line {startLine} in {Path.GetFileName(startFile ?? "unknown")}");
         
         // Create step breakpoint using VS extension approach
         ushort stepFlags = (ushort)(
@@ -756,38 +974,69 @@ public class DebugBridgeSession : IDisposable
         int maxSteps = 1000; // Safety limit to prevent infinite loops
         for (int stepCount = 0; stepCount < maxSteps; stepCount++)
         {
-            // Get current frame state
-            var stack = _engine.GetThreadStack(pid);
-            if (stack == null || stack.m_data == null || stack.m_data.Length == 0)
+            try
             {
-                LogMessage("Lost thread stack during step");
-                break;
-            }
-            
-            var frame = stack.m_data[0];
-            
-            var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
-            {
-                m_id = -1,
-                m_flags = stepFlags,
-                m_pid = pid,
-                m_depth = (uint)stack.m_data.Length - 1,  // Use actual current depth
-                m_md = frame.m_md,
-                m_IP = frame.m_IP,
-                m_IPStart = 0,
-                m_IPEnd = 0
-            };
-            
-            // Add step breakpoint along with existing user breakpoints
-            var allBreakpoints = _activeBreakpointDefs.ToList();
-            allBreakpoints.Add(stepBp);
-            _engine.SetBreakpoints(allBreakpoints.ToArray());
-            
-            // Resume execution
-            _engine.ResumeExecution();
-            
-            // Wait for step to complete (IL-level)
-            var (stopped, hitUserBreakpoint, userBpId) = await WaitForSingleILStep(pid);
+                // Check if device is still connected before each step iteration
+                if (!_engine.IsConnectedTonanoCLR)
+                {
+                    LogMessage("Device disconnected during step loop");
+                    await HandleDeviceRebootDuringDebug();
+                    return true;
+                }
+                
+                // Get current frame state
+                var stack = _engine.GetThreadStack(pid);
+                if (stack == null || stack.m_data == null || stack.m_data.Length == 0)
+                {
+                    LogMessage("Lost thread stack during step - checking for reboot");
+                    var threads = _engine.GetThreadList();
+                    if (threads == null || threads.Length == 0)
+                    {
+                        LogMessage("No threads found - device likely rebooted");
+                        await HandleDeviceRebootDuringDebug();
+                        return true;
+                    }
+                    LogMessage($"Found {threads.Length} threads but lost current thread stack");
+                    break;
+                }
+                
+                var frame = stack.m_data[0];
+                
+                var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
+                {
+                    m_id = -1,
+                    m_flags = stepFlags,
+                    m_pid = pid,
+                    m_depth = (uint)stack.m_data.Length - 1,  // Use actual current depth
+                    m_md = frame.m_md,
+                    m_IP = frame.m_IP,
+                    m_IPStart = 0,
+                    m_IPEnd = 0
+                };
+                
+                // Add step breakpoint along with existing user breakpoints
+                var allBreakpoints = _activeBreakpointDefs.ToList();
+                allBreakpoints.Add(stepBp);
+                _engine.SetBreakpoints(allBreakpoints.ToArray());
+                
+                // Resume execution
+                _engine.ResumeExecution();
+                
+                // Wait for step to complete (IL-level)
+                // Pass starting IP/method so we can detect if we've actually moved before reporting a breakpoint hit
+                var (stopped, hitUserBreakpoint, userBpId, deviceRebooted) = await WaitForSingleILStep(pid, frame.m_IP, frame.m_md);
+                
+                if (deviceRebooted)
+                {
+                    // Device rebooted during step - this can happen when stepping over native code
+                    // that causes a device reset (e.g., hardware initialization, watchdog, etc.)
+                    LogMessage("Device rebooted during step operation");
+                    try { _engine.SetBreakpoints(_activeBreakpointDefs.ToArray()); } catch { }
+                    
+                    // Try to reconnect and re-apply breakpoints
+                    await HandleDeviceRebootDuringDebug();
+                    return true;
+                }
             
             if (!stopped)
             {
@@ -819,8 +1068,8 @@ public class DebugBridgeSession : IDisposable
             }
             
             var newFrame = newStack.m_data[0];
-            var newAssemblyName = GetAssemblyNameForToken(newFrame.m_md);
-            var newLocation = _symbolResolver.GetSourceLocation(newAssemblyName, newFrame.m_md, newFrame.m_IP);
+            // Use TryGetSourceLocationForFrame which searches all loaded assemblies (works with Portable PDBs)
+            var (newLocation, _) = TryGetSourceLocationForFrame(newFrame.m_md, newFrame.m_IP);
             int newLine = newLocation?.Line ?? -1;
             string? newFile = newLocation?.SourceFile;
             
@@ -850,6 +1099,20 @@ public class DebugBridgeSession : IDisposable
             {
                 LogMessage($"Still on line {newLine}, continuing (step {stepCount + 1}, IP=0x{newFrame.m_IP:X4})");
             }
+            } // end try
+            catch (Exception ex)
+            {
+                LogMessage($"Exception during step loop: {ex.Message}");
+                // Check if this is a communication/reboot issue
+                if (!_engine.IsConnectedTonanoCLR)
+                {
+                    LogMessage("Device disconnected - handling reboot");
+                    await HandleDeviceRebootDuringDebug();
+                    return true;
+                }
+                // Other error - break out of loop
+                break;
+            }
         }
         
         // Safety limit reached or error
@@ -866,39 +1129,112 @@ public class DebugBridgeSession : IDisposable
     
     /// <summary>
     /// Wait for a single IL-level step to complete.
-    /// Returns (stopped, hitUserBreakpoint, userBpId)
+    /// Returns (stopped, hitUserBreakpoint, userBpId, deviceRebooted)
     /// </summary>
-    private async Task<(bool stopped, bool hitUserBreakpoint, int userBpId)> WaitForSingleILStep(uint pid)
+    /// <param name="pid">Thread ID</param>
+    /// <param name="startingIP">The IP we started from - used to detect if we actually moved</param>
+    /// <param name="startingMd">The method we started from</param>
+    private async Task<(bool stopped, bool hitUserBreakpoint, int userBpId, bool deviceRebooted)> WaitForSingleILStep(uint pid, uint startingIP, uint startingMd)
     {
         await Task.Delay(20);
         
+        int consecutiveErrors = 0;
+        const int maxConsecutiveErrors = 3;
+        
         for (int i = 0; i < 100; i++) // Up to 10 seconds
         {
-            var state = _engine.GetExecutionMode();
-            bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
-            
-            if (isStopped)
+            try
             {
-                var bpStatus = _engine.GetBreakpointStatus();
-                if (bpStatus != null)
+                // First check if we're still connected to the CLR
+                if (!_engine.IsConnectedTonanoCLR)
                 {
-                    // Check if we hit a user breakpoint
-                    if (bpStatus.m_id > 0 && _activeBreakpointDefs.Any(bp => bp.m_id == bpStatus.m_id))
-                    {
-                        return (true, true, (int)bpStatus.m_id);
-                    }
+                    LogMessage("Lost connection to nanoCLR during step - device may have rebooted");
+                    return (true, false, 0, true); // deviceRebooted = true
                 }
                 
-                // Step completed normally
-                return (true, false, 0);
+                var state = _engine.GetExecutionMode();
+                bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+                
+                // Reset error counter on successful call
+                consecutiveErrors = 0;
+                
+                if (isStopped)
+                {
+                    // Get actual current position from the stack
+                    var stack = _engine.GetThreadStack(pid);
+                    
+                    // Check if we lost the thread - this could mean the device rebooted
+                    if (stack == null || stack.m_data == null || stack.m_data.Length == 0)
+                    {
+                        // Try to get thread list to verify device state
+                        var threads = _engine.GetThreadList();
+                        if (threads == null || threads.Length == 0)
+                        {
+                            LogMessage("Device appears to have rebooted during step (no threads)");
+                            return (true, false, 0, true); // deviceRebooted = true
+                        }
+                        
+                        // We have threads but lost this specific one
+                        LogMessage($"Lost thread {pid} during step");
+                        return (true, false, 0, false);
+                    }
+                    
+                    uint currentIP = stack.m_data[0].m_IP;
+                    uint currentMd = stack.m_data[0].m_md;
+                    
+                    // Check if we've actually moved
+                    bool hasMoved = (currentIP != startingIP) || (currentMd != startingMd);
+                    
+                    // Check if current position matches any active breakpoint
+                    // Only report breakpoint hit if we're EXACTLY at a breakpoint's IP
+                    var matchingBp = _activeBreakpointDefs.FirstOrDefault(bp => 
+                        bp.m_IP == currentIP && bp.m_md == currentMd);
+                    
+                    if (matchingBp != null && hasMoved)
+                    {
+                        LogMessage($"Hit breakpoint {matchingBp.m_id}: currentIP=0x{currentIP:X4} matches bp IP=0x{matchingBp.m_IP:X4}");
+                        return (true, true, (int)matchingBp.m_id, false);
+                    }
+                    
+                    // Step completed normally (no breakpoint at current location, or haven't moved)
+                    return (true, false, 0, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                consecutiveErrors++;
+                LogMessage($"Error during step wait (attempt {consecutiveErrors}): {ex.Message}");
+                
+                if (consecutiveErrors >= maxConsecutiveErrors)
+                {
+                    LogMessage("Multiple consecutive errors during step - device may have rebooted");
+                    return (true, false, 0, true); // deviceRebooted = true
+                }
             }
             
             await Task.Delay(100);
         }
         
-        // Timeout - force pause
-        _engine.PauseExecution();
-        return (true, false, 0);
+        // Timeout - check if device is still connected before pausing
+        try
+        {
+            if (_engine.IsConnectedTonanoCLR)
+            {
+                _engine.PauseExecution();
+            }
+            else
+            {
+                LogMessage("Device disconnected during step timeout");
+                return (true, false, 0, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Error pausing after step timeout: {ex.Message}");
+            return (true, false, 0, true);
+        }
+        
+        return (true, false, 0, false);
     }
     
     /// <summary>
@@ -1360,15 +1696,16 @@ public class DebugBridgeSession : IDisposable
                 return false;
             }
 
-            // Find the first frame that has symbols (user code)
+            // Find the first frame that has source (user code)
             WPCommands.Debugging_Thread_Stack.Reply.Call? targetFrame = null;
             
             for (int i = 0; i < stack.m_data.Length; i++)
             {
                 var frame = stack.m_data[i];
-                bool hasSymbols = _symbolResolver.GetMethodInfo(GetAssemblyNameForToken(frame.m_md), frame.m_md) != null;
+                var (location, _) = TryGetSourceLocationForFrame(frame.m_md, frame.m_IP);
+                bool hasSource = location != null;
                 
-                if (hasSymbols)
+                if (hasSource)
                 {
                     targetFrame = frame;
                     break;
@@ -1432,15 +1769,16 @@ public class DebugBridgeSession : IDisposable
                 return false;
             }
 
-            // Find the first frame that has symbols (user code)
+            // Find the first frame that has source (user code)
             WPCommands.Debugging_Thread_Stack.Reply.Call? targetFrame = null;
             
             for (int i = 0; i < stack.m_data.Length; i++)
             {
                 var frame = stack.m_data[i];
-                bool hasSymbols = _symbolResolver.GetMethodInfo(GetAssemblyNameForToken(frame.m_md), frame.m_md) != null;
+                var (location, _) = TryGetSourceLocationForFrame(frame.m_md, frame.m_IP);
+                bool hasSource = location != null;
                 
-                if (hasSymbols)
+                if (hasSource)
                 {
                     targetFrame = frame;
                     break;
@@ -2912,40 +3250,98 @@ public class DebugBridgeSession : IDisposable
     /// </summary>
     public async Task<DeployResult> Deploy(string assembliesPath)
     {
-        if (!_isConnected)
+        if (!_isConnected || _engine == null)
         {
             return new DeployResult(false, "Not connected");
         }
 
         try
         {
-            // TODO: Implement deployment using nf-debugger deployment APIs
-            // var assemblies = Directory.GetFiles(assembliesPath, "*.pe");
-            // foreach (var assembly in assemblies)
-            // {
-            //     var data = File.ReadAllBytes(assembly);
-            //     await _engine.DeployAsync(data);
-            // }
+            LogMessage($"Deploying assemblies from {assembliesPath}...");
             
-            await Task.CompletedTask;
+            // Get all .pe files from the assemblies folder
+            var peFiles = Directory.GetFiles(assembliesPath, "*.pe");
             
-            // Send progress events
-            RaiseEvent("output", new OutputEventBody
+            if (peFiles.Length == 0)
             {
-                Category = "console",
-                Output = $"Deploying assemblies from {assembliesPath}...\n"
+                LogMessage("No .pe files found in assembly path");
+                return new DeployResult(false, "No .pe files found");
+            }
+            
+            LogMessage($"Found {peFiles.Length} assembly file(s) to deploy");
+            
+            // Load assemblies as byte arrays (word-aligned to 4 bytes)
+            List<byte[]> assemblies = new List<byte[]>();
+            
+            foreach (var peFile in peFiles)
+            {
+                var fileName = Path.GetFileName(peFile);
+                LogMessage($"Loading assembly: {fileName}");
+                
+                using var fs = File.Open(peFile, FileMode.Open, FileAccess.Read);
+                // Word-align to 4 bytes (required by nanoFramework)
+                long length = (fs.Length + 3) / 4 * 4;
+                byte[] buffer = new byte[length];
+                fs.Read(buffer, 0, (int)fs.Length);
+                assemblies.Add(buffer);
+                
+                LogMessage($"  Loaded {fs.Length} bytes (padded to {length})");
+            }
+            
+            // Progress reporting
+            var progress = new Progress<MessageWithProgress>(msg =>
+            {
+                RaiseEvent("output", new OutputEventBody
+                {
+                    Category = "console",
+                    Output = $"[Deploy] {msg.Message}\n"
+                });
             });
             
-            return new DeployResult(true);
+            var log = new Progress<string>(msg =>
+            {
+                LogMessage($"[Deploy] {msg}");
+            });
+            
+            // Deploy using nf-debugger Engine
+            // rebootAfterDeploy: false - we'll manually control execution
+            // skipErase: false - erase before writing for clean deployment
+            LogMessage("Starting deployment to device...");
+            
+            bool result = _engine.DeploymentExecute(
+                assemblies,
+                rebootAfterDeploy: false,  // Don't reboot - we want to start debugging
+                skipErase: false,
+                progress: progress,
+                log: log);
+            
+            if (result)
+            {
+                LogMessage("Deployment completed successfully");
+                
+                RaiseEvent("output", new OutputEventBody
+                {
+                    Category = "console",
+                    Output = $"Deployed {peFiles.Length} assembly file(s) successfully\n"
+                });
+            }
+            else
+            {
+                LogMessage("Deployment failed");
+            }
+            
+            await Task.CompletedTask;
+            return new DeployResult(result, result ? null : "Deployment failed");
         }
         catch (Exception ex)
         {
+            LogMessage($"Deploy error: {ex.Message}");
             return new DeployResult(false, ex.Message);
         }
     }
 
     /// <summary>
-    /// Start execution on the device
+    /// Start execution on the device (for launch mode - after deployment)
     /// </summary>
     /// <param name="stopOnEntry">Whether to stop at the entry point</param>
     /// <returns>True if execution started successfully</returns>
@@ -2959,31 +3355,92 @@ public class DebugBridgeSession : IDisposable
         try
         {
             LogMessage($"Starting execution (stopOnEntry: {stopOnEntry})");
-
+            
+            // After deployment, we need to reboot the CLR to start fresh execution
+            LogMessage("Rebooting CLR to start execution...");
+            
+            // Use RebootDevice with ClrOnly option to restart just the CLR
+            // This is faster than a full reboot and starts the deployed application
+            bool rebooted = _engine.RebootDevice(RebootOptions.ClrOnly);
+            LogMessage($"RebootDevice returned: {rebooted}");
+            
+            if (!rebooted)
+            {
+                LogMessage("Failed to reboot CLR");
+                return false;
+            }
+            
+            // Wait for the device to reboot and reconnect
+            LogMessage("Waiting for device to restart...");
+            await Task.Delay(1000);
+            
+            // Re-establish connection after reboot
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                await Task.Delay(500);
+                
+                if (_engine.IsConnectedTonanoCLR)
+                {
+                    LogMessage("Device reconnected to nanoCLR");
+                    break;
+                }
+                
+                LogMessage($"Waiting for reconnect (attempt {attempt + 1}/10)...");
+            }
+            
+            if (!_engine.IsConnectedTonanoCLR)
+            {
+                LogMessage("Failed to reconnect after reboot");
+                return false;
+            }
+            
+            // Re-enable source-level debugging after reboot
+            LogMessage("Re-enabling source-level debugging...");
+            _engine.UpdateDebugFlags();
+            
+            // Query device assemblies again after reboot
+            await QueryDeviceAssemblies();
+            
+            // Re-apply breakpoints now that assemblies are loaded with correct indices
+            await ReapplyBreakpointsAfterReboot();
+            
             if (stopOnEntry)
             {
-                // First pause, then we'll get a stopped event
-                _engine.PauseExecution();
+                // For stopOnEntry, we need to set a breakpoint at the entry point and let it run
+                // We can't just pause - there are no threads yet before Main() starts
+                LogMessage("Setting up stop at entry point...");
                 
-                // Get thread list
-                _lastThreadList = _engine.GetThreadList();
-                _stoppedThreadId = _lastThreadList?.FirstOrDefault() ?? 1u;
+                // Find the entry point method from symbols and set a temporary breakpoint
+                var entryPointBp = SetEntryPointBreakpoint();
                 
-                // Notify that we're stopped at entry
-                RaiseEvent("stopped", new StoppedEventBody
+                if (entryPointBp != null)
                 {
-                    Reason = "entry",
-                    ThreadId = (int)_stoppedThreadId,
-                    AllThreadsStopped = true
-                });
+                    LogMessage($"Entry point breakpoint set at IL offset {entryPointBp.m_IP}");
+                }
+                else
+                {
+                    LogMessage("Could not set entry point breakpoint, will stop at first breakpoint");
+                }
+                
+                // Resume execution so the program can start and hit the entry point
+                LogMessage("Resuming execution to hit entry point...");
+                _engine.ResumeExecution();
+                
+                // Wait for the entry point breakpoint to be hit
+                await WaitForEntryPointHit(entryPointBp);
             }
             else
             {
-                // Just resume execution
+                // Resume execution and set up breakpoint polling
+                LogMessage("Resuming execution...");
                 _engine.ResumeExecution();
+                
+                // Cancel any existing polling task and start a new one
+                _breakpointPollCts?.Cancel();
+                _breakpointPollCts = new CancellationTokenSource();
+                _ = PollForBreakpointHitAsync(_breakpointPollCts.Token);
             }
 
-            await Task.CompletedTask;
             return true;
         }
         catch (Exception ex)
@@ -2991,6 +3448,458 @@ public class DebugBridgeSession : IDisposable
             LogMessage($"StartExecution error: {ex.Message}");
             return false;
         }
+    }
+    
+    /// <summary>
+    /// Set a temporary breakpoint at the program entry point (first line of Main)
+    /// </summary>
+    private WPCommands.Debugging_Execution_BreakpointDef? SetEntryPointBreakpoint()
+    {
+        if (_engine == null) return null;
+        
+        try
+        {
+            // Find the entry point from loaded symbols
+            // The entry point is typically the first method in the user assembly (Blinky.exe)
+            // We need to find the first executable line
+            var entryPoint = _symbolResolver.GetEntryPointLocation();
+            
+            if (entryPoint == null)
+            {
+                LogMessage("Could not find entry point from symbols");
+                return null;
+            }
+            
+            LogMessage($"Entry point found: {Path.GetFileName(entryPoint.SourceFile ?? "unknown")}:{entryPoint.Line}, " +
+                      $"assembly={entryPoint.AssemblyName}, method=0x{entryPoint.MethodToken:X8}, IL={entryPoint.ILOffset}");
+            
+            // Get device assembly index
+            var assemblyInfo = _assemblyManager.GetDeviceAssembly(entryPoint.AssemblyName);
+            if (assemblyInfo == null)
+            {
+                var nameNoExt = Path.GetFileNameWithoutExtension(entryPoint.AssemblyName);
+                assemblyInfo = _assemblyManager.GetDeviceAssembly(nameNoExt);
+            }
+            
+            if (assemblyInfo == null)
+            {
+                LogMessage($"Could not find device assembly for '{entryPoint.AssemblyName}'");
+                return null;
+            }
+            
+            entryPoint.AssemblyIdx = (uint)assemblyInfo.DeviceIndex;
+            
+            // Create entry point breakpoint with special ID (-2 to distinguish from user breakpoints)
+            var entryBp = new WPCommands.Debugging_Execution_BreakpointDef
+            {
+                m_id = -2, // Special ID for entry point breakpoint
+                m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
+                m_md = entryPoint.DeviceMethodIndex,
+                m_IP = entryPoint.ILOffset,
+                m_pid = WPCommands.Debugging_Execution_BreakpointDef.c_PID_ANY,
+                m_depth = 0
+            };
+            
+            // Add to active breakpoints and set on device
+            var allBreakpoints = _activeBreakpointDefs.ToList();
+            allBreakpoints.Add(entryBp);
+            
+            LogMessage($"Setting entry point breakpoint: md=0x{entryBp.m_md:X8}, IP={entryBp.m_IP}");
+            bool success = _engine.SetBreakpoints(allBreakpoints.ToArray());
+            LogMessage($"SetBreakpoints (with entry point) returned: {success}");
+            
+            return success ? entryBp : null;
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Error setting entry point breakpoint: {ex.Message}");
+            return null;
+        }
+    }
+    
+    /// <summary>
+    /// Wait for the entry point breakpoint to be hit
+    /// </summary>
+    private async Task WaitForEntryPointHit(WPCommands.Debugging_Execution_BreakpointDef? entryBp)
+    {
+        if (_engine == null) return;
+        
+        LogMessage("Waiting for entry point hit...");
+        
+        // Poll for breakpoint hit (up to 30 seconds)
+        for (int i = 0; i < 300; i++)
+        {
+            await Task.Delay(100);
+            
+            var state = _engine.GetExecutionMode();
+            bool isStopped = ((uint)state & 0x80000000) != 0;
+            
+            if (isStopped)
+            {
+                LogMessage($"Device stopped (state: {state})");
+                
+                // Get thread list now that we have a running thread
+                _lastThreadList = _engine.GetThreadList();
+                _stoppedThreadId = _lastThreadList?.FirstOrDefault() ?? 1u;
+                LogMessage($"Thread list: [{string.Join(", ", _lastThreadList ?? Array.Empty<uint>())}], using {_stoppedThreadId}");
+                
+                // Check if we hit the entry point breakpoint or a user breakpoint
+                var bpStatus = _engine.GetBreakpointStatus();
+                if (bpStatus != null)
+                {
+                    LogMessage($"Breakpoint status: id={bpStatus.m_id}, flags=0x{bpStatus.m_flags:X4}, IP={bpStatus.m_IP}");
+                    
+                    if (bpStatus.m_id == -2)
+                    {
+                        // Hit entry point breakpoint - remove it and notify
+                        LogMessage("Hit entry point breakpoint");
+                        
+                        // Remove the entry point breakpoint (keep only user breakpoints)
+                        _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                        
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "entry",
+                            ThreadId = (int)_stoppedThreadId,
+                            AllThreadsStopped = true,
+                            Text = "Stopped at entry point"
+                        });
+                        return;
+                    }
+                    else if (bpStatus.m_id > 0)
+                    {
+                        // Hit a user breakpoint
+                        LogMessage($"Hit user breakpoint {bpStatus.m_id}");
+                        
+                        // Remove entry point breakpoint if set
+                        if (entryBp != null)
+                        {
+                            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                        }
+                        
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "breakpoint",
+                            ThreadId = (int)_stoppedThreadId,
+                            AllThreadsStopped = true,
+                            HitBreakpointIds = new[] { (int)bpStatus.m_id }
+                        });
+                        return;
+                    }
+                }
+                
+                // Stopped for some other reason (step, pause, etc.)
+                LogMessage("Stopped (no specific breakpoint)");
+                
+                // Remove entry point breakpoint if set
+                if (entryBp != null)
+                {
+                    _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                }
+                
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "entry",
+                    ThreadId = (int)_stoppedThreadId,
+                    AllThreadsStopped = true,
+                    Text = "Stopped at entry point"
+                });
+                return;
+            }
+        }
+        
+        LogMessage("Timeout waiting for entry point hit");
+        
+        // Timed out - try to pause and report
+        _engine.PauseExecution();
+        await Task.Delay(200);
+        
+        _lastThreadList = _engine.GetThreadList();
+        _stoppedThreadId = _lastThreadList?.FirstOrDefault() ?? 1u;
+        
+        RaiseEvent("stopped", new StoppedEventBody
+        {
+            Reason = "pause",
+            ThreadId = (int)_stoppedThreadId,
+            AllThreadsStopped = true,
+            Text = "Execution paused (entry point timeout)"
+        });
+    }
+    
+    /// <summary>
+    /// Query device for loaded assemblies and register them
+    /// </summary>
+    private async Task QueryDeviceAssemblies()
+    {
+        if (_engine == null) return;
+        
+        try
+        {
+            LogMessage("Querying device assemblies...");
+            
+            // Get list of resolved assemblies from the device
+            var assemblies = _engine.ResolveAllAssemblies();
+            
+            if (assemblies != null && assemblies.Count > 0)
+            {
+                LogMessage($"Device has {assemblies.Count} assemblies loaded:");
+                
+                foreach (var assembly in assemblies)
+                {
+                    if (assembly.Result != null)
+                    {
+                        var name = assembly.Result.Name;
+                        var version = new Version(
+                            assembly.Result.Version.MajorVersion,
+                            assembly.Result.Version.MinorVersion,
+                            assembly.Result.Version.BuildNumber,
+                            assembly.Result.Version.RevisionNumber);
+                        // Idx from device is in format (assembly_index << 16), extract actual index
+                        var rawIdx = assembly.Idx;
+                        var idx = (int)(rawIdx >> 16);
+                        
+                        LogMessage($"  Assembly Idx=0x{rawIdx:X8} (index={idx}): {name} v{version}");
+                        _assemblyManager.RegisterDeviceAssembly(name, version, 0, idx);
+                    }
+                }
+            }
+            else
+            {
+                LogMessage("No assemblies found on device");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Error querying assemblies: {ex.Message}");
+        }
+        
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Handle device reboot that occurred during a debug operation (like stepping).
+    /// This can happen when stepping over native code that causes a device reset.
+    /// </summary>
+    private async Task HandleDeviceRebootDuringDebug()
+    {
+        LogMessage("Handling device reboot during debug operation...");
+        
+        try
+        {
+            // Wait for device to come back up
+            LogMessage("Waiting for device to restart...");
+            await Task.Delay(500);
+            
+            // Try to reconnect
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                await Task.Delay(500);
+                
+                if (_engine.IsConnectedTonanoCLR)
+                {
+                    LogMessage("Device reconnected after reboot");
+                    break;
+                }
+                
+                LogMessage($"Waiting for reconnect (attempt {attempt + 1}/20)...");
+            }
+            
+            if (!_engine.IsConnectedTonanoCLR)
+            {
+                LogMessage("Failed to reconnect after unexpected reboot");
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "exception",
+                    ThreadId = 1,
+                    AllThreadsStopped = true,
+                    Text = "Device rebooted unexpectedly during step operation"
+                });
+                return;
+            }
+            
+            // Re-enable source-level debugging
+            LogMessage("Re-enabling source-level debugging after unexpected reboot...");
+            _engine.UpdateDebugFlags();
+            
+            // Query device assemblies again
+            await QueryDeviceAssemblies();
+            
+            // Re-apply breakpoints
+            await ReapplyBreakpointsAfterReboot();
+            
+            // Wait for a thread to appear
+            for (int i = 0; i < 20; i++)
+            {
+                await Task.Delay(200);
+                var threads = _engine.GetThreadList();
+                if (threads != null && threads.Length > 0)
+                {
+                    LogMessage($"Thread appeared: pid={threads[0]}");
+                    _stoppedThreadId = threads[0];
+                    
+                    // Pause execution
+                    _engine.PauseExecution();
+                    await Task.Delay(100);
+                    
+                    // Send stopped event
+                    RaiseEvent("stopped", new StoppedEventBody
+                    {
+                        Reason = "step",
+                        ThreadId = (int)_stoppedThreadId,
+                        AllThreadsStopped = true,
+                        Text = "Stopped after device reboot"
+                    });
+                    return;
+                }
+            }
+            
+            // No threads appeared - resume execution and start polling
+            LogMessage("No threads appeared after reboot, resuming execution...");
+            _engine.ResumeExecution();
+            
+            // Start breakpoint polling
+            _breakpointPollCts?.Cancel();
+            _breakpointPollCts = new CancellationTokenSource();
+            _ = PollForBreakpointHitAsync(_breakpointPollCts.Token);
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Error handling device reboot: {ex.Message}");
+            RaiseEvent("stopped", new StoppedEventBody
+            {
+                Reason = "exception",
+                ThreadId = 1,
+                AllThreadsStopped = true,
+                Text = $"Error recovering from device reboot: {ex.Message}"
+            });
+        }
+    }
+
+    /// <summary>
+    /// Re-apply all breakpoints after CLR reboot.
+    /// This is necessary because after deployment and CLR reboot, the assembly indices change
+    /// and breakpoints need to be re-created with the correct indices.
+    /// </summary>
+    private async Task ReapplyBreakpointsAfterReboot()
+    {
+        if (_engine == null || _breakpoints.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            LogMessage($"Re-applying {_breakpoints.Count} breakpoint(s) after CLR reboot...");
+            
+            // Clear old device breakpoint definitions (they had wrong assembly indices)
+            _activeBreakpointDefs.Clear();
+            
+            // Collect breakpoint info to re-apply
+            var breakpointsToReapply = _breakpoints.Values.ToList();
+            
+            foreach (var bp in breakpointsToReapply)
+            {
+                if (bp.Source?.Path == null || bp.Line == null)
+                {
+                    LogMessage($"  Breakpoint {bp.Id}: Missing source info, skipping");
+                    continue;
+                }
+                
+                var file = bp.Source.Path;
+                var line = bp.Line.Value;
+                
+                LogMessage($"  Re-applying breakpoint {bp.Id} at {Path.GetFileName(file)}:{line}");
+                
+                // Re-resolve the source location with updated assembly indices
+                var bpLocation = _symbolResolver.GetBreakpointLocation(file, line);
+                
+                if (bpLocation != null)
+                {
+                    // Get the assembly Idx from the device (now should have correct index)
+                    var assemblyInfo = _assemblyManager.GetDeviceAssembly(bpLocation.AssemblyName);
+                    if (assemblyInfo == null)
+                    {
+                        // Try without extension
+                        var assemblyNameNoExt = Path.GetFileNameWithoutExtension(bpLocation.AssemblyName);
+                        assemblyInfo = _assemblyManager.GetDeviceAssembly(assemblyNameNoExt);
+                    }
+                    
+                    if (assemblyInfo != null)
+                    {
+                        bpLocation.AssemblyIdx = (uint)assemblyInfo.DeviceIndex;
+                        LogMessage($"    Assembly '{bpLocation.AssemblyName}' has device Idx 0x{bpLocation.AssemblyIdx:X8}");
+                        
+                        // Create the breakpoint definition for the device
+                        var bpDef = new WPCommands.Debugging_Execution_BreakpointDef
+                        {
+                            m_id = (short)bp.Id,
+                            m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
+                            m_md = bpLocation.DeviceMethodIndex,
+                            m_IP = bpLocation.ILOffset,
+                            m_pid = WPCommands.Debugging_Execution_BreakpointDef.c_PID_ANY,
+                            m_depth = 0
+                        };
+                        _activeBreakpointDefs.Add(bpDef);
+                        
+                        LogMessage($"    Created breakpoint def: id={bp.Id}, md=0x{bpDef.m_md:X8}, IP={bpDef.m_IP}");
+                        
+                        // Update breakpoint as verified
+                        bp.Verified = true;
+                        bp.Message = null;
+                    }
+                    else
+                    {
+                        LogMessage($"    WARNING: Could not find device assembly for '{bpLocation.AssemblyName}'");
+                        bp.Verified = false;
+                        bp.Message = "Assembly not found on device";
+                    }
+                }
+                else
+                {
+                    LogMessage($"    Could not resolve breakpoint location");
+                    bp.Verified = false;
+                    bp.Message = "Could not resolve source location";
+                }
+            }
+            
+            // Set all breakpoints on the device at once
+            if (_activeBreakpointDefs.Count > 0)
+            {
+                LogMessage($"Setting {_activeBreakpointDefs.Count} breakpoint(s) on device...");
+                bool success = _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                LogMessage($"SetBreakpoints returned: {success}");
+                
+                if (!success)
+                {
+                    LogMessage("Warning: Failed to set breakpoints on device");
+                    foreach (var bp in breakpointsToReapply)
+                    {
+                        bp.Verified = false;
+                        bp.Message = "Failed to set breakpoint on device";
+                    }
+                }
+                else
+                {
+                    LogMessage($"Successfully re-applied {_activeBreakpointDefs.Count} breakpoint(s)");
+                    
+                    // Send breakpoint verified events
+                    foreach (var bp in breakpointsToReapply.Where(b => b.Verified))
+                    {
+                        RaiseEvent("breakpoint", new BreakpointEventBody
+                        {
+                            Reason = "changed",
+                            Breakpoint = bp
+                        });
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"Error re-applying breakpoints: {ex.Message}");
+        }
+        
+        await Task.CompletedTask;
     }
 
     /// <summary>
