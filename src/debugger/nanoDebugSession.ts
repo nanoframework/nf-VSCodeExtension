@@ -33,8 +33,10 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     device?: string;
     /** Automatically stop after launch */
     stopOnEntry?: boolean;
-    /** Enable verbose logging */
+    /** Enable verbose logging (deprecated, use verbosity instead) */
     verbose?: boolean;
+    /** Verbosity level: 'none', 'information', or 'debug' */
+    verbosity?: string;
     /** Working directory */
     cwd?: string;
 }
@@ -47,8 +49,10 @@ interface IAttachRequestArguments extends DebugProtocol.AttachRequestArguments {
     device: string;
     /** Path to .pe file or directory containing assemblies for symbol loading */
     program?: string;
-    /** Enable verbose logging */
+    /** Enable verbose logging (deprecated, use verbosity instead) */
     verbose?: boolean;
+    /** Verbosity level: 'none', 'information', or 'debug' */
+    verbosity?: string;
 }
 
 /**
@@ -67,6 +71,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     private _configurationDone = new Subject();
     private _cancellationTokens = new Map<number, boolean>();
     private _isAttach = false;
+    private _verbosity: string = 'information';
 
     /**
      * Creates a new debug session
@@ -243,6 +248,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     protected async launchRequest(response: DebugProtocol.LaunchResponse, args: ILaunchRequestArguments) {
         try {
             this._isAttach = false;
+            this._verbosity = args.verbosity || (args.verbose ? 'debug' : 'information');
 
             // Wait until configuration is done (breakpoints are set)
             await this._configurationDone.wait(3000);
@@ -252,7 +258,8 @@ export class NanoDebugSession extends LoggingDebugSession {
                 args.program,
                 args.device,
                 !!args.stopOnEntry,
-                args.verbose || false
+                args.verbose || false,
+                args.verbosity
             );
 
             if (!success) {
@@ -280,9 +287,12 @@ export class NanoDebugSession extends LoggingDebugSession {
     protected async attachRequest(response: DebugProtocol.AttachResponse, args: IAttachRequestArguments) {
         try {
             this._isAttach = true;
+            this._verbosity = args.verbosity || (args.verbose ? 'debug' : 'information');
 
-            // Log the attach arguments for debugging
-            this.sendEvent(new OutputEvent(`[Debug] Attach args: device=${args.device}, program=${args.program}, verbose=${args.verbose}\n`, 'console'));
+            // Log the attach arguments for debugging (only in debug verbosity)
+            if (this._verbosity === 'debug') {
+                this.sendEvent(new OutputEvent(`[Debug] Attach args: device=${args.device}, program=${args.program}, verbose=${args.verbose}, verbosity=${args.verbosity}\n`, 'console'));
+            }
 
             // Wait until configuration is done
             await this._configurationDone.wait(3000);
@@ -291,7 +301,8 @@ export class NanoDebugSession extends LoggingDebugSession {
             const success = await this._runtime.attach(
                 args.device,
                 args.program,
-                args.verbose || false
+                args.verbose || false,
+                args.verbosity
             );
 
             if (!success) {
@@ -432,8 +443,10 @@ export class NanoDebugSession extends LoggingDebugSession {
      */
     protected async scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): Promise<void> {
         try {
-            // Log the frameId being requested
-            this.sendEvent(new OutputEvent(`[Debug] scopesRequest for frameId: ${args.frameId}\n`, 'console'));
+            // Log the frameId being requested (only in debug verbosity)
+            if (this._verbosity === 'debug') {
+                this.sendEvent(new OutputEvent(`[Debug] scopesRequest for frameId: ${args.frameId}\n`, 'console'));
+            }
             
             if (args.frameId === undefined || args.frameId === null) {
                 // No frameId, return empty scopes
@@ -453,7 +466,9 @@ export class NanoDebugSession extends LoggingDebugSession {
             };
         } catch (error) {
             // Fallback to empty scopes on error
-            this.sendEvent(new OutputEvent(`[Debug] scopesRequest error: ${error}\n`, 'console'));
+            if (this._verbosity === 'debug') {
+                this.sendEvent(new OutputEvent(`[Debug] scopesRequest error: ${error}\n`, 'console'));
+            }
             response.body = {
                 scopes: []
             };

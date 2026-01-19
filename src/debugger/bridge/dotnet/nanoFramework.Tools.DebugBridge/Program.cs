@@ -169,11 +169,24 @@ class Program
         // The actual device connection happens in the connect command
         var args = JsonSerializer.Deserialize<InitializeArgs>(request.Args?.ToString() ?? "{}", _jsonOptions);
         
-        // Store any configuration
-        if (args?.Verbose == true)
+        // Configure verbosity level
+        if (_session != null && args != null)
         {
-            // Enable verbose logging if requested
-            _session?.SetVerbose(true);
+            if (!string.IsNullOrEmpty(args.Verbosity))
+            {
+                // Use explicit verbosity setting
+                _session.SetVerbosity(args.Verbosity);
+            }
+            else if (args.Verbose)
+            {
+                // Legacy verbose flag - sets to Debug level
+                _session.SetVerbosity(VerbosityLevel.Debug);
+            }
+            else
+            {
+                // Default to Information level
+                _session.SetVerbosity(VerbosityLevel.Information);
+            }
         }
 
         return new BridgeResponse

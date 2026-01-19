@@ -77,7 +77,29 @@ VS Code uses `launch.json` to configure debug sessions. Create this file in `.vs
 | `request` | string | required | `"launch"` or `"attach"` |
 | `program` | string | required | Path to .pe file or assembly directory |
 | `device` | string | `""` | Device connection (COM port or IP). Empty for auto-detect |
-| `verbose` | boolean | `false` | Enable verbose debug output |
+| `verbosity` | string | `"information"` | Logging verbosity level. See [Verbosity Levels](#verbosity-levels) |
+| `verbose` | boolean | `false` | (Deprecated) Enable verbose debug output. Use `verbosity` instead |
+
+#### Verbosity Levels
+
+The `verbosity` option controls how much debug output is shown in the Debug Console:
+
+| Level | Description |
+|-------|-------------|
+| `"none"` | No debug bridge logging output. Only application output (Debug.WriteLine) is shown |
+| `"information"` | Shows important events: connection status, errors, deployment progress, and key debugging milestones |
+| `"debug"` | Full diagnostic output including internal operations, symbol resolution details, breakpoint status, and wire protocol details. Useful for troubleshooting debugger issues |
+
+**Example with verbosity:**
+```json
+{
+    "name": "Debug (Verbose)",
+    "type": "nanoframework",
+    "request": "launch",
+    "program": "${workspaceFolder}/bin/Debug",
+    "verbosity": "debug"
+}
+```
 
 #### Launch-Specific Options
 

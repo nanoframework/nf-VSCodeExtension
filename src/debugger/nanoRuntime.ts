@@ -198,14 +198,14 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Start debugging - deploy and run
      */
-    public async start(program: string, device?: string, stopOnEntry?: boolean, verbose?: boolean): Promise<boolean> {
+    public async start(program: string, device?: string, stopOnEntry?: boolean, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
         
         this.log(`Starting debug session for ${program}`);
         
         try {
             // Initialize the bridge
-            if (!await this._bridge.initialize(device, verbose)) {
+            if (!await this._bridge.initialize(device, verbose, verbosity)) {
                 this.log('Failed to initialize bridge');
                 return false;
             }
@@ -260,14 +260,14 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Attach to a running device
      */
-    public async attach(device: string, program?: string, verbose?: boolean): Promise<boolean> {
+    public async attach(device: string, program?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
         
         this.log(`Attaching to device: ${device}`);
         
         try {
             // Initialize the bridge
-            if (!await this._bridge.initialize(device, verbose)) {
+            if (!await this._bridge.initialize(device, verbose, verbosity)) {
                 this.log('Failed to initialize bridge');
                 return false;
             }

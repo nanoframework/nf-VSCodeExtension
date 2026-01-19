@@ -97,8 +97,14 @@
               },
               "verbose": {
                 "type": "boolean",
-                "description": "Enable verbose debug output",
+                "description": "(Deprecated) Enable verbose debug output. Use 'verbosity' instead.",
                 "default": false
+              },
+              "verbosity": {
+                "type": "string",
+                "description": "Logging verbosity level: 'none' (no output), 'information' (important events), or 'debug' (full diagnostics)",
+                "enum": ["none", "information", "debug"],
+                "default": "information"
               }
             }
           },
@@ -124,8 +130,14 @@
               },
               "verbose": {
                 "type": "boolean",
-                "description": "Enable verbose debug output",
+                "description": "(Deprecated) Enable verbose debug output. Use 'verbosity' instead.",
                 "default": false
+              },
+              "verbosity": {
+                "type": "string",
+                "description": "Logging verbosity level: 'none' (no output), 'information' (important events), or 'debug' (full diagnostics)",
+                "enum": ["none", "information", "debug"],
+                "default": "information"
               }
             }
           }

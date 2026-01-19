@@ -20,10 +20,19 @@ public class InitializeArgs
     public string? Device { get; set; }
 
     /// <summary>
-    /// Enable verbose logging
+    /// Enable verbose logging (legacy, use Verbosity instead).
+    /// If true and Verbosity is not set, sets verbosity to "debug".
     /// </summary>
     [JsonPropertyName("verbose")]
     public bool Verbose { get; set; }
+
+    /// <summary>
+    /// Verbosity level for debug logging.
+    /// Valid values: "none", "information" (or "info"), "debug" (or "verbose").
+    /// Default: "information" if verbose is false, "debug" if verbose is true.
+    /// </summary>
+    [JsonPropertyName("verbosity")]
+    public string? Verbosity { get; set; }
 }
 
 /// <summary>

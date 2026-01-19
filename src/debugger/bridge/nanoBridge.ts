@@ -47,14 +47,19 @@ export class NanoBridge extends EventEmitter {
     private _pendingRequests = new Map<number, { resolve: (value: any) => void; reject: (error: any) => void }>();
     private _requestId = 1;
     private _verbose = false;
+    private _verbosity = 'information';
     private _buffer = '';
     private _device?: string;
 
     /**
      * Initialize the bridge
+     * @param device The device to connect to
+     * @param verbose Legacy verbose flag (deprecated, use verbosity instead)
+     * @param verbosity Verbosity level: 'none', 'information', or 'debug'
      */
-    public async initialize(device?: string, verbose?: boolean): Promise<boolean> {
+    public async initialize(device?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
+        this._verbosity = verbosity || (verbose ? 'debug' : 'information');
         this._device = device;
 
         try {
@@ -98,7 +103,7 @@ export class NanoBridge extends EventEmitter {
             });
 
             // Wait for initialization confirmation
-            const response = await this.sendCommand('initialize', { device, verbose });
+            const response = await this.sendCommand('initialize', { device, verbose, verbosity: this._verbosity });
             return response?.success || false;
 
         } catch (error) {
