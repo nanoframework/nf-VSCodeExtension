@@ -309,14 +309,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
 /**
  * Installs a .NET tool globally using `dotnet tool install -g`.
+ * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param toolName The name of the .NET tool to install.
  * @returns A promise that resolves when the installation is complete.
  */
 async function installDotNetTool(toolName: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        let command = `dotnet tool install -g ${toolName}`;
+        // Use execFile with separate arguments array to avoid shell injection
+        const args = ['tool', 'install', '-g', toolName];
 
-        cp.exec(command, (error, stdout, stderr) => {
+        cp.execFile('dotnet', args, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Error installing ${toolName}: ${error}`);
                 vscode.window.showErrorMessage(`Error installing ${toolName}: ${stderr}`);
@@ -331,14 +333,15 @@ async function installDotNetTool(toolName: string): Promise<void> {
 
 /**
  * Checks if a .NET tool is installed by running `<toolName> --help` and checking the result.
+ * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param toolName The name of the .NET tool to check.
  * @returns A promise that resolves to `true` if the tool is installed, otherwise `false`.
  */
 function checkDotNetToolInstalled(toolName: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         try {
-            // Execute the CLI command to get the version
-            cp.exec(`${toolName} --help`, async (error, stdout, stderr) => {
+            // Use execFile with separate arguments array to avoid shell injection
+            cp.execFile(toolName, ['--help'], async (error, stdout, stderr) => {
                 if (error) {
                     vscode.window.showErrorMessage('Error executing dotnet nanoclr: ' + error.message);
                     reject();

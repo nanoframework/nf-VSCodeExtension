@@ -992,7 +992,8 @@ export class Dotnet {
 }
 
 /**
- * Function to run the build again and grab the binary file name
+ * Function to run the build again and grab the binary file name.
+ * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param fileUri absolute path to *.sln
  * @param cliBuildArguments CLI arguments passed to msbuild
  * @param unixMsBuildPath optional path to msbuild on Unix systems
@@ -1006,12 +1007,21 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
     return new Promise(async (resolve, reject) => {
 
         if (os.platform() === "win32") {
+            // Path to vswhere.exe
+            const vswhereExe = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+                'microsoft visual studio', 'installer', 'vswhere.exe');
 
-            // Command to find MSBuild
-            const findMSBuildCmd = `"${process.env['ProgramFiles(x86)']}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe`;
+            // Use execFile with separate arguments array to avoid shell injection
+            const vswhereArgs = [
+                '-products', '*',
+                '-latest',
+                '-prerelease',
+                '-requires', 'Microsoft.Component.MSBuild',
+                '-find', 'MSBuild\\**\\Bin\\amd64\\MSBuild.exe'
+            ];
 
-            // First execution to find MSBuild path
-            cp.exec(findMSBuildCmd, (error, stdout, stderr) => {
+            // First execution to find MSBuild path using execFile (safe)
+            cp.execFile(vswhereExe, vswhereArgs, (error, stdout, stderr) => {
                 if (error) {
                     vscode.window.showErrorMessage(`Error finding MSBuild: ${error}`);
                     reject(error);
@@ -1030,11 +1040,13 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
                     return;
                 }
 
-                // Construct MSBuild command using the found path
-                const buildCmd = `"${msBuildPath}" "${fileUri}" ${cliBuildArguments}`;
+                const msBuildPathTrimmed = msBuildPath.trim();
 
-                // Second execution to run MSBuild
-                cp.exec(buildCmd, (error, stdout, stderr) => {
+                // Parse the build arguments into an array and run MSBuild using execFile (safe)
+                const buildArgs = [fileUri, ...parseBuildArguments(cliBuildArguments)];
+
+                // Second execution to run MSBuild using execFile (safe)
+                cp.execFile(msBuildPathTrimmed, buildArgs, (error, stdout, stderr) => {
                     if (error) {
                         vscode.window.showErrorMessage(`Error rebuilding: ${error}`);
                         reject(error);
@@ -1060,10 +1072,11 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
                 return;
             }
             
-            const buildCmd = `"${msbuildPath}" "${fileUri}" ${cliBuildArguments}`;
+            // Parse the build arguments into an array and run msbuild using execFile (safe)
+            const buildArgs = [fileUri, ...parseBuildArguments(cliBuildArguments)];
 
-            // Execute msbuild
-            cp.exec(buildCmd, (error, stdout, stderr) => {
+            // Execute msbuild using execFile (safe)
+            cp.execFile(msbuildPath, buildArgs, (error, stdout, stderr) => {
                 if (error) {
                     vscode.window.showErrorMessage(`Error rebuilding: ${error.message}`);
                     reject(error);
@@ -1099,7 +1112,51 @@ function extractBinaryFileName(stdout: string): string | null {
 }
 
 /**
- * Executes the build on Windows and waits for completion
+ * Parses MSBuild-style build arguments string into an array of arguments.
+ * Handles quoted strings and properties correctly.
+ * For execFile usage, quotes are stripped since execFile passes arguments directly
+ * without shell interpretation.
+ * @param argsString The build arguments as a single string
+ * @returns Array of individual arguments
+ */
+function parseBuildArguments(argsString: string): string[] {
+    const args: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let quoteChar = '';
+    
+    for (let i = 0; i < argsString.length; i++) {
+        const char = argsString[i];
+        
+        if ((char === '"' || char === "'") && !inQuotes) {
+            inQuotes = true;
+            quoteChar = char;
+            // Don't add quote character - we'll strip quotes for execFile
+        } else if (char === quoteChar && inQuotes) {
+            inQuotes = false;
+            quoteChar = '';
+            // Don't add quote character - we'll strip quotes for execFile
+        } else if (char === ' ' && !inQuotes) {
+            if (current.trim()) {
+                args.push(current.trim());
+            }
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    
+    // Add the last argument
+    if (current.trim()) {
+        args.push(current.trim());
+    }
+    
+    return args;
+}
+
+/**
+ * Executes the build on Windows and waits for completion.
+ * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param fileUri absolute path to *.sln
  * @param cliBuildArguments CLI arguments passed to msbuild
  * @param nugetPath path to nuget.exe
@@ -1118,10 +1175,19 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
             return;
         }
 
-        const findMSBuildCmd = `"${vswhereExe}" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe`;
+        // Use execFile with separate arguments array to avoid shell injection
+        const vswhereArgs = [
+            '-products', '*',
+            '-latest',
+            '-prerelease',
+            '-requires', 'Microsoft.Component.MSBuild',
+            '-find', 'MSBuild\\**\\Bin\\amd64\\MSBuild.exe'
+        ];
 
-        // First execution to find MSBuild path
-            cp.exec(findMSBuildCmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
+        console.log(`Finding MSBuild using: ${vswhereExe} ${vswhereArgs.join(' ')}`);
+
+        // First execution to find MSBuild path using execFile (safe)
+        cp.execFile(vswhereExe, vswhereArgs, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Error finding MSBuild: ${error.message}`);
                 console.error(`stderr: ${stderr}`);
@@ -1143,24 +1209,26 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
                 return;
             }
 
-            console.log(`Found MSBuild at: ${msBuildPath}`);
+            const msBuildPathTrimmed = msBuildPath.trim();
+            console.log(`Found MSBuild at: ${msBuildPathTrimmed}`);
 
-            // First run nuget restore
-            const restoreCmd = `"${nugetPath}" restore "${fileUri}"`;
-            console.log(`Running nuget restore: ${restoreCmd}`);
+            // Run nuget restore using execFile (safe)
+            const nugetRestoreArgs = ['restore', fileUri];
+            console.log(`Running nuget restore: ${nugetPath} ${nugetRestoreArgs.join(' ')}`);
             
-            cp.exec(restoreCmd, { maxBuffer: 10 * 1024 * 1024, shell: 'cmd.exe' }, (error, stdout, stderr) => {
+            cp.execFile(nugetPath, nugetRestoreArgs, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
                 if (error) {
                     console.error(`Error restoring packages: ${error.message}`);
                     // Continue anyway, packages might already be restored
                 }
 
-                // Construct MSBuild command using the found path
-                const buildCmd = `"${msBuildPath.trim()}" "${fileUri}" ${cliBuildArguments}`;
-                console.log(`Running MSBuild: ${buildCmd}`);
+                // Parse the build arguments into an array
+                const buildArgs = [fileUri, ...parseBuildArguments(cliBuildArguments)];
+                const buildCmdDisplay = `${msBuildPathTrimmed} ${buildArgs.join(' ')}`;
+                console.log(`Running MSBuild: ${buildCmdDisplay}`);
 
-                // Execute MSBuild
-                cp.exec(buildCmd, { maxBuffer: 10 * 1024 * 1024, shell: 'cmd.exe' }, (error, stdout, stderr) => {
+                // Execute MSBuild using execFile (safe)
+                cp.execFile(msBuildPathTrimmed, buildArgs, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
                     const exitCode = (error && (error as any).code && typeof (error as any).code === 'number') ? (error as any).code : (error ? null : 0);
 
                     if (error) {
@@ -1182,7 +1250,7 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
                         try {
                             const outChannel = getBuildOutputChannel();
                             outChannel.clear();
-                            outChannel.appendLine(`MSBuild command: ${buildCmd}`);
+                            outChannel.appendLine(`MSBuild command: ${buildCmdDisplay}`);
                             if (stdout) {
                                 outChannel.appendLine('--- stdout ---');
                                 outChannel.appendLine(stdout);
@@ -1225,7 +1293,8 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
 }
 
 /**
- * Executes the build on Unix (macOS/Linux) and waits for completion
+ * Executes the build on Unix (macOS/Linux) and waits for completion.
+ * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param fileUri absolute path to *.sln
  * @param cliBuildArguments CLI arguments passed to msbuild
  * @param msbuildPath path to msbuild
@@ -1234,19 +1303,23 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
  */
 function executeBuildUnix(fileUri: string, cliBuildArguments: string, msbuildPath: string, nugetPath: string): Promise<{ success: boolean; stdout?: string; stderr?: string; exitCode?: number | null }> {
     return new Promise((resolve) => {
-        // First run nuget restore
-        const restoreCmd = `"${nugetPath}" restore "${fileUri}"`;
-        cp.exec(restoreCmd, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+        // Run nuget restore using execFile (safe)
+        const nugetRestoreArgs = ['restore', fileUri];
+        console.log(`Running nuget restore: ${nugetPath} ${nugetRestoreArgs.join(' ')}`);
+        
+        cp.execFile(nugetPath, nugetRestoreArgs, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Error restoring packages: ${error}`);
                 // Continue anyway, packages might already be restored
             }
 
-            // Construct msbuild command
-            const buildCmd = `"${msbuildPath}" "${fileUri}" ${cliBuildArguments}`;
+            // Parse the build arguments into an array and run msbuild using execFile (safe)
+            const buildArgs = [fileUri, ...parseBuildArguments(cliBuildArguments)];
+            const buildCmdDisplay = `${msbuildPath} ${buildArgs.join(' ')}`;
+            console.log(`Running msbuild: ${buildCmdDisplay}`);
 
-            // Execute msbuild
-            cp.exec(buildCmd, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+            // Execute msbuild using execFile (safe)
+            cp.execFile(msbuildPath, buildArgs, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
                 const exitCode = (error && (error as any).code && typeof (error as any).code === 'number') ? (error as any).code : (error ? null : 0);
 
                 if (error) {
@@ -1267,7 +1340,7 @@ function executeBuildUnix(fileUri: string, cliBuildArguments: string, msbuildPat
                     try {
                         const outChannel = getBuildOutputChannel();
                         outChannel.clear();
-                        outChannel.appendLine(`MSBuild command: ${buildCmd}`);
+                        outChannel.appendLine(`MSBuild command: ${buildCmdDisplay}`);
                         if (stdout) {
                             outChannel.appendLine('--- stdout ---');
                             outChannel.appendLine(stdout);

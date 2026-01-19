@@ -16,14 +16,16 @@ export interface PrerequisiteCheckResult {
 }
 
 /**
- * Checks if a command exists in the system PATH
+ * Checks if a command exists in the system PATH.
+ * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param command The command to check
  * @returns true if the command exists, false otherwise
  */
 async function commandExists(command: string): Promise<boolean> {
     return new Promise((resolve) => {
         const checkCommand = os.platform() === 'win32' ? 'where' : 'which';
-        cp.exec(`${checkCommand} ${command}`, (error: Error | null) => {
+        // Use execFile with command as argument to avoid shell injection
+        cp.execFile(checkCommand, [command], (error: Error | null) => {
             resolve(!error);
         });
     });
