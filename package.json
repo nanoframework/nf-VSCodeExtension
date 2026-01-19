@@ -148,8 +148,8 @@
     "lint": "eslint src",
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
-    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv cloud -a -c",
-    "deploy": "vsce publish"
+    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
+    "deploy": "vsce publish --allow-star-activation"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
