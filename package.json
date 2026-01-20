@@ -4,7 +4,6 @@
   "description": "Build, deploy and flash your .NET nanoFramework solutions",
   "icon": "assets/nF-logo-128.png",
   "license": "MIT",
-  "preview": true,
   "version": "1.0.197-g50dc3ac475",
   "overview": "assets/marketplace/vscode-marketplace-overview.md",
   "priceCategory": "free",

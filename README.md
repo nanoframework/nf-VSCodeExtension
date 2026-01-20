@@ -8,9 +8,6 @@
 
 This extension allows you to use VS Code to flash, build and deploy your C# code for .NET nanoFramework on your device regardless of the platform you're using. This has been tested on Mac, Linux (64 bits) and Windows (64 bits).
 
-> [!WARNING]
-> This extension is experimental. Some features are incomplete or may not work as expected on some platforms.
-
 ![vs code gif](docs/nano-vs-code.gif)
 
 ## Features
@@ -111,6 +108,7 @@ Log out and back in for this to take effect.
 This extension will **not** allow you to debug the device. Debug is only available on Windows with [Visual Studio](https://visualstudio.microsoft.com/downloads/) (any edition) and the [.NET nanoFramework Extension](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2022-Extension) installed.
 
 This extension works on:
+
 - **Windows**: x64 and ARM64
 - **macOS**: x64 (Intel) and ARM64 (Apple Silicon M1/M2/M3)
 - **Linux**: x64 and ARM64
