@@ -362,7 +362,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		case 'WeA':
 		case 'ORG':
 		case 'Pyb':
-			cliArguments += `${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
+			cliArguments += ` ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
 			break;
 
 		case 'TI_':
@@ -372,7 +372,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 		default:
 			// ESP32 devices
-			cliArguments += `--serialport ${state.devicePath}`;
+			cliArguments += ` --serialport ${state.devicePath}`;
 			
 			// Only add baud rate if not using default (auto)
 			if (state.baudrate && !state.baudrate.startsWith('Default')) {
