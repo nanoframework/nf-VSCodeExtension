@@ -127,7 +127,7 @@
     "eslint": "^8.23.0",
     "glob": "^11.0.0",
     "gulp": "^5.0.0",
-    "mocha": "^10.7.0",
+    "mocha": "^11.7.5",
     "nerdbank-gitversioning": "^3.6.139",
     "ts-loader": "^9.5.1",
     "typescript": "^5.5.3",
