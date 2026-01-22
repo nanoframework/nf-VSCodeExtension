@@ -38,20 +38,41 @@ export async function chooseSolution(workspaceFolder: string) {
 
 /**
  * Dynamically gets all connected serial ports and lets the user select the port they would like to flash
- * @param toolPath absolute path to nanoFramework extension
- * @returns selected serial port to flash
+ * @returns selected serial port path or empty string if cancelled
  */
-export async function chooseSerialPort(toolPath: string) {
-	const ports = await SerialPortCtrl.list(toolPath);
+export async function chooseSerialPort(): Promise<string> {
+	try {
+		const ports = await SerialPortCtrl.list();
 
-	const devicePaths = ports
-			.map((label) => ({ label: label.port, description: label.desc }));
+		if (ports.length === 0) {
+			vscode.window.showWarningMessage(
+				'No serial ports found. Please check that your device is connected.',
+				'Troubleshooting'
+			).then(selection => {
+				if (selection === 'Troubleshooting') {
+					vscode.env.openExternal(vscode.Uri.parse('https://github.com/nanoframework/nf-VSCodeExtension#troubleshooting'));
+				}
+			});
+			return '';
+		}
 
-	const selectedPort = await vscode.window.showQuickPick(devicePaths, {
-		placeHolder: 'Select the ports you would like to build/deploy',
-	});
-	
-	return selectedPort ? selectedPort.label : '';
+		const devicePaths = ports.map((port) => ({ 
+			label: port.port, 
+			description: port.desc || `VID:${port.vendorId} PID:${port.productId}` 
+		}));
+
+		const selectedPort = await vscode.window.showQuickPick(devicePaths, {
+			placeHolder: 'Select the serial port for your device',
+		});
+		
+		return selectedPort ? selectedPort.label : '';
+	} catch (error) {
+		console.error('Error listing serial ports:', error);
+		vscode.window.showErrorMessage(
+			'Failed to list serial ports. Please check your permissions and device connection.'
+		);
+		return '';
+	}
 }
 
 /**

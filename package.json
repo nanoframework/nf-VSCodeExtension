@@ -4,8 +4,7 @@
   "description": "Build, deploy and flash your .NET nanoFramework solutions",
   "icon": "assets/nF-logo-128.png",
   "license": "MIT",
-  "preview": true,
-  "version": "0.0.0-placeholder",
+  "version": "1.0.197-g50dc3ac475",
   "overview": "assets/marketplace/vscode-marketplace-overview.md",
   "priceCategory": "free",
   "publisher": "nanoframework",
@@ -44,7 +43,9 @@
   "sponsor": {
     "url": "https://github.com/sponsors/nanoframework"
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "*"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -61,16 +62,32 @@
         "title": "nanoFramework: Flash device"
       },
       {
-        "command": "vscode-nanoframework.nfdeployalt",
-        "title": "nanoFramework: Deploy Project (alternative method)"
-      },
-      {
         "command": "vscode-nanoframework.nfcreate",
         "title": "nanoFramework: Create New Solution"
       },
       {
         "command": "vscode-nanoframework.nfadd",
         "title": "nanoFramework: Add a Project to existing Solution"
+      },
+      {
+        "command": "vscode-nanoframework.checkPrerequisites",
+        "title": "nanoFramework: Check Prerequisites"
+      },
+      {
+        "command": "vscode-nanoframework.serialMonitor",
+        "title": "nanoFramework: Serial Monitor"
+      },
+      {
+        "command": "vscode-nanoframework.stopSerialMonitor",
+        "title": "nanoFramework: Stop Serial Monitor"
+      },
+      {
+        "command": "vscode-nanoframework.nfaddnuget",
+        "title": "nanoFramework: Add NuGet Package"
+      },
+      {
+        "command": "vscode-nanoframework.nfremovenuget",
+        "title": "nanoFramework: Remove NuGet Package"
       }
     ],
     "menus": {
@@ -86,11 +103,6 @@
           "group": "navigation@1"
         },
         {
-          "when": "resourceExtname == .sln",
-          "command": "vscode-nanoframework.nfdeployalt",
-          "group": "navigation@1"
-        },
-        {
           "when": "resourceExtname == ",
           "command": "vscode-nanoframework.nfcreate",
           "group": "navigation@1"
@@ -99,47 +111,74 @@
           "when": "resourceExtname == .sln",
           "command": "vscode-nanoframework.nfadd",
           "group": "navigation@1"
+        },
+        {
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfaddnuget",
+          "group": "navigation@2"
+        },
+        {
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfremovenuget",
+          "group": "navigation@2"
         }
       ]
+    },
+    "configuration": {
+      "title": ".NET nanoFramework",
+      "properties": {
+        "nanoFramework.showTerminalOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show command output in the terminal. When disabled, commands run in the background and key elements are displayed in the Output window."
+        }
+      }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "build:prod": "npm run compile",
+    "build:native": "pwsh scripts/build.ps1",
+    "build:native:clean": "pwsh scripts/build.ps1 -Clean",
     "postinstall": "gulp build",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
-    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix && nbgv cloud -a -c",
-    "deploy": "vsce publish"
+    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
+    "deploy": "vsce publish --allow-star-activation"
   },
   "devDependencies": {
-    "@types/glob": "^8.0.0",
-    "@types/mocha": "^10.0.7",
+    "@eslint/js": "^9.39.2",
+    "@types/glob": "^9.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/semver": "^7.7.1",
     "@types/vscode": "^1.90.0",
-    "@typescript-eslint/eslint-plugin": "^5.36.2",
-    "@typescript-eslint/parser": "^5.36.1",
-    "@vscode/test-electron": "^2.4.1",
-    "download": "^8.0.0",
-    "eslint": "^8.23.0",
-    "glob": "^11.0.0",
-    "gulp": "^5.0.0",
-    "mocha": "^10.7.0",
-    "nerdbank-gitversioning": "^3.6.139",
-    "ts-loader": "^9.5.1",
-    "typescript": "^5.5.3",
-    "webpack": "^5.93.0",
-    "webpack-cli": "^5.1.4"
+    "@vscode/test-electron": "^2.5.2",
+    "download": "^3.3.0",
+    "eslint": "^9.39.2",
+    "glob": "^13.0.0",
+    "gulp": "^5.0.1",
+    "mocha": "^11.7.5",
+    "nerdbank-gitversioning": "^3.9.50",
+    "rimraf": "^6.1.2",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.0",
+    "webpack": "^5.104.1",
+    "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "@types/node": "22.x",
-    "@vscode/vsce": "^2.31.1",
-    "axios": "^1.7.2",
+    "@serialport/parser-readline": "^13.0.0",
+    "@types/node": "^20",
+    "@vscode/vsce": "^3.7.1",
+    "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
-    "globby": "^11.0.4",
-    "node-usb-native": "^0.0.20"
+    "globby": "^11.1.0",
+    "semver": "^7.7.3",
+    "serialport": "^13.0.0",
+    "typed-rest-client": "^2.2.0"
   }
 }

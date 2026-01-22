@@ -24,3 +24,8 @@ nanoFirmwareFlasher/**
 !node_modules/axios
 !node_modules/globby
 !node_modules/path
+!node_modules/serialport
+!node_modules/@serialport
+!node_modules/extract-zip
+!node_modules/semver
+!node_modules/typed-rest-client

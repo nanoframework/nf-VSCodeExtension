@@ -4,11 +4,26 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { execFileSync } from "child_process";
-import * as os from "os";
-import * as path from "path";
+import * as os from 'os';
+import * as fs from 'fs';
 
-interface ISerialPortDetail {
+// Dynamic import to avoid loading native module at extension activation
+// This prevents the extension from failing to load if serialport has ABI issues
+let SerialPortModule: typeof import('serialport') | null = null;
+
+async function getSerialPort(): Promise<typeof import('serialport')> {
+  if (!SerialPortModule) {
+    try {
+      SerialPortModule = await import('serialport');
+    } catch (error) {
+      console.error('Failed to load serialport module:', error);
+      throw new Error('Serial port support is not available. The native module may need to be rebuilt for your VS Code version.');
+    }
+  }
+  return SerialPortModule;
+}
+
+export interface ISerialPortDetail {
   port: string;
   desc: string;
   hwid: string;
@@ -19,33 +34,94 @@ interface ISerialPortDetail {
 /**
  * Cross-platform SerialPort class that returns all connected serial ports
  * For Windows these are usually hosted on COM ports (e.g. COM3/COM4/etc)
- * For macOS/Linux they are usally hosted under e.g. /dev/tty.usbserial-xxxxxx
+ * For macOS/Linux they are usually hosted under e.g. /dev/tty.usbserial-xxxxxx or /dev/cu.usbserial-xxxxxx
+ * 
+ * Uses the 'serialport' npm package which provides native cross-platform support
+ * for Windows, macOS (including Apple Silicon), and Linux.
  */
 export class SerialPortCtrl {
-  public static list(extensionPath: String): Promise<ISerialPortDetail[]> {
-    const stdout = execFileSync(SerialPortCtrl._serialCliPath(extensionPath), ["list-ports"]);
-    const lists = JSON.parse(stdout.toString("utf-8"));
-    lists.forEach((port: { [x: string]: any; }) => {
-        const vidPid = this._parseVidPid(port["hwid"]);
-        port["vendorId"] = vidPid["vid"];
-        port["productId"] = vidPid["pid"];
-    });
-    return lists;
+  /**
+   * Lists all available serial ports on the system
+   * @param _extensionPath - Kept for backwards compatibility, no longer used
+   * @returns Promise resolving to array of serial port details
+   */
+  public static async list(_extensionPath?: string): Promise<ISerialPortDetail[]> {
+    try {
+      const { SerialPort } = await getSerialPort();
+      const ports = await SerialPort.list();
+      
+      const result: ISerialPortDetail[] = ports.map(port => {
+        const vendorId = port.vendorId || '';
+        const productId = port.productId || '';
+        const hwid = vendorId && productId ? `VID:PID=${vendorId}:${productId}` : (port.pnpId || '');
+        
+        return {
+          port: port.path,
+          desc: port.manufacturer || '',
+          hwid: hwid,
+          vendorId: vendorId,
+          productId: productId
+        };
+      });
+
+      // On macOS/Linux, also check for /dev/cu.* devices that might not be listed
+      if (os.platform() !== 'win32') {
+        const additionalPorts = await SerialPortCtrl.findUnixSerialPorts();
+        for (const additionalPort of additionalPorts) {
+          // Only add if not already in the list
+          if (!result.some(p => p.port === additionalPort.port)) {
+            result.push(additionalPort);
+          }
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error listing serial ports:', error);
+      throw error;
+    }
   }
 
-  private static _parseVidPid(hwid: String): any {
-    const result = hwid.match(/VID:PID=(?<vid>\w+):(?<pid>\w+)/i);
-    return result !== null ? result["groups"] : [null, null];
-  }
-
-  private static _serialCliPath(extensionPath: String): string {
-    let fileName: string = "";
-    if (os.platform() === "win32") {
-        fileName = "main.exe";
-    } else if (os.platform() === "linux" || os.platform() === "darwin") {
-        fileName = "main.out";
+  /**
+   * Scans /dev for serial port devices on Unix-like systems (macOS/Linux)
+   * Includes both /dev/tty.* and /dev/cu.* devices on macOS
+   */
+  private static async findUnixSerialPorts(): Promise<ISerialPortDetail[]> {
+    const ports: ISerialPortDetail[] = [];
+    
+    try {
+      const devFiles = fs.readdirSync('/dev');
+      
+      // Patterns for serial devices
+      // macOS: tty.* and cu.* (cu.* are call-up devices, often preferred for communication)
+      // Linux: ttyUSB*, ttyACM*, ttyS*
+      const patterns = os.platform() === 'darwin'
+        ? [/^cu\./, /^tty\./]
+        : [/^ttyUSB/, /^ttyACM/, /^ttyS\d/];
+      
+      for (const file of devFiles) {
+        if (patterns.some(pattern => pattern.test(file))) {
+          const fullPath = `/dev/${file}`;
+          
+          // Check if the device exists and is accessible
+          try {
+            fs.accessSync(fullPath, fs.constants.R_OK | fs.constants.W_OK);
+            ports.push({
+              port: fullPath,
+              desc: file.startsWith('cu.') ? 'Call-up device' : '',
+              hwid: '',
+              vendorId: '',
+              productId: ''
+            });
+          } catch {
+            // Device not accessible, skip it
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error scanning /dev for serial ports:', error);
     }
     
-    return path.resolve(extensionPath.toString(), "serial-monitor-cli", `${os.platform}`, fileName);
+    return ports;
   }
 }

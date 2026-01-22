@@ -16,7 +16,7 @@ export class NfProject {
      * @param toolPath the path to the dotnet tool and templates
      */
     public static CreateSolution(fileUri: string, toolPath: String) {
-        Executor.runInTerminal("dotnet new sln -o " + fileUri);
+        Executor.runCommand("dotnet new sln -o " + fileUri);
     }
 
     /**
@@ -286,7 +286,7 @@ export class NfProject {
 
     private static async AddCreatedProjectToSln(solutionPath: string, fileUri: string, projectName: string, guid: string) {
         // Finally add the project to the solution
-        Executor.runInTerminal("dotnet sln " + fileUri + " add " + path.join(solutionPath, projectName, projectName + '.nfproj'));
+        Executor.runCommand("dotnet sln " + fileUri + " add " + path.join(solutionPath, projectName, projectName + '.nfproj'));
         // Wait for 5 seconds to have the command executed
         setTimeout(() => {
             // And open the sln project, replace the GUID of the added project with the one in the nfproj file
