@@ -15,6 +15,10 @@ You will need to make sure you'll have the following elements installed:
 
 - [.NET 5.0 or greater](https://dotnet.microsoft.com/download/dotnet)
 - [Visual Studio build tools](https://visualstudio.microsoft.com/en/thank-you-downloading-visual-studio/?sku=BuildTools&rel=16) on Windows, `mono-complete` on [Linux/macOS](https://www.mono-project.com/docs/getting-started/install/)
+- [.NET 8.0](https://dotnet.microsoft.com/download/dotnet/8.0) or later
+- [nanoff](https://github.com/nanoframework/nanoFirmwareFlasher) - Install via: `dotnet tool install -g nanoff`
+- **Windows only:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with ".NET desktop build tools" workload
+- **Linux/macOS only:** [mono-complete](https://www.mono-project.com/docs/getting-started/install/) with msbuild, and [nuget CLI](https://www.nuget.org/downloads)
 
 ## What is .NET nanoFramework?
 
@@ -35,4 +39,4 @@ To report issues go to our issue tracker on GitHub [here](https://github.com/nan
 
 For conversations, sharing ideas and support please join our Discord community [here](https://discord.gg/gCyBu8T).
 
-Please note that we also offer a full Visual Studio extension compatible with [VS2022](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2022-Extension) and another one compatible with [VS2019](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2019-Extension).
+Please note that we also offer a full Visual Studio extension compatible with [VS2022](https://marketplace.visualstudio.com/items?itemName=nanoframework.nanoFramework-VS2022-Extension).

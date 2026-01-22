@@ -8,9 +8,6 @@
 
 This extension allows you to use VS Code to flash, build and deploy your C# code for .NET nanoFramework on your device regardless of the platform you're using. This has been tested on Mac, Linux (64 bits) and Windows (64 bits).
 
-> [!WARNING]
-> This extension is experimental. Some features are incomplete or may not work as expected on some platforms.
-
 ![vs code gif](docs/nano-vs-code.gif)
 
 ## Features
@@ -169,26 +166,42 @@ Create a `.vscode/launch.json` file in your workspace with the following configu
 
 You will need to make sure you'll have the following elements installed:
 
-- [.NET 8.0](https://dotnet.microsoft.com/download/dotnet)
-- [nuget CLI](https://www.nuget.org/downloads)
-- [Visual Studio build tools](https://visualstudio.microsoft.com/en/thank-you-downloading-visual-studio/?sku=BuildTools&rel=16) on Windows, `mono-complete` on [Linux/macOS](https://www.mono-project.com/docs/getting-started/install/)
+- [.NET 8.0](https://dotnet.microsoft.com/download/dotnet/8.0) or later
+- [nanoff](https://github.com/nanoframework/nanoFirmwareFlasher) - Install via: `dotnet tool install -g nanoff`
+- **Windows only:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with ".NET desktop build tools" workload
+- **Linux/macOS only:** [mono-complete](https://www.mono-project.com/docs/getting-started/install/) with msbuild, and [nuget CLI](https://www.nuget.org/downloads)
+
+### Linux-specific Requirements
+
+On Linux, you may need to add your user to the `dialout` group to access serial ports:
+
+```bash
+sudo usermod -aG dialout $USER
+```
+
+Log out and back in for this to take effect.
 
 > **Note:** Do not use the `mono-complete` package provided by your Linux distribution  
 > as it may not include `msbuild` which is required for this extension to work.  
 >
 > Instead install the `mono-complete` package provided by the Mono Project.  
-> The [preview](https://www.mono-project.com/download/preview/) version is recommended
-> as the [stable](https://www.mono-project.com/download/stable/) version is outdated.
+> The [preview](https://www.mono-project.com/download/preview/) version is recommended.
 
 ## Known Issues
 
 ~~This extension will **not** allow you to debug the device.~~ **Debugging is now supported!** See the [Debugging](#debugging) section below.
 
-This extension will work on any Mac version (x64 or M1), works only on Linux x64 and Windows x64. Other 32 bits OS or ARM platforms are not supported.
+This extension works on:
+
+- **Windows**: x64 and ARM64
+- **macOS**: x64 (Intel) and ARM64 (Apple Silicon M1/M2/M3)
+- **Linux**: x64 and ARM64
+
+32-bit operating systems are not supported.
 
 ## Developing for the VS Code extension
 
-Documentation about development for the extension can be found [here](instalation.md).
+Documentation about development for the extension can be found [here](installation.md).
 
 ## Feedback and documentation
 

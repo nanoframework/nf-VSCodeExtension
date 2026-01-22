@@ -5,27 +5,15 @@ const extract = require("extract-zip");
 const fs = require("fs");
 const path = require("path");
 const { exec } = require("child_process");
+// The serial-monitor-cli task has been removed.
+// Serial port enumeration now uses the 'serialport' npm package directly,
+// which provides native cross-platform support for Windows, macOS (including Apple Silicon), and Linux.
+// This eliminates the dependency on the archived microsoft/serial-monitor-cli project.
 
-gulp.task("insert-serial-monitor-cli", async (done) => {
-    const platforms = [
-        "linux",
-        "darwin",
-        "win32",
-    ];
-    const release = "latest";
-    const destDir = path.resolve("dist", "utils", "serial-monitor-cli");
-
-    async function downloadAndUnzip(platform) {
-        const fileName = `${platform}.zip`;
-        const zipPath = path.join(destDir, fileName);
-        await download(`https://github.com/microsoft/serial-monitor-cli/releases/${release}/download/${fileName}`,
-                       destDir,
-                       );
-        await extract(zipPath, { dir: path.join(destDir, platform) });
-        fs.rmSync(zipPath);
-    }
-
-    Promise.all(platforms.map(downloadAndUnzip)).then(done);
+gulp.task("build", async (done) => {
+    // No additional build tasks needed - serialport is an npm dependency
+    console.log("Build task completed. Serial port support provided by 'serialport' npm package.");
+    done();
 });
 
 gulp.task("build-debug-bridge", async (done) => {

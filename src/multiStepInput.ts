@@ -20,8 +20,23 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	const dfuJtagOptions: QuickPickItem[] = ['DFU mode', 'JTAG mode']
 		.map(label => ({ label }));
 
-	const baudRates: QuickPickItem[] = ['1500000', '115200']
-		.map(label => ({ label }));
+	const baudRates: QuickPickItem[] = [
+		{ label: 'Default (auto)', description: 'Let nanoff choose the best speed' },
+		{ label: '1500000', description: 'Fastest - may not work on all devices' },
+		{ label: '921600' },
+		{ label: '460800' },
+		{ label: '115200', description: 'Most compatible' }
+	];
+
+	const backupOptions: QuickPickItem[] = [
+		{ label: 'No', description: 'Flash without backup (faster)' },
+		{ label: 'Yes', description: 'Backup device before flashing' }
+	];
+
+	const massEraseOptions: QuickPickItem[] = [
+		{ label: 'No', description: 'Keep existing data on device' },
+		{ label: 'Yes', description: 'Erase entire flash before flashing' }
+	];
 
 	interface State {
 		title: string;
@@ -32,7 +47,9 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		imageVersion: QuickPickItem;
 		dfuOrJtag: QuickPickItem;
 		devicePath: string;
-		baudrate: number;
+		baudrate: string;
+		backupDevice: boolean;
+		massErase: boolean;
 	}
 
 	async function collectInputs() {
@@ -78,7 +95,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 				break;
 			default:
 				state.targetNameType = 'ESP32';
-				state.totalSteps = 4;
+				state.totalSteps = 6;  // target, version, device, baud, backup, masserase
 				break;
 		}
 
@@ -91,7 +108,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const imageVersion = await input.showQuickPick({
 			title,
 			step: 2,
-			totalSteps: state.totalSteps || 4,
+			totalSteps: state.totalSteps || 5,
 			placeholder: 'Choose the image version for your target board (' + state.targetName + ')',
 			items: imageVersions,
 			shouldResume: shouldResume,
@@ -113,7 +130,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const devicePath = await input.showQuickPick({
 			title,
 			step: 3,
-			totalSteps: 4,
+			totalSteps: 5,
 			placeholder: 'Choose the device path that you want to flash',
 			items: devices,
 			shouldResume: shouldResume
@@ -129,15 +146,52 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const baudrate = await input.showQuickPick({
 			title,
 			step: 4,
-			totalSteps: 4,
-			placeholder: 'Pick a baud rate',
+			totalSteps: 5,
+			placeholder: 'Pick a baud rate (Default recommended)',
 			items: baudRates,
 			shouldResume: shouldResume,
-			// Set the default selection to the default baud rate
+			// Set the default selection to the default (auto) baud rate
 			activeItem: baudRates[0]
 		});
 
-		state.baudrate = parseInt(baudrate.label);
+		// Store the label - will check for "Default" when building CLI args
+		state.baudrate = baudrate.label;
+
+		return (input: MultiStepInput) => pickBackupOption(input, state);
+	}
+
+	// step 5, only for ESP32 devices - ask about backup
+	async function pickBackupOption(input: MultiStepInput, state: Partial<State>) {
+		const backup = await input.showQuickPick({
+			title,
+			step: 5,
+			totalSteps: 6,
+			placeholder: 'Backup device before flashing?',
+			items: backupOptions,
+			shouldResume: shouldResume,
+			// Default to "No" (no backup)
+			activeItem: backupOptions[0]
+		});
+
+		state.backupDevice = backup.label === 'Yes';
+
+		return (input: MultiStepInput) => pickMassEraseOption(input, state);
+	}
+
+	// step 6, only for ESP32 devices - ask about mass erase
+	async function pickMassEraseOption(input: MultiStepInput, state: Partial<State>) {
+		const massErase = await input.showQuickPick({
+			title,
+			step: 6,
+			totalSteps: 6,
+			placeholder: 'Mass erase device before flashing?',
+			items: massEraseOptions,
+			shouldResume: shouldResume,
+			// Default to "No" (no mass erase)
+			activeItem: massEraseOptions[0]
+		});
+
+		state.massErase = massErase.label === 'Yes';
 	}
 
 	// step 3, only for Texas Instrument devices
@@ -261,12 +315,26 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	 * @returns QuickPickItem[] with list of serial devices available
 	 */
 	async function getDevices() {
-		let ports = await SerialPortCtrl.list(toolPath);
+		try {
+			let ports = await SerialPortCtrl.list();
 
-		const devicePaths: QuickPickItem[] = ports
-			.map((label) => ({ label: label.port, description: label.desc }));
+			if (ports.length === 0) {
+				window.showWarningMessage('No serial ports found. Please check that your device is connected.');
+				return [];
+			}
 
-		return devicePaths;
+			const devicePaths: QuickPickItem[] = ports
+				.map((port) => ({ 
+					label: port.port, 
+					description: port.desc || `VID:${port.vendorId} PID:${port.productId}` 
+				}));
+
+			return devicePaths;
+		} catch (error) {
+			console.error('Error listing serial ports:', error);
+			window.showErrorMessage('Failed to list serial ports. Please check your permissions and device connection.');
+			return [];
+		}
 	}
 
 	const state = await collectInputs();
@@ -294,7 +362,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		case 'WeA':
 		case 'ORG':
 		case 'Pyb':
-			cliArguments += `${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
+			cliArguments += ` ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
 			break;
 
 		case 'TI_':
@@ -303,7 +371,23 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 			break;
 
 		default:
-			cliArguments += `--serialport ${state.devicePath} --baud ${state.baudrate}`;
+			// ESP32 devices
+			cliArguments += ` --serialport ${state.devicePath}`;
+			
+			// Only add baud rate if not using default (auto)
+			if (state.baudrate && !state.baudrate.startsWith('Default')) {
+				cliArguments += ` --baud ${state.baudrate}`;
+			}
+			
+			// Add backup flag if user requested it
+			if (state.backupDevice) {
+				cliArguments += ' --backup';
+			}
+			
+			// Add mass erase flag if user requested it
+			if (state.massErase) {
+				cliArguments += ' --masserase';
+			}
 			break;
 	}
 
