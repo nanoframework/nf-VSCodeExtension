@@ -1,6 +1,5 @@
 const gulp = require("gulp");
 
-const download = require("download");
 const extract = require("extract-zip");
 const fs = require("fs");
 const path = require("path");
@@ -9,12 +8,6 @@ const { exec } = require("child_process");
 // Serial port enumeration now uses the 'serialport' npm package directly,
 // which provides native cross-platform support for Windows, macOS (including Apple Silicon), and Linux.
 // This eliminates the dependency on the archived microsoft/serial-monitor-cli project.
-
-gulp.task("build", async (done) => {
-    // No additional build tasks needed - serialport is an npm dependency
-    console.log("Build task completed. Serial port support provided by 'serialport' npm package.");
-    done();
-});
 
 gulp.task("build-debug-bridge", async (done) => {
     const bridgeProjectDir = path.resolve("src", "debugger", "bridge", "dotnet", "nanoFramework.Tools.DebugBridge");
@@ -34,4 +27,8 @@ gulp.task("build-debug-bridge", async (done) => {
     }
 });
 
-gulp.task("build", gulp.series("insert-serial-monitor-cli", "build-debug-bridge"));
+gulp.task("build", async (done) => {
+    // No additional build tasks needed - serialport is an npm dependency
+    console.log("Build task completed. Serial port support provided by 'serialport' npm package.");
+    done();
+});

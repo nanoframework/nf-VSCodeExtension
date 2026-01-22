@@ -197,7 +197,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register command to select debug device
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.selectDebugDevice", async () => {
-        const serialPath = await chooseSerialPort(nanoFrameworkExtensionPath);
+        const serialPath = await chooseSerialPort();
         if (serialPath) {
             vscode.window.showInformationMessage(`Selected debug device: ${serialPath}`);
             // Store the selected device for the debug session

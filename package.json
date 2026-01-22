@@ -294,7 +294,6 @@
     "@types/semver": "^7.7.1",
     "@types/vscode": "^1.90.0",
     "@vscode/test-electron": "^2.5.2",
-    "download": "^3.3.0",
     "eslint": "^9.39.2",
     "glob": "^13.0.0",
     "gulp": "^5.0.1",
@@ -310,6 +309,8 @@
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
     "@types/node": "^20",
+    "@vscode/debugadapter": "^1.68.0",
+    "@vscode/debugprotocol": "^1.68.0",
     "@vscode/vsce": "^3.7.1",
     "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
