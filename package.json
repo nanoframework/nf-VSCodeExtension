@@ -157,7 +157,7 @@
     "@types/semver": "^7.7.1",
     "@types/vscode": "^1.90.0",
     "@vscode/test-electron": "^2.5.2",
-    "download": "^3.3.0",
+    "download": "^8.0.0",
     "eslint": "^9.39.2",
     "glob": "^13.0.0",
     "gulp": "^5.0.1",
