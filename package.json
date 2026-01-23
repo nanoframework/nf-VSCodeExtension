@@ -172,7 +172,7 @@
   },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
-    "@types/node": "^20",
+    "@types/node": "^25",
     "@vscode/vsce": "^3.7.1",
     "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
