@@ -176,7 +176,7 @@
     "@vscode/vsce": "^3.7.1",
     "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
-    "globby": "^11.1.0",
+    "globby": "^16.1.0",
     "semver": "^7.7.3",
     "serialport": "^13.0.0",
     "typed-rest-client": "^2.2.0"
