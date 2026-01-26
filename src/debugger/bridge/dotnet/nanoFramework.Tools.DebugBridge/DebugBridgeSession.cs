@@ -833,26 +833,6 @@ public class DebugBridgeSession : IDisposable
         else
         {
             LogDebug($"IL range for step: [0x{rangeStart:X4}, 0x{rangeEnd:X4})");
-            
-            // Check if we should skip to a user breakpoint that's at the next-next sequence point
-            // This handles bracket-only lines like `{` - if user has a breakpoint at the line inside
-            // the bracket, we should skip the bracket line and go directly to the user's breakpoint.
-            var nextIlRange = GetILRangeForCurrentIP(currentFrame.m_md, rangeEnd);
-            
-            if (nextIlRange != null && nextIlRange.Value.endOffset != uint.MaxValue)
-            {
-                uint nextNextIL = nextIlRange.Value.endOffset;
-                
-                // Check if there's a user breakpoint at the next-next sequence point
-                var userBpAtNextNext = _activeBreakpointDefs.FirstOrDefault(bp => 
-                    bp.m_IP == nextNextIL && (bp.m_md & 0xFFFF) == (currentFrame.m_md & 0xFFFF));
-                
-                if (userBpAtNextNext != null)
-                {
-                    LogDebug($"Skipping intermediate sequence point at IL=0x{rangeEnd:X4} - user breakpoint exists at IL=0x{nextNextIL:X4}");
-                    rangeEnd = nextNextIL;
-                }
-            }
         }
         
         try
@@ -903,8 +883,8 @@ public class DebugBridgeSession : IDisposable
                 {
                     m_id = -1,  // Temporary step breakpoint
                     m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,  // Regular hard breakpoint
-                    m_pid = pid,
-                    m_depth = currentDepth,
+                    m_pid = WPCommands.Debugging_Execution_BreakpointDef.c_PID_ANY,  // Any thread
+                    m_depth = 0,  // Any depth - don't restrict by call stack depth
                     m_md = frame.m_md,
                     m_IP = rangeEnd,  // Breakpoint at the START of the next line
                     m_IPStart = 0,
@@ -913,8 +893,11 @@ public class DebugBridgeSession : IDisposable
                 
                 LogDebug($"Setting breakpoint at next line: IL=0x{rangeEnd:X4}");
                 
-                // Set the temporary step breakpoint (replaces user breakpoints temporarily)
-                _engine.SetBreakpoints(new[] { nextLineBp });
+                // Combine the temporary step breakpoint with all user breakpoints
+                // This ensures user breakpoints remain active during the step
+                var allBreakpoints = _activeBreakpointDefs.Concat(new[] { nextLineBp }).ToArray();
+                var setResult = _engine.SetBreakpoints(allBreakpoints);
+                LogDebug($"SetBreakpoints returned: {setResult} ({allBreakpoints.Length} breakpoints)");
                 
                 // Resume execution
                 LogDebug("Resuming execution...");
