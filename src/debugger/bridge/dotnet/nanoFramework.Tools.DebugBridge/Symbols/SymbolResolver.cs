@@ -320,7 +320,7 @@ public class SymbolResolver : IDisposable
             return a.ILOffsetNanoCLR.CompareTo(b.ILOffsetNanoCLR);
         });
         
-        // Find the first sequence point on a line AFTER currentLine
+        // First, try to find a line AFTER currentLine (normal forward stepping)
         // Note: We don't filter by method token because the device method index (e.g., 0x00010001)
         // is different from the PDB method token (e.g., 0x06000001). For step-over, we just
         // want the next line in the same source file - any method is fine since we'll set a 
@@ -333,6 +333,21 @@ public class SymbolResolver : IDisposable
             {
                 nextLinePoint = sp;
                 break;
+            }
+        }
+        
+        // If no line after, look for the FIRST line in the file that's different from current
+        // This handles loops where execution goes back to an earlier line
+        if (nextLinePoint == null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetNextLineBreakpointLocation: No line after {currentLine}, checking for earlier lines (loop scenario)");
+            foreach (var sp in candidatePoints)
+            {
+                if (sp.StartLine != currentLine && sp.StartLine > 0)
+                {
+                    nextLinePoint = sp;
+                    break;
+                }
             }
         }
         
@@ -610,6 +625,44 @@ public class SymbolResolver : IDisposable
     }
 
     /// <summary>
+    /// Get sequence points for a method from the PDB reader.
+    /// Used for getting IL ranges for source-level stepping.
+    /// </summary>
+    /// <param name="assemblyName">Assembly name</param>
+    /// <param name="methodToken">Method token (CLR format 0x06XXXXXX)</param>
+    /// <returns>List of sequence points or null if not found</returns>
+    public List<PdbSequencePoint>? GetSequencePointsForMethod(string assemblyName, int methodToken)
+    {
+        // Try various name formats
+        IPdbReader? pdbReader = null;
+        
+        if (_loadedPdbs.TryGetValue(assemblyName, out pdbReader))
+        {
+            // Found with exact name
+        }
+        else if (_loadedPdbs.TryGetValue(assemblyName + ".exe", out pdbReader))
+        {
+            // Found with .exe extension
+        }
+        else if (_loadedPdbs.TryGetValue(assemblyName + ".dll", out pdbReader))
+        {
+            // Found with .dll extension
+        }
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+            _loadedPdbs.TryGetValue(nameWithoutExt, out pdbReader);
+        }
+        
+        if (pdbReader != null)
+        {
+            return pdbReader.GetSequencePoints(methodToken);
+        }
+        
+        return null;
+    }
+
+    /// <summary>
     /// Get the IL offset for the next source line after the current position.
     /// Used for implementing source-level step over.
     /// </summary>
@@ -740,6 +793,108 @@ public class SymbolResolver : IDisposable
         }
         
         return result;
+    }
+
+    /// <summary>
+    /// Get the IL range (in nanoFramework IL offsets) that contains the current IP.
+    /// Used for range-based stepping where the device steps until IP exits the range.
+    /// </summary>
+    /// <param name="assemblyName">Assembly name</param>
+    /// <param name="methodToken">Device method token</param>
+    /// <param name="currentNanoIP">Current IP in nanoFramework IL offset</param>
+    /// <returns>IL range (start, end) in nanoFramework IL offsets, or null if not found</returns>
+    public (uint startNanoIL, uint endNanoIL)? GetILRangeForStepOver(
+        string assemblyName, uint methodToken, uint currentNanoIP)
+    {
+        // Try to resolve assembly name
+        string? resolvedName = null;
+        if (_loadedSymbols.ContainsKey(assemblyName))
+            resolvedName = assemblyName;
+        else if (_loadedSymbols.ContainsKey(assemblyName + ".exe"))
+            resolvedName = assemblyName + ".exe";
+        else if (_loadedSymbols.ContainsKey(assemblyName + ".dll"))
+            resolvedName = assemblyName + ".dll";
+        else
+        {
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(assemblyName);
+            if (_loadedSymbols.ContainsKey(nameWithoutExt))
+                resolvedName = nameWithoutExt;
+        }
+        
+        if (resolvedName == null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetILRangeForStepOver: Assembly not found: {assemblyName}");
+            return null;
+        }
+
+        // Build the cache key for this method
+        uint pdbxToken = 0x06000000 | (methodToken & 0xFFFF);
+        var key = $"{resolvedName}::{pdbxToken:X8}";
+        
+        if (!_sequencePointCache.TryGetValue(key, out var sequencePoints) || sequencePoints.Count == 0)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetILRangeForStepOver: No sequence points for method 0x{methodToken:X8}");
+            return null;
+        }
+        
+        // Sort by IL offset (should already be sorted but ensure it)
+        var sortedPoints = sequencePoints.OrderBy(sp => sp.ILOffsetNanoCLR).ToList();
+        
+        // First, find which SOURCE LINE the current IP is on
+        int currentLine = -1;
+        for (int i = 0; i < sortedPoints.Count; i++)
+        {
+            var sp = sortedPoints[i];
+            uint nextOffset = (i + 1 < sortedPoints.Count) ? sortedPoints[i + 1].ILOffsetNanoCLR : uint.MaxValue;
+            
+            if (sp.ILOffsetNanoCLR <= currentNanoIP && currentNanoIP < nextOffset)
+            {
+                currentLine = sp.StartLine;
+                break;
+            }
+        }
+        
+        if (currentLine < 0)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetILRangeForStepOver: Could not find sequence point containing NanoIP 0x{currentNanoIP:X4}");
+            return null;
+        }
+        
+        // Now find the FULL IL range for this source line
+        // The range should cover ALL sequence points on this line
+        // so stepping stops only when we reach a DIFFERENT line
+        uint lineStartIL = uint.MaxValue;
+        uint lineEndIL = 0;
+        
+        for (int i = 0; i < sortedPoints.Count; i++)
+        {
+            var sp = sortedPoints[i];
+            
+            if (sp.StartLine == currentLine)
+            {
+                // This sequence point is on the current line
+                if (sp.ILOffsetNanoCLR < lineStartIL)
+                {
+                    lineStartIL = sp.ILOffsetNanoCLR;
+                }
+                
+                // The end of this sequence point's range is the start of the next SP
+                uint spEnd = (i + 1 < sortedPoints.Count) ? sortedPoints[i + 1].ILOffsetNanoCLR : uint.MaxValue;
+                if (spEnd > lineEndIL)
+                {
+                    lineEndIL = spEnd;
+                }
+            }
+        }
+        
+        if (lineStartIL == uint.MaxValue)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetILRangeForStepOver: Could not find IL range for line {currentLine}");
+            return null;
+        }
+        
+        Console.Error.WriteLine($"[DebugBridge] GetILRangeForStepOver: NanoIP 0x{currentNanoIP:X4} is on line {currentLine}, full line range: [0x{lineStartIL:X4}, 0x{lineEndIL:X4})");
+        return (lineStartIL, lineEndIL);
     }
 
     /// <summary>

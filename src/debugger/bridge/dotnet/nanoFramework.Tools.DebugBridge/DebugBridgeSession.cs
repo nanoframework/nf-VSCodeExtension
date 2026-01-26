@@ -796,217 +796,376 @@ public class DebugBridgeSession : IDisposable
         
         LogDebug($"Starting step from line {startLine} in {Path.GetFileName(startFile ?? "unknown")}");
         
-        // BREAKPOINT-BASED STEP OVER:
-        // Instead of rapid IL stepping (which causes issues with native code),
-        // we set a temporary breakpoint at the next source line and resume.
-        
-        if (startFile != null && startLine > 0)
-        {
-            // Try to find the next source line's IL offset
-            var nextLineLocation = _symbolResolver.GetNextLineBreakpointLocation(startFile, startLine, (int)currentFrame.m_md);
-            
-            if (nextLineLocation != null)
-            {
-                LogDebug($"Using breakpoint-based step: setting temp bp at line {nextLineLocation.Line}, IL={nextLineLocation.ILOffset}");
-                
-                // Resolve the assembly index for the device using _assemblyManager
-                uint? deviceAssemblyIndex = null;
-                var assemblyInfo = _assemblyManager.GetDeviceAssembly(nextLineLocation.AssemblyName);
-                if (assemblyInfo != null)
-                {
-                    deviceAssemblyIndex = (uint)assemblyInfo.DeviceIndex;
-                }
-                else
-                {
-                    // Try without extension
-                    var assemblyNameNoExt = Path.GetFileNameWithoutExtension(nextLineLocation.AssemblyName);
-                    assemblyInfo = _assemblyManager.GetDeviceAssembly(assemblyNameNoExt);
-                    if (assemblyInfo != null)
-                    {
-                        deviceAssemblyIndex = (uint)assemblyInfo.DeviceIndex;
-                    }
-                }
-                
-                if (deviceAssemblyIndex.HasValue)
-                {
-                    // Create temporary step breakpoint at the next line
-                    var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
-                    {
-                        m_id = -100, // Special ID for step breakpoint
-                        m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
-                        m_pid = 0,
-                        m_depth = 0,
-                        m_md = (deviceAssemblyIndex.Value << 16) | ((uint)nextLineLocation.MethodToken & 0xFFFF),
-                        m_IP = (uint)nextLineLocation.ILOffset,
-                        m_IPStart = 0,
-                        m_IPEnd = 0
-                    };
-                    
-                    // Also add step-out breakpoint in case we step out of the method
-                    var stepOutBp = new WPCommands.Debugging_Execution_BreakpointDef
-                    {
-                        m_id = -101, // Special ID for step-out
-                        m_flags = (ushort)(WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT |
-                                          WPCommands.Debugging_Execution_BreakpointDef.c_EXCEPTION_CAUGHT |
-                                          WPCommands.Debugging_Execution_BreakpointDef.c_THREAD_TERMINATED),
-                        m_pid = pid,
-                        m_depth = (uint)frameDepth,
-                        m_md = currentFrame.m_md,
-                        m_IP = currentFrame.m_IP,
-                        m_IPStart = 0,
-                        m_IPEnd = 0
-                    };
-                    
-                    // Set breakpoints: user breakpoints + temp step breakpoint + step-out
-                    var allBreakpoints = _activeBreakpointDefs.ToList();
-                    allBreakpoints.Add(stepBp);
-                    allBreakpoints.Add(stepOutBp);
-                    _engine.SetBreakpoints(allBreakpoints.ToArray());
-                    
-                    LogDebug($"Set temp breakpoint at md=0x{stepBp.m_md:X8}, IP={stepBp.m_IP}");
-                    
-                    // Resume execution (not step!)
-                    _engine.ResumeExecution();
-                    
-                    // Wait for breakpoint or reboot
-                    var result = await WaitForBreakpointBasedStep(pid, nextLineLocation.Line, stepBp.m_IP, stepBp.m_md);
-                    
-                    // Restore original breakpoints
-                    _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
-                    
-                    if (result.deviceRebooted)
-                    {
-                        LogDebug("Device rebooted during breakpoint-based step");
-                        await HandleDeviceRebootDuringDebug();
-                        return true;
-                    }
-                    
-                    if (result.hitUserBreakpoint)
-                    {
-                        LogDebug($"Hit user breakpoint {result.userBpId} during step");
-                        RaiseEvent("stopped", new StoppedEventBody
-                        {
-                            Reason = "breakpoint",
-                            ThreadId = (int)pid,
-                            AllThreadsStopped = true,
-                            HitBreakpointIds = new[] { result.userBpId }
-                        });
-                        return true;
-                    }
-                    
-                    // Normal step completion
-                    LogDebug($"Breakpoint-based step complete");
-                    RaiseEvent("stopped", new StoppedEventBody
-                    {
-                        Reason = "step",
-                        ThreadId = (int)pid,
-                        AllThreadsStopped = true
-                    });
-                    return true;
-                }
-            }
-        }
-        
-        // Fallback to IL-based stepping if we couldn't find next line
-        // (e.g., at end of method, or no symbols)
-        LogDebug("Falling back to IL-based stepping");
-        return await PerformILBasedStepOver(pid, currentFrame, frameDepth, startLine, startFile);
+        // Use IL-based stepping with proper step-over flags
+        return await PerformNativeStepOver(pid, currentFrame, frameDepth, startLine, startFile);
     }
     
     /// <summary>
-    /// Wait for a breakpoint-based step to complete.
-    /// Returns when device stops at breakpoint, user breakpoint, or reboots.
+    /// Step over using a breakpoint at the next source line.
+    /// This approach sets a temporary breakpoint at the next sequence point
+    /// and continues execution, which is more reliable for loops.
     /// </summary>
-    private async Task<(bool stopped, bool hitUserBreakpoint, int userBpId, bool deviceRebooted)> WaitForBreakpointBasedStep(
-        uint pid, int targetLine, uint targetIP, uint targetMd)
+    private async Task<bool> PerformNativeStepOver(uint pid, 
+        WPCommands.Debugging_Thread_Stack.Reply.Call currentFrame, uint frameDepth,
+        int startLine, string? startFile)
     {
-        await Task.Delay(20);
+        LogDebug($"Native step over starting from line {startLine} in {Path.GetFileName(startFile ?? "unknown")}");
         
-        for (int i = 0; i < 200; i++) // Up to 20 seconds
+        uint originalDepth = frameDepth;
+        
+        // Get the IL range for the current source line
+        var ilRange = GetILRangeForCurrentIP(currentFrame.m_md, currentFrame.m_IP);
+        uint rangeStart = ilRange?.startOffset ?? 0;
+        uint rangeEnd = ilRange?.endOffset ?? 0;
+        
+        // Handle last line case (uint.MaxValue means no next sequence point)
+        if (rangeEnd == uint.MaxValue || rangeEnd > 0xFFFF)
         {
-            try
-            {
-                if (!_engine.IsConnectedTonanoCLR)
-                {
-                    LogDebug("Lost connection to nanoCLR during breakpoint-based step");
-                    return (true, false, 0, true);
-                }
-                
-                var state = _engine.GetExecutionMode();
-                bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
-                
-                if (isStopped)
-                {
-                    var threads = _engine.GetThreadList();
-                    if (threads == null || threads.Length == 0)
-                    {
-                        LogDebug("Device rebooted during breakpoint-based step (no threads)");
-                        return (true, false, 0, true);
-                    }
-                    
-                    var stack = _engine.GetThreadStack(pid);
-                    if (stack == null || stack.m_data == null || stack.m_data.Length == 0)
-                    {
-                        LogDebug("Lost thread during breakpoint-based step");
-                        return (true, false, 0, false);
-                    }
-                    
-                    uint currentIP = stack.m_data[0].m_IP;
-                    uint currentMd = stack.m_data[0].m_md;
-                    
-                    // Check if we hit a user breakpoint
-                    var userBp = _activeBreakpointDefs.FirstOrDefault(bp => 
-                        bp.m_IP == currentIP && bp.m_md == currentMd);
-                    
-                    if (userBp != null)
-                    {
-                        LogDebug($"Hit user breakpoint {userBp.m_id} at IP={currentIP}");
-                        return (true, true, (int)userBp.m_id, false);
-                    }
-                    
-                    // Otherwise, step completed (hit our temp breakpoint or stepped out)
-                    LogDebug($"Breakpoint-based step stopped at IP=0x{currentIP:X4}, md=0x{currentMd:X8}");
-                    return (true, false, 0, false);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogDebug($"Error during breakpoint-based step wait: {ex.Message}");
-                if (!_engine.IsConnectedTonanoCLR)
-                {
-                    return (true, false, 0, true);
-                }
-            }
-            
-            await Task.Delay(100);
+            LogDebug($"Last line in method - using step-out approach");
+            return await PerformStepOut(pid, currentFrame, frameDepth);
         }
         
-        // Timeout - try to pause
-        LogDebug("Breakpoint-based step timeout");
+        if (rangeEnd == 0)
+        {
+            LogDebug($"No IL range found - falling back to device step");
+            rangeEnd = currentFrame.m_IP + 1;
+        }
+        else
+        {
+            LogDebug($"IL range for step: [0x{rangeStart:X4}, 0x{rangeEnd:X4})");
+            
+            // Check if we should skip to a user breakpoint that's at the next-next sequence point
+            // This handles bracket-only lines like `{` - if user has a breakpoint at the line inside
+            // the bracket, we should skip the bracket line and go directly to the user's breakpoint.
+            var nextIlRange = GetILRangeForCurrentIP(currentFrame.m_md, rangeEnd);
+            
+            if (nextIlRange != null && nextIlRange.Value.endOffset != uint.MaxValue)
+            {
+                uint nextNextIL = nextIlRange.Value.endOffset;
+                
+                // Check if there's a user breakpoint at the next-next sequence point
+                var userBpAtNextNext = _activeBreakpointDefs.FirstOrDefault(bp => 
+                    bp.m_IP == nextNextIL && (bp.m_md & 0xFFFF) == (currentFrame.m_md & 0xFFFF));
+                
+                if (userBpAtNextNext != null)
+                {
+                    LogDebug($"Skipping intermediate sequence point at IL=0x{rangeEnd:X4} - user breakpoint exists at IL=0x{nextNextIL:X4}");
+                    rangeEnd = nextNextIL;
+                }
+            }
+        }
+        
         try
         {
-            if (_engine.IsConnectedTonanoCLR)
+            // Verify connection
+            if (!_engine.IsConnectedTonanoCLR)
             {
-                _engine.PauseExecution();
+                LogDebug("Device not connected");
+                await HandleDeviceRebootDuringDebug();
+                return true;
+            }
+            
+            // Get current stack to verify state
+            var stack = _engine.GetThreadStack(pid);
+            if (stack == null || stack.m_data == null || stack.m_data.Length == 0)
+            {
+                LogDebug("Lost thread stack");
+                await HandleDeviceRebootDuringDebug();
+                return true;
+            }
+            
+            var frame = stack.m_data[0];
+            uint currentDepth = (uint)stack.m_data.Length - 1;
+            
+            LogDebug($"Setting step: IL=0x{frame.m_IP:X4}, md=0x{frame.m_md:X8}, depth={currentDepth}");
+            
+            // Check if there's already a user breakpoint at the next line's IL offset
+            // If so, we don't need to set a step breakpoint - just continue and let the user BP catch it
+            var existingBp = _activeBreakpointDefs.FirstOrDefault(bp => 
+                bp.m_IP == rangeEnd && bp.m_md == frame.m_md);
+            
+            if (existingBp != null)
+            {
+                LogDebug($"User breakpoint already exists at IL=0x{rangeEnd:X4} - using existing breakpoints");
+                
+                // Just continue execution - the existing user breakpoints will stop us
+                LogDebug("Resuming execution (existing BP will catch)...");
+                _engine.ResumeExecution();
             }
             else
             {
-                return (true, false, 0, true);
+                // BREAKPOINT-BASED STEP: Set a regular breakpoint at the next line's IL offset
+                // This is more reliable for loops than using step flags with IL ranges
+                
+                // Create a temporary breakpoint at the next sequence point (rangeEnd)
+                // This breakpoint will stop execution at the first instruction of the next line
+                var nextLineBp = new WPCommands.Debugging_Execution_BreakpointDef
+                {
+                    m_id = -1,  // Temporary step breakpoint
+                    m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,  // Regular hard breakpoint
+                    m_pid = pid,
+                    m_depth = currentDepth,
+                    m_md = frame.m_md,
+                    m_IP = rangeEnd,  // Breakpoint at the START of the next line
+                    m_IPStart = 0,
+                    m_IPEnd = 0
+                };
+                
+                LogDebug($"Setting breakpoint at next line: IL=0x{rangeEnd:X4}");
+                
+                // Set the temporary step breakpoint (replaces user breakpoints temporarily)
+                _engine.SetBreakpoints(new[] { nextLineBp });
+                
+                // Resume execution
+                LogDebug("Resuming execution...");
+                _engine.ResumeExecution();
             }
+            
+            // Wait for device to stop
+            bool stopped = false;
+            for (int waitCount = 0; waitCount < 300; waitCount++) // 30 seconds max
+            {
+                await Task.Delay(100);
+                
+                if (!_engine.IsConnectedTonanoCLR)
+                {
+                    LogDebug("Device disconnected during step");
+                    _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                    await HandleDeviceRebootDuringDebug();
+                    return true;
+                }
+                
+                var state = _engine.GetExecutionMode();
+                if ((state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0)
+                {
+                    stopped = true;
+                    LogDebug($"Device stopped after {(waitCount + 1) * 100}ms");
+                    break;
+                }
+            }
+            
+            // Restore user breakpoints
+            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+            
+            if (!stopped)
+            {
+                LogDebug("Step timeout - pausing execution");
+                try { _engine.PauseExecution(); } catch { }
+                await Task.Delay(200);
+            }
+            
+            // Get current position after step
+            var newStack = _engine.GetThreadStack(pid);
+            if (newStack == null || newStack.m_data == null || newStack.m_data.Length == 0)
+            {
+                LogDebug("Lost thread stack after step");
+                await HandleDeviceRebootDuringDebug();
+                return true;
+            }
+            
+            var newFrame = newStack.m_data[0];
+            uint newDepth = (uint)newStack.m_data.Length - 1;
+            
+            // Get new source location
+            var (newLocation, _) = TryGetSourceLocationForFrame(newFrame.m_md, newFrame.m_IP);
+            int newLine = newLocation?.Line ?? -1;
+            
+            LogDebug($"After step: at line {newLine}, IL=0x{newFrame.m_IP:X4}, depth={newDepth}");
+            
+            // Check if we stepped out
+            if (newDepth < originalDepth)
+            {
+                LogDebug($"Stepped out (depth {originalDepth} -> {newDepth})");
+            }
+            
+            // Check for user breakpoint hit
+            var userBp = _activeBreakpointDefs.FirstOrDefault(bp => 
+                bp.m_IP == newFrame.m_IP && bp.m_md == newFrame.m_md);
+            
+            if (userBp != null)
+            {
+                LogDebug($"Hit user breakpoint {userBp.m_id}");
+                RaiseEvent("stopped", new StoppedEventBody
+                {
+                    Reason = "breakpoint",
+                    ThreadId = (int)pid,
+                    AllThreadsStopped = true,
+                    HitBreakpointIds = new[] { (int)userBp.m_id }
+                });
+                return true;
+            }
+            
+            // Report step complete
+            RaiseEvent("stopped", new StoppedEventBody
+            {
+                Reason = "step",
+                ThreadId = (int)pid,
+                AllThreadsStopped = true
+            });
+            return true;
         }
-        catch { }
-        
-        return (true, false, 0, false);
+        catch (Exception ex)
+        {
+            LogDebug($"Exception during step: {ex.Message}");
+            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+            if (!_engine.IsConnectedTonanoCLR)
+            {
+                await HandleDeviceRebootDuringDebug();
+                return true;
+            }
+            RaiseEvent("stopped", new StoppedEventBody
+            {
+                Reason = "step",
+                ThreadId = (int)pid,
+                AllThreadsStopped = true
+            });
+            return true;
+        }
     }
     
     /// <summary>
-    /// Fallback IL-based step over (when breakpoint-based stepping isn't possible).
+    /// Perform a step-out operation (for last line in method)
+    /// </summary>
+    private async Task<bool> PerformStepOut(uint pid, 
+        WPCommands.Debugging_Thread_Stack.Reply.Call currentFrame, uint frameDepth)
+    {
+        LogDebug($"Performing step-out from depth {frameDepth}");
+        
+        ushort stepOutFlags = (ushort)(
+            WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT |
+            WPCommands.Debugging_Execution_BreakpointDef.c_EXCEPTION_CAUGHT |
+            WPCommands.Debugging_Execution_BreakpointDef.c_THREAD_TERMINATED);
+        
+        try
+        {
+            var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
+            {
+                m_id = -1,
+                m_flags = stepOutFlags,
+                m_pid = pid,
+                m_depth = frameDepth,
+                m_md = currentFrame.m_md,
+                m_IP = currentFrame.m_IP,
+                m_IPStart = 0,
+                m_IPEnd = 0
+            };
+            
+            _engine.SetBreakpoints(new[] { stepBp });
+            _engine.ResumeExecution();
+            
+            // Wait for device to stop
+            bool stopped = false;
+            for (int waitCount = 0; waitCount < 300; waitCount++)
+            {
+                await Task.Delay(100);
+                
+                if (!_engine.IsConnectedTonanoCLR)
+                {
+                    LogDebug("Device disconnected during step-out");
+                    _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                    await HandleDeviceRebootDuringDebug();
+                    return true;
+                }
+                
+                var state = _engine.GetExecutionMode();
+                if ((state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0)
+                {
+                    stopped = true;
+                    LogDebug($"Device stopped after {(waitCount + 1) * 100}ms");
+                    break;
+                }
+            }
+            
+            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+            
+            if (!stopped)
+            {
+                LogDebug("Step-out timeout");
+                try { _engine.PauseExecution(); } catch { }
+                await Task.Delay(200);
+            }
+            
+            RaiseEvent("stopped", new StoppedEventBody
+            {
+                Reason = "step",
+                ThreadId = (int)pid,
+                AllThreadsStopped = true
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogDebug($"Exception during step-out: {ex.Message}");
+            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+            RaiseEvent("stopped", new StoppedEventBody
+            {
+                Reason = "step",
+                ThreadId = (int)pid,
+                AllThreadsStopped = true
+            });
+            return true;
+        }
+    }
+    
+    /// <summary>
+    /// Get the IL offset range that contains the current IL offset.
+    /// Returns the range from current sequence point to the next sequence point.
+    /// NOTE: Both input (currentIP) and output are in nanoFramework IL offsets.
+    /// </summary>
+    private (uint startOffset, uint endOffset)? GetILRangeForCurrentIP(uint methodToken, uint currentIP)
+    {
+        try
+        {
+            // Get the assembly info from the methodToken
+            uint assemblyIndex = (methodToken >> 16) & 0xFFFF;
+            var assemblyInfo = _assemblyManager.GetAssemblyByDeviceIndex((int)assemblyIndex);
+            
+            if (assemblyInfo == null)
+            {
+                LogDebug($"GetILRangeForCurrentIP: Assembly not found for index {assemblyIndex}");
+                return null;
+            }
+            
+            // Use the SymbolResolver's method which properly handles CLR <-> nanoFramework IL conversion
+            var result = _symbolResolver.GetILRangeForStepOver(assemblyInfo.Name ?? "", methodToken, currentIP);
+            
+            if (result != null)
+            {
+                LogDebug($"GetILRangeForCurrentIP: Found range [0x{result.Value.startNanoIL:X4}, 0x{result.Value.endNanoIL:X4})");
+                return (result.Value.startNanoIL, result.Value.endNanoIL);
+            }
+            
+            LogDebug($"GetILRangeForCurrentIP: Could not find range for IP 0x{currentIP:X4}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LogDebug($"GetILRangeForCurrentIP exception: {ex.Message}");
+            return null;
+        }
+    }
+    
+    /// <summary>
+    /// IL-based step over using device's native step mechanism.
+    /// NOTE: This method is kept for reference but currently not used because
+    /// IL stepping can cause device crashes on some nanoFramework devices.
     /// </summary>
     private async Task<bool> PerformILBasedStepOver(uint pid, 
         WPCommands.Debugging_Thread_Stack.Reply.Call currentFrame, uint frameDepth,
         int startLine, string? startFile)
     {
         LogDebug($"IL-based step starting from line {startLine} in {Path.GetFileName(startFile ?? "unknown")}");
+        
+        // Give device time to stabilize before starting step operations
+        await Task.Delay(100);
+        
+        // Verify connection before starting
+        if (!_engine.IsConnectedTonanoCLR)
+        {
+            LogDebug("Device not connected before step - handling reboot");
+            await HandleDeviceRebootDuringDebug();
+            return true;
+        }
         
         // Create step breakpoint using VS extension approach
         ushort stepFlags = (ushort)(
@@ -1063,6 +1222,9 @@ public class DebugBridgeSession : IDisposable
                 var allBreakpoints = _activeBreakpointDefs.ToList();
                 allBreakpoints.Add(stepBp);
                 _engine.SetBreakpoints(allBreakpoints.ToArray());
+                
+                // Small delay before resuming to let device process breakpoint setup
+                await Task.Delay(50);
                 
                 // Resume execution
                 _engine.ResumeExecution();
@@ -1139,11 +1301,140 @@ public class DebugBridgeSession : IDisposable
                 return true;
             }
             
-            // Still on same line - continue stepping
-            if (stepCount % 10 == 0)
+            // Still on same line - instead of doing more IL steps (which can crash the device),
+            // try to set a breakpoint at the next source line and resume to it.
+            // This is more reliable than rapid IL stepping.
+            LogDebug($"Still on line {newLine}, trying breakpoint-based approach (step {stepCount + 1}, IP=0x{newFrame.m_IP:X4})");
+            
+            // Only try breakpoint approach once - if it doesn't work, just return current position
+            if (stepCount == 0 && startFile != null && startLine > 0)
             {
-                LogDebug($"Still on line {newLine}, continuing (step {stepCount + 1}, IP=0x{newFrame.m_IP:X4})");
+                var nextLineLocation = _symbolResolver.GetNextLineBreakpointLocation(startFile, startLine, (int)currentFrame.m_md);
+                
+                if (nextLineLocation != null)
+                {
+                    // Resolve the assembly index for the device
+                    uint? deviceAssemblyIndex = null;
+                    var assemblyInfo = _assemblyManager.GetDeviceAssembly(nextLineLocation.AssemblyName);
+                    if (assemblyInfo == null)
+                    {
+                        var assemblyNameNoExt = Path.GetFileNameWithoutExtension(nextLineLocation.AssemblyName);
+                        assemblyInfo = _assemblyManager.GetDeviceAssembly(assemblyNameNoExt);
+                    }
+                    
+                    if (assemblyInfo != null)
+                    {
+                        deviceAssemblyIndex = (uint)assemblyInfo.DeviceIndex;
+                        
+                        LogDebug($"Setting temp breakpoint at line {nextLineLocation.Line}, IL={nextLineLocation.ILOffset}");
+                        
+                        // Create temporary step breakpoint at the next line
+                        var tempStepBp = new WPCommands.Debugging_Execution_BreakpointDef
+                        {
+                            m_id = -100, // Special ID for step breakpoint
+                            m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
+                            m_pid = 0,
+                            m_depth = 0,
+                            m_md = (deviceAssemblyIndex.Value << 16) | ((uint)nextLineLocation.MethodToken & 0xFFFF),
+                            m_IP = (uint)nextLineLocation.ILOffset,
+                            m_IPStart = 0,
+                            m_IPEnd = 0
+                        };
+                        
+                        // Set breakpoints: user breakpoints + temp step breakpoint
+                        var tempAllBreakpoints = _activeBreakpointDefs.ToList();
+                        tempAllBreakpoints.Add(tempStepBp);
+                        _engine.SetBreakpoints(tempAllBreakpoints.ToArray());
+                        
+                        await Task.Delay(200); // Give device time to process breakpoint setup
+                        
+                        // Verify device is still connected before resuming
+                        if (!_engine.IsConnectedTonanoCLR)
+                        {
+                            LogDebug("Device disconnected before resume");
+                            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                            await HandleDeviceRebootDuringDebug();
+                            return true;
+                        }
+                        
+                        // Resume execution (not step!)
+                        _engine.ResumeExecution();
+                        
+                        // Wait for stop (with longer timeout for real execution)
+                        for (int waitCount = 0; waitCount < 300; waitCount++) // Up to 30 seconds
+                        {
+                            await Task.Delay(100);
+                            
+                            if (!_engine.IsConnectedTonanoCLR)
+                            {
+                                LogDebug("Device disconnected while waiting for breakpoint");
+                                _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                                await HandleDeviceRebootDuringDebug();
+                                return true;
+                            }
+                            
+                            var state = _engine.GetExecutionMode();
+                            bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+                            
+                            if (isStopped)
+                            {
+                                LogDebug($"Stopped after breakpoint-based step");
+                                
+                                // Restore original breakpoints
+                                _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                                
+                                // Check if we hit a user breakpoint
+                                var checkStack = _engine.GetThreadStack(pid);
+                                if (checkStack?.m_data != null && checkStack.m_data.Length > 0)
+                                {
+                                    var checkFrame = checkStack.m_data[0];
+                                    var userBp = _activeBreakpointDefs.FirstOrDefault(bp => 
+                                        bp.m_IP == checkFrame.m_IP && bp.m_md == checkFrame.m_md);
+                                    
+                                    if (userBp != null)
+                                    {
+                                        LogDebug($"Hit user breakpoint {userBp.m_id}");
+                                        RaiseEvent("stopped", new StoppedEventBody
+                                        {
+                                            Reason = "breakpoint",
+                                            ThreadId = (int)pid,
+                                            AllThreadsStopped = true,
+                                            HitBreakpointIds = new[] { (int)userBp.m_id }
+                                        });
+                                        return true;
+                                    }
+                                }
+                                
+                                // Normal step completion
+                                RaiseEvent("stopped", new StoppedEventBody
+                                {
+                                    Reason = "step",
+                                    ThreadId = (int)pid,
+                                    AllThreadsStopped = true
+                                });
+                                return true;
+                            }
+                        }
+                        
+                        // Timeout - restore breakpoints and report where we are
+                        LogDebug("Timeout waiting for breakpoint-based step");
+                        _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                        try { _engine.PauseExecution(); } catch { }
+                    }
+                }
             }
+            
+            // After first step, just report current position rather than risking more IL steps
+            LogDebug($"Reporting step at current position (line {newLine})");
+            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+            RaiseEvent("stopped", new StoppedEventBody
+            {
+                Reason = "step",
+                ThreadId = (int)pid,
+                AllThreadsStopped = true
+            });
+            return true;
+            
             } // end try
             catch (Exception ex)
             {
@@ -1181,7 +1472,30 @@ public class DebugBridgeSession : IDisposable
     /// <param name="startingMd">The method we started from</param>
     private async Task<(bool stopped, bool hitUserBreakpoint, int userBpId, bool deviceRebooted)> WaitForSingleILStep(uint pid, uint startingIP, uint startingMd)
     {
-        await Task.Delay(20);
+        // First, wait for device to actually START running (leave stopped state)
+        // This is important because after ResumeExecution(), the device may still report as stopped briefly
+        for (int i = 0; i < 30; i++) // Up to 3 seconds to start running
+        {
+            await Task.Delay(100);
+            
+            try
+            {
+                if (!_engine.IsConnectedTonanoCLR)
+                {
+                    return (true, false, 0, true);
+                }
+                
+                var state = _engine.GetExecutionMode();
+                bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+                
+                if (!isStopped)
+                {
+                    LogDebug("IL step: device is now running, waiting for stop...");
+                    break;
+                }
+            }
+            catch { }
+        }
         
         int consecutiveErrors = 0;
         const int maxConsecutiveErrors = 3;
@@ -3033,6 +3347,19 @@ public class DebugBridgeSession : IDisposable
         else if (runtimeValue.IsBoxed)
         {
             value = $"boxed {runtimeValue.Value}";
+        }
+        else if (runtimeValue.DataType == nanoClrDataType.DATATYPE_STRING)
+        {
+            // String type - show the actual string value in quotes
+            var strValue = runtimeValue.Value?.ToString();
+            if (strValue != null)
+            {
+                value = $"\"{strValue}\"";
+            }
+            else
+            {
+                value = "\"\"";
+            }
         }
         else
         {
