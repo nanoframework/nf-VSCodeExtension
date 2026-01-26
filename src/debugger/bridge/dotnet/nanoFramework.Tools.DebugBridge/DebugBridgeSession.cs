@@ -866,38 +866,44 @@ public class DebugBridgeSession : IDisposable
             
             if (existingBp != null)
             {
-                LogDebug($"User breakpoint already exists at IL=0x{rangeEnd:X4} - using existing breakpoints");
+                LogDebug($"User breakpoint already exists at IL=0x{rangeEnd:X4} - just resuming without BP changes");
                 
-                // Just continue execution - the existing user breakpoints will stop us
+                // Don't manipulate breakpoints at all - just delay and resume
+                // The existing user breakpoint on the device will stop execution
+                await Task.Delay(250);
+                
                 LogDebug("Resuming execution (existing BP will catch)...");
                 _engine.ResumeExecution();
             }
             else
             {
-                // BREAKPOINT-BASED STEP: Set a regular breakpoint at the next line's IL offset
-                // This is more reliable for loops than using step flags with IL ranges
-                
-                // Create a temporary breakpoint at the next sequence point (rangeEnd)
-                // This breakpoint will stop execution at the first instruction of the next line
-                var nextLineBp = new WPCommands.Debugging_Execution_BreakpointDef
+                // Use device's native step-over capability with STEP flags
+                // Don't add temporary breakpoints - just use step flags with IL range
+                var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
                 {
-                    m_id = -1,  // Temporary step breakpoint
-                    m_flags = WPCommands.Debugging_Execution_BreakpointDef.c_HARD,  // Regular hard breakpoint
-                    m_pid = WPCommands.Debugging_Execution_BreakpointDef.c_PID_ANY,  // Any thread
-                    m_depth = 0,  // Any depth - don't restrict by call stack depth
+                    m_id = -1,  // Step breakpoint
+                    m_flags = (ushort)(
+                        WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER |
+                        WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT |
+                        WPCommands.Debugging_Execution_BreakpointDef.c_EXCEPTION_CAUGHT |
+                        WPCommands.Debugging_Execution_BreakpointDef.c_THREAD_TERMINATED),
+                    m_pid = pid,
+                    m_depth = currentDepth,
                     m_md = frame.m_md,
-                    m_IP = rangeEnd,  // Breakpoint at the START of the next line
-                    m_IPStart = 0,
-                    m_IPEnd = 0
+                    m_IP = frame.m_IP,
+                    m_IPStart = rangeStart,
+                    m_IPEnd = rangeEnd
                 };
                 
-                LogDebug($"Setting breakpoint at next line: IL=0x{rangeEnd:X4}");
+                LogDebug($"Setting native step-over: IL range [0x{rangeStart:X4}, 0x{rangeEnd:X4})");
                 
-                // Combine the temporary step breakpoint with all user breakpoints
-                // This ensures user breakpoints remain active during the step
-                var allBreakpoints = _activeBreakpointDefs.Concat(new[] { nextLineBp }).ToArray();
-                var setResult = _engine.SetBreakpoints(allBreakpoints);
-                LogDebug($"SetBreakpoints returned: {setResult} ({allBreakpoints.Length} breakpoints)");
+                // Set ONLY the step breakpoint - no user breakpoints during step
+                // This avoids issues with breakpoint accumulation
+                var setResult = _engine.SetBreakpoints(new[] { stepBp });
+                LogDebug($"SetBreakpoints (step only) returned: {setResult}");
+                
+                // Delay before resuming
+                await Task.Delay(100);
                 
                 // Resume execution
                 LogDebug("Resuming execution...");
@@ -906,6 +912,7 @@ public class DebugBridgeSession : IDisposable
             
             // Wait for device to stop
             bool stopped = false;
+            bool deviceMayHaveRebooted = false;
             for (int waitCount = 0; waitCount < 300; waitCount++) // 30 seconds max
             {
                 await Task.Delay(100);
@@ -913,18 +920,39 @@ public class DebugBridgeSession : IDisposable
                 if (!_engine.IsConnectedTonanoCLR)
                 {
                     LogDebug("Device disconnected during step");
-                    _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
-                    await HandleDeviceRebootDuringDebug();
-                    return true;
-                }
-                
-                var state = _engine.GetExecutionMode();
-                if ((state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0)
-                {
-                    stopped = true;
-                    LogDebug($"Device stopped after {(waitCount + 1) * 100}ms");
+                    deviceMayHaveRebooted = true;
                     break;
                 }
+                
+                try
+                {
+                    var state = _engine.GetExecutionMode();
+                    if ((state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0)
+                    {
+                        stopped = true;
+                        LogDebug($"Device stopped after {(waitCount + 1) * 100}ms");
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDebug($"Error getting execution mode (attempt {waitCount}): {ex.Message}");
+                    // Communication error might indicate device reset
+                    if (waitCount > 5)
+                    {
+                        deviceMayHaveRebooted = true;
+                        break;
+                    }
+                }
+            }
+            
+            // If device may have rebooted, handle that first
+            if (deviceMayHaveRebooted)
+            {
+                LogDebug("Device may have rebooted during step");
+                try { _engine.SetBreakpoints(_activeBreakpointDefs.ToArray()); } catch { }
+                await HandleDeviceRebootDuringDebug();
+                return true;
             }
             
             // Restore user breakpoints
@@ -938,12 +966,45 @@ public class DebugBridgeSession : IDisposable
             }
             
             // Get current position after step
+            // First, check if the original thread still exists
             var newStack = _engine.GetThreadStack(pid);
             if (newStack == null || newStack.m_data == null || newStack.m_data.Length == 0)
             {
-                LogDebug("Lost thread stack after step");
-                await HandleDeviceRebootDuringDebug();
-                return true;
+                // Thread stack not available with original PID - check if device rebooted
+                LogDebug($"Lost thread stack for pid={pid} after step - checking for other threads...");
+                
+                // Get current thread list to see if threads changed
+                var currentThreads = _engine.GetThreadList();
+                if (currentThreads != null && currentThreads.Length > 0)
+                {
+                    // Threads exist but our PID is gone - device likely rebooted
+                    LogDebug($"Found {currentThreads.Length} thread(s): [{string.Join(", ", currentThreads)}]");
+                    
+                    // Try to get stack from first available thread
+                    var newPid = currentThreads[0];
+                    newStack = _engine.GetThreadStack(newPid);
+                    
+                    if (newStack != null && newStack.m_data != null && newStack.m_data.Length > 0)
+                    {
+                        LogDebug($"Got stack from thread {newPid}, updating stopped thread");
+                        _stoppedThreadId = newPid;
+                        pid = newPid;
+                        // Continue with this new stack
+                    }
+                    else
+                    {
+                        // Still can't get a stack - handle as reboot
+                        LogDebug("Still no stack available from any thread");
+                        await HandleDeviceRebootDuringDebug();
+                        return true;
+                    }
+                }
+                else
+                {
+                    LogDebug("No threads available - device likely rebooted");
+                    await HandleDeviceRebootDuringDebug();
+                    return true;
+                }
             }
             
             var newFrame = newStack.m_data[0];
@@ -1253,8 +1314,41 @@ public class DebugBridgeSession : IDisposable
             var newStack = _engine.GetThreadStack(pid);
             if (newStack == null || newStack.m_data == null || newStack.m_data.Length == 0)
             {
-                LogDebug("Lost thread stack after step");
-                break;
+                // Thread stack not available - check if device rebooted or thread changed
+                LogDebug($"Lost thread stack for pid={pid} after step - checking for other threads...");
+                
+                var currentThreads = _engine.GetThreadList();
+                if (currentThreads != null && currentThreads.Length > 0)
+                {
+                    LogDebug($"Found {currentThreads.Length} thread(s): [{string.Join(", ", currentThreads)}]");
+                    
+                    // Try to get stack from first available thread
+                    var newPid = currentThreads[0];
+                    newStack = _engine.GetThreadStack(newPid);
+                    
+                    if (newStack != null && newStack.m_data != null && newStack.m_data.Length > 0)
+                    {
+                        LogDebug($"Got stack from thread {newPid}, continuing step check");
+                        pid = newPid;
+                        _stoppedThreadId = newPid;
+                        // Continue with the new stack below
+                    }
+                    else
+                    {
+                        // Still can't get a stack - handle as reboot
+                        LogDebug("Still no stack available from any thread");
+                        _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                        await HandleDeviceRebootDuringDebug();
+                        return true;
+                    }
+                }
+                else
+                {
+                    LogDebug("No threads available - device likely rebooted");
+                    _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
+                    await HandleDeviceRebootDuringDebug();
+                    return true;
+                }
             }
             
             var newFrame = newStack.m_data[0];
@@ -4072,9 +4166,17 @@ public class DebugBridgeSession : IDisposable
                 return;
             }
             
-            // Re-enable source-level debugging
+            // Re-enable source-level debugging with proper error handling
             LogDebug("Re-enabling source-level debugging after unexpected reboot...");
-            _engine.UpdateDebugFlags();
+            try
+            {
+                bool debugFlagsResult = _engine.UpdateDebugFlags();
+                LogDebug($"UpdateDebugFlags returned: {debugFlagsResult}");
+            }
+            catch (Exception updateEx)
+            {
+                LogDebug($"Warning: UpdateDebugFlags failed: {updateEx.Message}");
+            }
             
             // Query device assemblies again
             await QueryDeviceAssemblies();
@@ -4082,35 +4184,64 @@ public class DebugBridgeSession : IDisposable
             // Re-apply breakpoints
             await ReapplyBreakpointsAfterReboot();
             
+            // After reboot, the program restarts from the beginning
+            // First, try to pause execution immediately
+            LogDebug("Attempting to pause execution after reboot...");
+            try
+            {
+                _engine.PauseExecution();
+                await Task.Delay(200);
+            }
+            catch (Exception pauseEx)
+            {
+                LogDebug($"Warning: PauseExecution failed: {pauseEx.Message}");
+            }
+            
             // Wait for a thread to appear
             for (int i = 0; i < 20; i++)
             {
                 await Task.Delay(200);
+                
+                // Check execution state
+                var state = _engine.GetExecutionMode();
+                bool isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+                LogDebug($"Execution state check {i + 1}/20: stopped={isStopped}, state=0x{(uint)state:X8}");
+                
                 var threads = _engine.GetThreadList();
                 if (threads != null && threads.Length > 0)
                 {
                     LogDebug($"Thread appeared: pid={threads[0]}");
                     _stoppedThreadId = threads[0];
                     
-                    // Pause execution
-                    _engine.PauseExecution();
-                    await Task.Delay(100);
-                    
-                    // Send stopped event
-                    RaiseEvent("stopped", new StoppedEventBody
+                    // If not already stopped, pause execution
+                    if (!isStopped)
                     {
-                        Reason = "step",
-                        ThreadId = (int)_stoppedThreadId,
-                        AllThreadsStopped = true,
-                        Text = "Stopped after device reboot"
-                    });
-                    return;
+                        LogDebug("Pausing execution to regain control...");
+                        _engine.PauseExecution();
+                        await Task.Delay(100);
+                    }
+                    
+                    // Verify we're now stopped
+                    state = _engine.GetExecutionMode();
+                    isStopped = (state & WPCommands.DebuggingExecutionChangeConditions.State.Stopped) != 0;
+                    
+                    if (isStopped)
+                    {
+                        // Send stopped event
+                        RaiseEvent("stopped", new StoppedEventBody
+                        {
+                            Reason = "step",
+                            ThreadId = (int)_stoppedThreadId,
+                            AllThreadsStopped = true,
+                            Text = "Stopped after device reboot"
+                        });
+                        return;
+                    }
                 }
             }
             
-            // No threads appeared - resume execution and start polling
-            LogDebug("No threads appeared after reboot, resuming execution...");
-            _engine.ResumeExecution();
+            // No threads appeared or couldn't stop - try to resume and rely on breakpoints
+            LogDebug("Could not pause after reboot, resuming execution with breakpoints...");
             
             // Start breakpoint polling
             _breakpointPollCts?.Cancel();
