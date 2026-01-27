@@ -73,7 +73,7 @@
               "program": {
                 "type": "string",
                 "description": "Path to the nanoFramework executable (.pe file) to debug",
-                "default": "${workspaceFolder}/bin/Debug/net${framework}/${workspaceFolderBasename}.pe"
+                "default": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
               },
               "device": {
                 "type": "string",
@@ -93,7 +93,7 @@
               "assembliesPath": {
                 "type": "string",
                 "description": "Path to the folder containing assemblies to deploy",
-                "default": "${workspaceFolder}/bin/Debug"
+                "default": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
               },
               "verbose": {
                 "type": "boolean",
@@ -121,7 +121,7 @@
               "program": {
                 "type": "string",
                 "description": "Path to the PDB/PE files for symbol resolution",
-                "default": "${workspaceFolder}/bin/Debug"
+                "default": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
               },
               "stopOnEntry": {
                 "type": "boolean",
@@ -147,7 +147,7 @@
             "type": "nanoframework",
             "request": "launch",
             "name": "nanoFramework: Launch and Debug",
-            "program": "${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe",
+            "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
             "device": "",
             "stopOnEntry": true,
             "deployAssemblies": true
@@ -161,7 +161,7 @@
               "type": "nanoframework",
               "request": "launch",
               "name": "nanoFramework: Launch",
-              "program": "^\"\\${workspaceFolder}/bin/Debug/\\${workspaceFolderBasename}.pe\"",
+              "program": "^\"\\${workspaceFolder}\\${workspaceFolderBasename}\\bin\\Debug\\\"",
               "device": "",
               "stopOnEntry": true,
               "deployAssemblies": true
@@ -175,7 +175,7 @@
               "request": "attach",
               "name": "nanoFramework: Attach",
               "device": "",
-              "program": "^\"\\${workspaceFolder}/bin/Debug\""
+              "program": "^\"\\${workspaceFolder}\\${workspaceFolderBasename}\\bin\\Debug\\\""
             }
           }
         ]
