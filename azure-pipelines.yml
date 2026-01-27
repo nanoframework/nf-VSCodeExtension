@@ -65,6 +65,10 @@ steps:
     displayName: npm ci
     condition: succeeded()
 
+  - script: npx gulp build-debug-bridge
+    displayName: Build debug bridge
+    condition: succeeded()
+
   # we don't have unit tests
   # - script: npm run test
   #   displayName: Run unit tests

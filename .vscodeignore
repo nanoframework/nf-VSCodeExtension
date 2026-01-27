@@ -29,3 +29,6 @@ nanoFirmwareFlasher/**
 !node_modules/extract-zip
 !node_modules/semver
 !node_modules/typed-rest-client
+
+# Include debug bridge binaries
+!bin/nanoDebugBridge/**

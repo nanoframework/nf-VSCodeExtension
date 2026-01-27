@@ -87,9 +87,9 @@ The extension provides full debugging support for .NET nanoFramework application
 ### Debug Features
 
 | Feature | Description |
-|---------|-------------|
+| ------- | ----------- |
 | **Breakpoints** | Set breakpoints by clicking in the gutter or pressing `F9` |
-| **Step Through Code** | Step Over (`F10`), Step Into (`F11`), Step Out (`Shift+F11`) |
+| **Step Through Code** | Step Over (`F10`) currently like Continue, Step Into (`F11`), Step Out (`Shift+F11`) |
 | **Variable Inspection** | View local variables, arguments, and object properties |
 | **Watch Expressions** | Add expressions to the Watch panel |
 | **Call Stack** | View the current call stack with source locations |
@@ -108,17 +108,18 @@ Create a `.vscode/launch.json` file in your workspace with the following configu
             "name": "nanoFramework: Launch and Debug",
             "type": "nanoframework",
             "request": "launch",
-            "program": "${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe",
+            "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
             "device": "",
             "stopOnEntry": true,
-            "deployAssemblies": true
+            "deployAssemblies": true,
+            "verbosity": "none"
         },
         {
             "name": "nanoFramework: Attach to Device",
             "type": "nanoframework",
             "request": "attach",
             "device": "",
-            "program": "${workspaceFolder}/bin/Debug"
+            "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
         }
     ]
 }
@@ -127,14 +128,14 @@ Create a `.vscode/launch.json` file in your workspace with the following configu
 #### Configuration Options
 
 | Option | Type | Description |
-|--------|------|-------------|
+| ------ | ---- | ----------- |
 | `type` | string | Must be `"nanoframework"` |
 | `request` | string | `"launch"` to deploy and debug, `"attach"` to debug running code |
 | `program` | string | Path to the `.pe` file or directory containing assemblies |
 | `device` | string | COM port (e.g., `"COM3"`) or IP address. Leave empty for auto-detect |
 | `stopOnEntry` | boolean | Pause at program entry point (default: `true`) |
 | `deployAssemblies` | boolean | Deploy assemblies before debugging (launch only) |
-| `verbose` | boolean | Enable verbose debug output |
+| `verbosity` | string | Logging verbosity: `"none"`, `"information"` (default), or `"debug"` |
 
 ### Device Selection
 
@@ -148,25 +149,31 @@ Create a `.vscode/launch.json` file in your workspace with the following configu
 ### Troubleshooting
 
 **Device not detected:**
+
 - Ensure the device is properly connected and running nanoFramework firmware
 - Check that the correct drivers are installed for your device
 - Try unplugging and reconnecting the device
 
 **Breakpoints not hitting:**
+
+- Ensure you have build the project first!
 - Ensure the deployed code matches your source files
+- Adjust the path for `"program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"` if needed
 - Rebuild the project before debugging
 - Check that symbol files (.pdbx, .pdb) are present in the output directory
 
 **Debug session won't start:**
-- Verify .NET 8.0 runtime is installed
+
+- Verify .NET 10.0 runtime is installed
 - Check the Debug Console for error messages
 - Ensure no other application is using the COM port
+- Change the log level to see more errors
 
 ## Requirements
 
 You will need to make sure you'll have the following elements installed:
 
-- [.NET 8.0](https://dotnet.microsoft.com/download/dotnet/8.0) or later
+- [.NET 10.0](https://dotnet.microsoft.com/download/dotnet/10.0) or later
 - [nanoff](https://github.com/nanoframework/nanoFirmwareFlasher) - Install via: `dotnet tool install -g nanoff`
 - **Windows only:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with ".NET desktop build tools" workload
 - **Linux/macOS only:** [mono-complete](https://www.mono-project.com/docs/getting-started/install/) with msbuild, and [nuget CLI](https://www.nuget.org/downloads)

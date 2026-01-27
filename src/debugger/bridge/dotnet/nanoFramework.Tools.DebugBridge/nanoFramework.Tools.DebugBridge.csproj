@@ -12,9 +12,14 @@
     <Authors>.NET Foundation and Contributors</Authors>
     <Company>nanoframework</Company>
     <Copyright>Copyright (c) .NET Foundation and Contributors</Copyright>
+    
+    <!-- Publishing configuration for self-contained deployment -->
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
-    <RollForward>LatestMinor</RollForward>
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
   </PropertyGroup>
 
   <ItemGroup>

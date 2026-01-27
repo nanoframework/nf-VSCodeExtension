@@ -69,17 +69,10 @@ export class NanoBridge extends EventEmitter {
             this.log(`Starting bridge process: ${bridgePath}`);
 
             // Start the bridge process
-            // On Windows, run the .exe directly; on other platforms, use dotnet to run the DLL
-            const isWindows = process.platform === 'win32';
-            if (isWindows) {
-                this._process = spawn(bridgePath, [], {
-                    stdio: ['pipe', 'pipe', 'pipe']
-                });
-            } else {
-                this._process = spawn('dotnet', [bridgePath], {
-                    stdio: ['pipe', 'pipe', 'pipe']
-                });
-            }
+            // Self-contained executable - run directly on all platforms
+            this._process = spawn(bridgePath, [], {
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
 
             if (!this._process || !this._process.stdout || !this._process.stdin) {
                 this.log('Failed to start bridge process');
@@ -316,10 +309,26 @@ export class NanoBridge extends EventEmitter {
      */
     private getBridgePath(): string {
         // The bridge is expected to be in the extension's bin directory
-        // On Windows, it's an .exe; on other platforms, it's a DLL that needs to be run with dotnet
-        const isWindows = process.platform === 'win32';
-        const fileName = isWindows ? 'nanoFramework.Tools.DebugBridge.exe' : 'nanoFramework.Tools.DebugBridge.dll';
-        return path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', fileName);
+        // Platform-specific self-contained executables
+        const platform = process.platform;
+        const arch = process.arch;
+        
+        let platformFolder: string;
+        let fileName: string;
+        
+        if (platform === 'win32') {
+            platformFolder = arch === 'arm64' ? 'win32-arm64' : 'win32-x64';
+            fileName = 'nanoFramework.Tools.DebugBridge.exe';
+        } else if (platform === 'darwin') {
+            platformFolder = arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+            fileName = 'nanoFramework.Tools.DebugBridge';
+        } else {
+            // Linux and others default to linux-x64
+            platformFolder = 'linux-x64';
+            fileName = 'nanoFramework.Tools.DebugBridge';
+        }
+        
+        return path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', platformFolder, fileName);
     }
 
     /**
