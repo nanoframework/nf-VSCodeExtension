@@ -6,6 +6,7 @@
 import { EventEmitter } from 'events';
 import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 import {
     INanoThread,
     INanoStackTrace,
@@ -67,11 +68,24 @@ export class NanoBridge extends EventEmitter {
             const bridgePath = this.getBridgePath();
             
             this.log(`Starting bridge process: ${bridgePath}`);
+            
+            // Check if the bridge executable exists
+            if (!fs.existsSync(bridgePath)) {
+                this.logError(`Bridge executable not found at: ${bridgePath}`);
+                this.logError(`Please ensure the extension is properly built. Run 'npx gulp build-debug-bridge' to build the debug bridge.`);
+                return false;
+            }
 
             // Start the bridge process
             // Self-contained executable - run directly on all platforms
             this._process = spawn(bridgePath, [], {
                 stdio: ['pipe', 'pipe', 'pipe']
+            });
+            
+            // Handle spawn error (e.g., permission denied)
+            this._process.on('error', (err) => {
+                this.logError(`Failed to start bridge process: ${err.message}`);
+                this.emit('terminated');
             });
 
             if (!this._process || !this._process.stdout || !this._process.stdin) {
@@ -430,14 +444,24 @@ export class NanoBridge extends EventEmitter {
     }
 
     /**
-     * Log a message - emits output event for verbose logging
+     * Log a message - emits output event based on verbosity
      */
     private log(message: string): void {
-        if (this._verbose) {
+        // Log if verbosity is 'information' or 'debug' (not 'none')
+        if (this._verbosity !== 'none') {
             // Emit as output event so it shows in Debug Console
             this.emit('output', `[NanoBridge] ${message}`, 'console');
-            // Also log to stderr for debugging
-            console.error(`[NanoBridge] ${message}`);
         }
+        // Always log to stderr for debugging (visible in extension host logs)
+        console.error(`[NanoBridge] ${message}`);
+    }
+    
+    /**
+     * Log an error message - always emits regardless of verbosity
+     */
+    private logError(message: string): void {
+        // Always emit errors to Debug Console
+        this.emit('output', `[NanoBridge ERROR] ${message}`, 'stderr');
+        console.error(`[NanoBridge ERROR] ${message}`);
     }
 }

@@ -139,6 +139,7 @@ export class NanoRuntime extends EventEmitter {
     private _isRunning = false;
     private _isPaused = false;
     private _verbose = false;
+    private _verbosity = 'information';
 
     constructor() {
         super();
@@ -200,6 +201,7 @@ export class NanoRuntime extends EventEmitter {
      */
     public async start(program: string, device?: string, stopOnEntry?: boolean, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
+        this._verbosity = verbosity || (verbose ? 'debug' : 'information');
         
         this.log(`Starting debug session for ${program}`);
         
@@ -262,6 +264,7 @@ export class NanoRuntime extends EventEmitter {
      */
     public async attach(device: string, program?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
+        this._verbosity = verbosity || (verbose ? 'debug' : 'information');
         
         this.log(`Attaching to device: ${device}`);
         
@@ -562,10 +565,11 @@ export class NanoRuntime extends EventEmitter {
     }
 
     /**
-     * Log a message
+     * Log a message based on verbosity level
      */
     private log(message: string): void {
-        if (this._verbose) {
+        // Log if verbosity is 'information' or 'debug' (not 'none')
+        if (this._verbosity !== 'none') {
             this.emit('output', `[NanoRuntime] ${message}`, 'console');
         }
     }
