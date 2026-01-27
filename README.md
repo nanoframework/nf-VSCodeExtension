@@ -187,9 +187,7 @@ Log out and back in for this to take effect.
 > Instead install the `mono-complete` package provided by the Mono Project.  
 > The [preview](https://www.mono-project.com/download/preview/) version is recommended.
 
-## Known Issues
-
-~~This extension will **not** allow you to debug the device.~~ **Debugging is now supported!** See the [Debugging](#debugging) section below.
+**Debugging is now supported!** See the [Debugging](#debugging) section below.
 
 This extension works on:
 
@@ -198,6 +196,10 @@ This extension works on:
 - **Linux**: x64 and ARM64
 
 32-bit operating systems are not supported.
+
+## Known Issues
+
+Step over in debug mode is like continue so far. We're activey working on improving this. You can setup as many break points as you want, so, if you need an equivalent of setp over, you can do this!
 
 ## Developing for the VS Code extension
 

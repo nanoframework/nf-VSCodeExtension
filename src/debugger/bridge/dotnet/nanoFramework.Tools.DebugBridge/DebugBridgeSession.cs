@@ -818,11 +818,25 @@ public class DebugBridgeSession : IDisposable
         uint rangeStart = ilRange?.startOffset ?? 0;
         uint rangeEnd = ilRange?.endOffset ?? 0;
         
-        // Handle last line case (uint.MaxValue means no next sequence point)
+        // Handle case where there's no next sequence point (uint.MaxValue)
+        // This can mean: 1) last line before return, or 2) unconditional branch (like while loop end)
+        // For case 2 (while loop), we should NOT step-out - we should do a simple step
+        // which will follow the branch back to the loop body
         if (rangeEnd == uint.MaxValue || rangeEnd > 0xFFFF)
         {
-            LogDebug($"Last line in method - using step-out approach");
-            return await PerformStepOut(pid, currentFrame, frameDepth);
+            // Only use step-out if we're at a real method end (depth > 0 means we can step out)
+            // For depth 0 (Main), just use a small step range - the branch will execute
+            if (frameDepth > 0)
+            {
+                LogDebug($"Last line in method at depth {frameDepth} - using step-out approach");
+                return await PerformStepOut(pid, currentFrame, frameDepth);
+            }
+            else
+            {
+                // At depth 0, this is likely a while loop branch - do a simple step
+                LogDebug($"No next sequence point at depth 0 - doing simple step (likely while loop)");
+                rangeEnd = currentFrame.m_IP + 4; // Small range to step past current instruction
+            }
         }
         
         if (rangeEnd == 0)
@@ -877,30 +891,27 @@ public class DebugBridgeSession : IDisposable
             }
             else
             {
-                // Use device's native step-over capability with STEP flags
-                // Don't add temporary breakpoints - just use step flags with IL range
+                // Use a simple HARD breakpoint at the next IL offset
+                // This is more reliable than STEP flags on some embedded devices
                 var stepBp = new WPCommands.Debugging_Execution_BreakpointDef
                 {
-                    m_id = -1,  // Step breakpoint
-                    m_flags = (ushort)(
-                        WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OVER |
-                        WPCommands.Debugging_Execution_BreakpointDef.c_STEP_OUT |
-                        WPCommands.Debugging_Execution_BreakpointDef.c_EXCEPTION_CAUGHT |
-                        WPCommands.Debugging_Execution_BreakpointDef.c_THREAD_TERMINATED),
-                    m_pid = pid,
-                    m_depth = currentDepth,
+                    m_id = -1,  // Temporary step breakpoint
+                    m_flags = (ushort)WPCommands.Debugging_Execution_BreakpointDef.c_HARD,
+                    m_pid = 0,  // All threads
+                    m_depth = 0,
                     m_md = frame.m_md,
-                    m_IP = frame.m_IP,
-                    m_IPStart = rangeStart,
-                    m_IPEnd = rangeEnd
+                    m_IP = rangeEnd  // Set BP at start of next source line
                 };
                 
-                LogDebug($"Setting native step-over: IL range [0x{rangeStart:X4}, 0x{rangeEnd:X4})");
+                LogDebug($"Setting HARD breakpoint at next line: IL=0x{rangeEnd:X4}");
                 
-                // Set ONLY the step breakpoint - no user breakpoints during step
-                // This avoids issues with breakpoint accumulation
-                var setResult = _engine.SetBreakpoints(new[] { stepBp });
-                LogDebug($"SetBreakpoints (step only) returned: {setResult}");
+                // Combine step breakpoint with user breakpoints
+                var allBps = new List<WPCommands.Debugging_Execution_BreakpointDef>();
+                allBps.Add(stepBp);
+                allBps.AddRange(_activeBreakpointDefs);
+                
+                var setResult = _engine.SetBreakpoints(allBps.ToArray());
+                LogDebug($"SetBreakpoints returned: {setResult} ({allBps.Count} total BPs)");
                 
                 // Delay before resuming
                 await Task.Delay(100);
@@ -1038,6 +1049,9 @@ public class DebugBridgeSession : IDisposable
                 });
                 return true;
             }
+            
+            // Restore user breakpoints before reporting step complete
+            _engine.SetBreakpoints(_activeBreakpointDefs.ToArray());
             
             // Report step complete
             RaiseEvent("stopped", new StoppedEventBody
