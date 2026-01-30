@@ -4,19 +4,21 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
+// Note: axios uses CommonJS require pattern
+
 import { QuickPickItem, window, Disposable, QuickInputButton, QuickInput, ExtensionContext, QuickInputButtons } from 'vscode';
 import { Dotnet } from './dotnet';
 import { SerialPortCtrl } from "./serialportctrl";
-import { debug } from 'console';
 
 const axios = require('axios');
 
 /**
  * A multi-step input using window.createQuickPick() and window.createInputBox().
- * @param context 
- * @param toolPath 
+ * @param _context 
+ * @param _toolPath 
  */
-export async function multiStepInput(context: ExtensionContext, toolPath: String) {
+export async function multiStepInput(_context: ExtensionContext, _toolPath: string) {
 	const dfuJtagOptions: QuickPickItem[] = ['DFU mode', 'JTAG mode']
 		.map(label => ({ label }));
 
@@ -208,7 +210,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 	function shouldResume() {
 		// Could show a notification with the option to resume.
-		return new Promise<boolean>((resolve, reject) => {
+		return new Promise<boolean>((_resolve, _reject) => {
 			// noop
 		});
 	}
@@ -223,7 +225,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
 			.map(repo => axios.get(apiUrl + repo + '/?page_size=500&q=uploaded:>\'1 month ago\''));
 
-		let imageArray: string[] = [];
+		const imageArray: string[] = [];
 		let targetImages: QuickPickItem[] = [];
 
 		await Promise
@@ -265,7 +267,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
 			.map(repo => axios.get(apiUrl + repo + '/?page_size=5&query=' + targetName));
 
-		let imageVersions: string[] = [];
+		const imageVersions: string[] = [];
 		let targetImages: QuickPickItem[] = [];
 
 		await Promise
@@ -290,13 +292,13 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 
 		// sort versions descending, versions are not sorted properly as string
 		targetImages = targetImages.sort((a, b) => {
-			var a1 = a.label!.split('.');
-			var b1 = b.label!.split('.');
-			var len = Math.max(a1.length, b1.length);
+			const a1 = a.label!.split('.');
+			const b1 = b.label!.split('.');
+			const len = Math.max(a1.length, b1.length);
 
-			for (var i = 0; i < len; i++) {
-				var _a = +a1[i] || 0;
-				var _b = +b1[i] || 0;
+			for (let i = 0; i < len; i++) {
+				const _a = +a1[i] || 0;
+				const _b = +b1[i] || 0;
 				if (_a === _b) {
 					continue;
 				}
@@ -316,7 +318,7 @@ export async function multiStepInput(context: ExtensionContext, toolPath: String
 	 */
 	async function getDevices() {
 		try {
-			let ports = await SerialPortCtrl.list();
+			const ports = await SerialPortCtrl.list();
 
 			if (ports.length === 0) {
 				window.showWarningMessage('No serial ports found. Please check that your device is connected.');
@@ -432,12 +434,12 @@ class MultiStepInput {
 	private current?: QuickInput;
 	private steps: InputStep[] = [];
 
-	static async run<T>(start: InputStep) {
+	static async run(_start: InputStep) {
 		const input = new MultiStepInput();
-		return input.stepThrough(start);
+		return input.stepThrough(_start);
 	}
 
-	private async stepThrough<T>(start: InputStep) {
+	private async stepThrough(start: InputStep) {
 		let step: InputStep | void = start;
 		while (step) {
 			this.steps.push(step);

@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Full Debugging Support** - The extension now supports source-level debugging of nanoFramework applications
+  - Set and hit breakpoints in your C# code
+  - Step through code (Step Into, Step Over, Step Out)
+  - Inspect local variables, arguments, and object properties
+  - View call stacks with source file locations
+  - Evaluate expressions in the Debug Console
+  - Watch expressions panel support
+  - Debug.WriteLine output in Debug Console
+  - Exception handling with break on exception options
+  - Automatic device detection and selection
+  - Support for both Launch (deploy and debug) and Attach (debug running code) modes
+
+### Documentation
+
+- Added comprehensive debugging documentation in [docs/debugging.md](docs/debugging.md)
+- Updated README with debugging section, launch.json configuration, and troubleshooting guide
+
+---
+
 ## [v1.0.132](https://github.com/nanoframework/nf-VSCodeExtension/tree/v1.0.132) (2022-09-08)
 
 [Full Changelog](https://github.com/nanoframework/nf-VSCodeExtension/compare/v1.0.130...v1.0.132)

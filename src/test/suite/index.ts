@@ -2,6 +2,9 @@
  * These tests serve as a placeholder for future tests that will need to be added
  */
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// Note: Variables are set up for future test implementation
+
 import * as path from 'path';
 import * as Mocha from 'mocha';
 import * as glob from 'glob';

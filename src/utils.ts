@@ -4,6 +4,9 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
+// Note: globby and axios use CommonJS require pattern
+
 import * as vscode from 'vscode';
 import * as os from 'os';
 import { SerialPortCtrl } from "./serialportctrl";
@@ -77,10 +80,10 @@ export async function chooseSerialPort(): Promise<string> {
 
 /**
  * Dynamically fetches all possible types of target boards and lets user select the appropriate one
- * @param toolPath absolute path to nanoFramework extension
+ * @param _toolPath absolute path to nanoFramework extension (kept for backward compatibility)
  * @returns selected target board
  */
-export async function chooseTarget(toolPath: string) {
+export async function chooseTarget(_toolPath: string) {
 	const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 	const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
