@@ -15,11 +15,10 @@ import {
     Scope,
     Source,
     Handles,
-    Breakpoint,
-    MemoryEvent
+    Breakpoint
 } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
-import { NanoRuntime, INanoBreakpoint, StoppedReason } from './nanoRuntime';
+import { NanoRuntime, INanoBreakpoint } from './nanoRuntime';
 import { Subject } from './utils/subject';
 import * as path from 'path';
 
@@ -130,7 +129,7 @@ export class NanoDebugSession extends LoggingDebugSession {
      * Initialize request - first request from VS Code
      * Returns the capabilities of this debug adapter
      */
-    protected initializeRequest(response: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments): void {
+    protected initializeRequest(response: DebugProtocol.InitializeResponse, _args: DebugProtocol.InitializeRequestArguments): void {
 
         // Build and return the capabilities of this debug adapter
         response.body = response.body || {};
@@ -369,7 +368,7 @@ export class NanoDebugSession extends LoggingDebugSession {
         );
 
         response.body = {
-            breakpoints: filters.map(f => ({ verified: true }))
+            breakpoints: filters.map(_f => ({ verified: true }))
         };
         this.sendResponse(response);
     }
@@ -421,7 +420,7 @@ export class NanoDebugSession extends LoggingDebugSession {
         const stack = await this._runtime.getStackTrace(args.threadId, startFrame, maxLevels);
 
         response.body = {
-            stackFrames: stack.frames.map((f, ix) => {
+            stackFrames: stack.frames.map((f, _ix) => {
                 // Use source from the frame if available, or construct from file
                 const sourceFile = f.source?.path || f.file;
                 const sf = new StackFrame(
@@ -481,7 +480,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Variables request - return variables for a scope
      */
-    protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request): Promise<void> {
+    protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, _request?: DebugProtocol.Request): Promise<void> {
         try {
             // Pass the variablesReference directly to the bridge
             const variables = await this._runtime.getVariables(args.variablesReference);
@@ -496,7 +495,7 @@ export class NanoDebugSession extends LoggingDebugSession {
                     indexedVariables: v.indexedVariables
                 }))
             };
-        } catch (error) {
+        } catch (_error) {
             response.body = {
                 variables: []
             };
@@ -508,7 +507,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Continue request - resume execution
      */
-    protected continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments): void {
+    protected continueRequest(response: DebugProtocol.ContinueResponse, _args: DebugProtocol.ContinueArguments): void {
         this._runtime.continue();
         response.body = {
             allThreadsContinued: true
@@ -519,7 +518,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Next request - step over
      */
-    protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments): void {
+    protected nextRequest(response: DebugProtocol.NextResponse, _args: DebugProtocol.NextArguments): void {
         this._runtime.stepOver();
         this.sendResponse(response);
     }
@@ -527,7 +526,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Step in request
      */
-    protected stepInRequest(response: DebugProtocol.StepInResponse, args: DebugProtocol.StepInArguments): void {
+    protected stepInRequest(response: DebugProtocol.StepInResponse, _args: DebugProtocol.StepInArguments): void {
         this._runtime.stepIn();
         this.sendResponse(response);
     }
@@ -535,7 +534,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Step out request
      */
-    protected stepOutRequest(response: DebugProtocol.StepOutResponse, args: DebugProtocol.StepOutArguments): void {
+    protected stepOutRequest(response: DebugProtocol.StepOutResponse, _args: DebugProtocol.StepOutArguments): void {
         this._runtime.stepOut();
         this.sendResponse(response);
     }
@@ -543,7 +542,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Pause request
      */
-    protected pauseRequest(response: DebugProtocol.PauseResponse, args: DebugProtocol.PauseArguments): void {
+    protected pauseRequest(response: DebugProtocol.PauseResponse, _args: DebugProtocol.PauseArguments): void {
         this._runtime.pause();
         this.sendResponse(response);
     }
@@ -593,7 +592,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Terminate request
      */
-    protected async terminateRequest(response: DebugProtocol.TerminateResponse, args: DebugProtocol.TerminateArguments): Promise<void> {
+    protected async terminateRequest(response: DebugProtocol.TerminateResponse, _args: DebugProtocol.TerminateArguments): Promise<void> {
         await this._runtime.terminate();
         this.sendResponse(response);
     }
@@ -624,7 +623,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     /**
      * Modules request - return loaded assemblies
      */
-    protected async modulesRequest(response: DebugProtocol.ModulesResponse, args: DebugProtocol.ModulesArguments): Promise<void> {
+    protected async modulesRequest(response: DebugProtocol.ModulesResponse, _args: DebugProtocol.ModulesArguments): Promise<void> {
         const modules = await this._runtime.getModules();
         
         response.body = {

@@ -302,19 +302,19 @@
     "rimraf": "^6.1.2",
     "ts-loader": "^9.5.4",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.53.0",
+    "typescript-eslint": "^8.53.1",
     "webpack": "^5.104.1",
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
-    "@types/node": "^20",
+    "@types/node": "^25.0.10",
     "@vscode/debugadapter": "^1.68.0",
     "@vscode/debugprotocol": "^1.68.0",
     "@vscode/vsce": "^3.7.1",
     "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
-    "globby": "^11.1.0",
+    "globby": "^14.1.0",
     "semver": "^7.7.3",
     "serialport": "^13.0.0",
     "typed-rest-client": "^2.2.0"

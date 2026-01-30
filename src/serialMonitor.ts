@@ -4,6 +4,9 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Note: Serial port types are loaded dynamically and require 'any' for runtime flexibility
+
 import * as vscode from 'vscode';
 
 // Dynamic import types - we use 'any' for the serial port instance since the module is loaded dynamically

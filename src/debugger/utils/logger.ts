@@ -77,42 +77,42 @@ export class Logger {
     /**
      * Log an error message
      */
-    public error(message: string, ...args: any[]): void {
+    public error(message: string, ...args: unknown[]): void {
         this.log(LogLevel.Error, 'ERROR', message, ...args);
     }
 
     /**
      * Log a warning message
      */
-    public warning(message: string, ...args: any[]): void {
+    public warning(message: string, ...args: unknown[]): void {
         this.log(LogLevel.Warning, 'WARN', message, ...args);
     }
 
     /**
      * Log an info message
      */
-    public info(message: string, ...args: any[]): void {
+    public info(message: string, ...args: unknown[]): void {
         this.log(LogLevel.Info, 'INFO', message, ...args);
     }
 
     /**
      * Log a debug message
      */
-    public debug(message: string, ...args: any[]): void {
+    public debug(message: string, ...args: unknown[]): void {
         this.log(LogLevel.Debug, 'DEBUG', message, ...args);
     }
 
     /**
      * Log a verbose message
      */
-    public verbose(message: string, ...args: any[]): void {
+    public verbose(message: string, ...args: unknown[]): void {
         this.log(LogLevel.Verbose, 'VERBOSE', message, ...args);
     }
 
     /**
      * Log a message at the specified level
      */
-    private log(level: LogLevel, levelName: string, message: string, ...args: any[]): void {
+    private log(level: LogLevel, levelName: string, message: string, ...args: unknown[]): void {
         if (level > this._logLevel) {
             return;
         }
@@ -143,7 +143,7 @@ export class Logger {
     /**
      * Format a message with optional arguments
      */
-    private formatMessage(message: string, ...args: any[]): string {
+    private formatMessage(message: string, ...args: unknown[]): string {
         if (args.length === 0) {
             return message;
         }

@@ -26,7 +26,7 @@ export class Subject {
      * Wait for notification with optional timeout
      */
     public wait(timeout?: number): Promise<void> {
-        return new Promise<void>((resolve, reject) => {
+        return new Promise<void>((resolve, _reject) => {
             if (this._resolved) {
                 resolve();
                 return;

@@ -4,6 +4,9 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Note: The 'any' type is used for error.code which may be number or undefined in Node.js callback APIs
+
 import * as vscode from "vscode";
 import * as cp from 'child_process';
 import * as os from 'os';

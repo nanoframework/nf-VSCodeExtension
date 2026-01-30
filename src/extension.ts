@@ -17,7 +17,6 @@ import {
     chooseName, chooseProjectType
 } from './utils';
 import { SerialPortCtrl } from './serialportctrl';
-import * as os from 'os';
 import * as cp from 'child_process';
 import { HttpClient } from 'typed-rest-client/HttpClient';
 import * as semver from 'semver';
@@ -109,7 +108,7 @@ class NanoDebugConfigurationProvider implements vscode.DebugConfigurationProvide
         let ports: { port: string; desc: string }[] = [];
         try {
             ports = await SerialPortCtrl.list(this._extensionPath);
-        } catch (e) {
+        } catch (_e) {
             // No ports available
         }
 

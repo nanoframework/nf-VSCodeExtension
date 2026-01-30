@@ -10,13 +10,11 @@ import * as fs from 'fs';
 import {
     INanoThread,
     INanoStackTrace,
-    INanoStackFrame,
     INanoVariable,
     INanoEvalResult,
     INanoModule,
     INanoExceptionInfo,
-    INanoScope,
-    StoppedReason
+    INanoScope
 } from '../nanoRuntime';
 import { DebugProtocol } from '@vscode/debugprotocol';
 
@@ -26,12 +24,13 @@ import { DebugProtocol } from '@vscode/debugprotocol';
 interface BridgeMessage {
     command: string;
     id?: number;
-    args?: any;
+    args?: unknown;
 }
 
 interface BridgeResponse {
     id: number;
     success: boolean;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data?: any;
     error?: string;
 }
@@ -45,6 +44,7 @@ interface BridgeResponse {
 export class NanoBridge extends EventEmitter {
 
     private _process: ChildProcess | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private _pendingRequests = new Map<number, { resolve: (value: any) => void; reject: (error: any) => void }>();
     private _requestId = 1;
     private _verbose = false;
@@ -348,6 +348,7 @@ export class NanoBridge extends EventEmitter {
     /**
      * Send a command to the bridge
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private async sendCommand(command: string, args: any): Promise<BridgeResponse | null> {
         return new Promise((resolve, reject) => {
             if (!this._process || !this._process.stdin) {
@@ -438,7 +439,7 @@ export class NanoBridge extends EventEmitter {
                         this.log(`Unknown event type: ${eventType}`);
                 }
             }
-        } catch (error) {
+        } catch (_error) {
             this.log(`Failed to parse message: ${json}`);
         }
     }
