@@ -513,10 +513,11 @@ function checkDotNetToolInstalled(toolName: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         try {
             // Use execFile with separate arguments array to avoid shell injection
-            cp.execFile(toolName, ['--help'], async (error, stdout, stderr) => {
+            cp.execFile(toolName, ['--help'], async (error, _stdout, stderr) => {
                 if (error) {
-                    vscode.window.showErrorMessage('Error executing dotnet nanoclr: ' + error.message);
-                    reject();
+                    // Tool not installed or not accessible - silently skip update check
+                    console.log(`${toolName} not found, skipping version check`);
+                    resolve();
                     return;
                 }
 
@@ -526,33 +527,31 @@ function checkDotNetToolInstalled(toolName: string): Promise<void> {
                 if (regexResult && regexResult.length > 0) {
                     const installedVersion = regexResult[0];
 
-                    // Check the latest version from the NuGet API
-                    const httpClient = new HttpClient('vsts');
-                    const response = await httpClient.get('https://api.nuget.org/v3-flatcontainer/nanoff/index.json');
-                    const responseBody = await response.readBody();
-                    const packageInfo = JSON.parse(responseBody);
-                    const latestVersion = packageInfo.versions[packageInfo.versions.length - 1];
+                    try {
+                        // Check the latest version from the NuGet API with a timeout
+                        const httpClient = new HttpClient('vsts');
+                        const response = await httpClient.get('https://api.nuget.org/v3-flatcontainer/nanoff/index.json');
+                        const responseBody = await response.readBody();
+                        const packageInfo = JSON.parse(responseBody);
+                        const latestVersion = packageInfo.versions[packageInfo.versions.length - 1];
 
-                    // Compare installed version with the latest version
-                    if (semver.gt(latestVersion, installedVersion)) {
-                        vscode.window.showInformationMessage('A new version of nanoff is available. Updating.');
-                        await installDotNetTool('nanoff');
+                        // Compare installed version with the latest version
+                        if (semver.gt(latestVersion, installedVersion)) {
+                            vscode.window.showInformationMessage('A new version of nanoff is available. Updating.');
+                            await installDotNetTool('nanoff');
+                        }
+                    } catch (networkError) {
+                        // Network error (timeout, no internet, etc.) - silently skip update check
+                        console.log(`Could not check for ${toolName} updates: ${networkError}`);
                     }
-                } else {
-                    vscode.window.showErrorMessage('Failed to parse current nanoff CLI version');
                 }
 
                 resolve();
             });
         } catch (e) {
-            if (e instanceof Error) {
-                vscode.window.showErrorMessage('An error occurred while checking nanoff version: ' + e.message);
-            } else {
-                // Handle cases where e is not an Error object
-                vscode.window.showErrorMessage('An unknown error occurred while checking nanoff version.');
-            }
-
-            reject();
+            // Unexpected error - log and continue
+            console.log(`Error checking ${toolName} version:`, e);
+            resolve();
         }
     });
 }
