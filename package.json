@@ -299,6 +299,7 @@
     "@eslint/js": "^9.39.2",
     "@types/glob": "^9.0.0",
     "@types/mocha": "^10.0.10",
+    "@types/node": "^25.0.10",
     "@types/semver": "^7.7.1",
     "@types/vscode": "^1.90.0",
     "@vscode/test-electron": "^2.5.2",
@@ -316,7 +317,6 @@
   },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
-    "@types/node": "^25.0.10",
     "@vscode/debugadapter": "^1.68.0",
     "@vscode/debugprotocol": "^1.68.0",
     "@vscode/vsce": "^3.7.1",
