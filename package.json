@@ -103,7 +103,11 @@
               "verbosity": {
                 "type": "string",
                 "description": "Logging verbosity level: 'none' (no output), 'information' (important events), or 'debug' (full diagnostics)",
-                "enum": ["none", "information", "debug"],
+                "enum": [
+                  "none",
+                  "information",
+                  "debug"
+                ],
                 "default": "information"
               }
             }
@@ -136,7 +140,11 @@
               "verbosity": {
                 "type": "string",
                 "description": "Logging verbosity level: 'none' (no output), 'information' (important events), or 'debug' (full diagnostics)",
-                "enum": ["none", "information", "debug"],
+                "enum": [
+                  "none",
+                  "information",
+                  "debug"
+                ],
                 "default": "information"
               }
             }
@@ -314,7 +322,6 @@
     "@vscode/vsce": "^3.7.1",
     "axios": "^1.13.2",
     "extract-zip": "^2.0.1",
-    "globby": "^14.1.0",
     "semver": "^7.7.3",
     "serialport": "^13.0.0",
     "typed-rest-client": "^2.2.0"

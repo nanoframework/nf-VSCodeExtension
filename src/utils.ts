@@ -5,13 +5,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
-// Note: globby and axios use CommonJS require pattern
+// Note: axios uses CommonJS require pattern
 
 import * as vscode from 'vscode';
 import * as os from 'os';
 import { SerialPortCtrl } from "./serialportctrl";
 
-const globby = require('globby');
 const axios = require('axios');
 
 /**
@@ -30,7 +29,9 @@ export function getDocumentWorkspaceFolder(): string | undefined {
  * @returns absolute path to selected *.sln
  */
 export async function chooseSolution(workspaceFolder: string) {
-    const paths = await globby(`${workspaceFolder}/**/*.sln`);  
+    // Use VS Code's built-in findFiles API instead of globby
+    const files = await vscode.workspace.findFiles('**/*.sln', '**/node_modules/**');
+    const paths = files.map(file => file.fsPath);
 
 	const result = await vscode.window.showQuickPick(paths, {
 		placeHolder: 'Select the solution you would like to build/deploy',
