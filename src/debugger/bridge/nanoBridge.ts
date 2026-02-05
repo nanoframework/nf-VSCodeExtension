@@ -286,9 +286,12 @@ export class NanoBridge extends EventEmitter {
 
     /**
      * Load symbols from a path (directory or .pdbx file)
+     * @param symbolPath Path to the symbol directory or .pdbx file
+     * @param recursive Whether to search recursively for .pdbx files
+     * @param mainAssembly Optional: name of the main assembly (e.g., "Meteostanice.pe") for entry point resolution
      */
-    public async loadSymbols(symbolPath: string, recursive: boolean = true): Promise<number> {
-        const response = await this.sendCommand('loadSymbols', { path: symbolPath, recursive });
+    public async loadSymbols(symbolPath: string, recursive: boolean = true, mainAssembly?: string): Promise<number> {
+        const response = await this.sendCommand('loadSymbols', { path: symbolPath, recursive, mainAssembly });
         return response?.data?.symbolsLoaded || 0;
     }
 

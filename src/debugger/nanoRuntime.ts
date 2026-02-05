@@ -317,17 +317,30 @@ export class NanoRuntime extends EventEmitter {
             // Determine the symbol directory from the program path
             const path = await import('path');
             let symbolPath: string;
+            let mainAssembly: string | undefined;
             
             if (program.endsWith('.pe')) {
-                // If it's a .pe file, use its directory
+                // If it's a .pe file, use its directory and set it as the main assembly
                 symbolPath = path.dirname(program);
+                mainAssembly = path.basename(program);
+                this.log(`Main assembly: ${mainAssembly}`);
             } else {
                 // Otherwise assume it's a directory
                 symbolPath = program;
+                // Try to infer the main assembly from directory name
+                const dirName = path.basename(program);
+                // Check for common patterns like bin/Debug - use parent folder name
+                if (dirName.toLowerCase() === 'debug' || dirName.toLowerCase() === 'release') {
+                    const parentDir = path.basename(path.dirname(program));
+                    if (parentDir.toLowerCase() === 'bin') {
+                        mainAssembly = path.basename(path.dirname(path.dirname(program))) + '.pe';
+                        this.log(`Inferred main assembly from path: ${mainAssembly}`);
+                    }
+                }
             }
             
             this.log(`Loading symbols from: ${symbolPath}`);
-            const count = await this._bridge.loadSymbols(symbolPath, true);
+            const count = await this._bridge.loadSymbols(symbolPath, true, mainAssembly);
             this.log(`Loaded ${count} symbol file(s)`);
         } catch (error) {
             this.log(`Failed to load symbols: ${error}`);

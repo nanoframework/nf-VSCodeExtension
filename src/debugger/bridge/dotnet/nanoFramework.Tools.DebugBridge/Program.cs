@@ -544,8 +544,8 @@ class Program
         int count;
         if (Directory.Exists(args.Path))
         {
-            // Load from directory
-            count = _session.LoadSymbolsFromDirectory(args.Path, args.Recursive ?? true);
+            // Load from directory, passing the main assembly name if provided
+            count = _session.LoadSymbolsFromDirectory(args.Path, args.Recursive ?? true, args.MainAssembly);
         }
         else if (File.Exists(args.Path))
         {

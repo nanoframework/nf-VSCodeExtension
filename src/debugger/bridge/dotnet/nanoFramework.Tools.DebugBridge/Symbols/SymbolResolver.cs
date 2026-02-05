@@ -34,7 +34,26 @@ public class SymbolResolver : IDisposable
     private readonly ConcurrentDictionary<string, IPdbReader> _loadedPdbs = new();
     private readonly ConcurrentDictionary<string, List<SequencePoint>> _sequencePointCache = new();
     private readonly ConcurrentDictionary<string, string[]?> _localVariableNamesCache = new();
+    private string? _mainAssemblyName;
     private bool _disposed;
+
+    /// <summary>
+    /// Set the main assembly name for entry point resolution.
+    /// When set, GetEntryPointLocation will prioritize this assembly.
+    /// </summary>
+    /// <param name="assemblyName">The assembly name (e.g., "Meteostanice.dll" or "Meteostanice.pe")</param>
+    public void SetMainAssembly(string? assemblyName)
+    {
+        if (string.IsNullOrEmpty(assemblyName))
+        {
+            _mainAssemblyName = null;
+            return;
+        }
+        
+        // Normalize: remove extension and store base name
+        _mainAssemblyName = Path.GetFileNameWithoutExtension(assemblyName);
+        Console.Error.WriteLine($"[DebugBridge] Main assembly set to: {_mainAssemblyName}");
+    }
 
     /// <summary>
     /// Load symbols from a .pdbx file
@@ -373,17 +392,28 @@ public class SymbolResolver : IDisposable
     /// <summary>
     /// Get the entry point location (first executable line in the user assembly)
     /// This is typically the first sequence point in the Main method or the first loaded assembly.
+    /// If a main assembly is set via SetMainAssembly(), it will be prioritized.
+    /// Priority: 1) Main method in main assembly, 2) Main method in any user assembly, 3) First sequence point in main assembly
     /// </summary>
     /// <returns>The entry point location, or null if not found</returns>
     public BreakpointLocation? GetEntryPointLocation()
     {
         // Find the first sequence point across all loaded symbols
         // Prefer user assemblies (not mscorlib, System.*, nanoFramework.*)
-        SequencePoint? entryPoint = null;
+        // Priority: Main method in main assembly > Main method in any assembly > first sequence point in main assembly
+        SequencePoint? mainMethodInMainAssembly = null;
+        SequencePoint? mainMethodInAnyAssembly = null;
+        SequencePoint? firstPointInMainAssembly = null;
+        SequencePoint? fallbackEntryPoint = null;
+        
+        // Debug: count Main methods found
+        int mainMethodsFound = 0;
         
         foreach (var kvp in _sequencePointCache)
         {
-            var assemblyName = kvp.Key.Split('|')[0]; // Key format is "assemblyName|methodToken"
+            // Key format is "assemblyName::methodToken" - split on "::" not ":"
+            var keyParts = kvp.Key.Split(new[] { "::" }, StringSplitOptions.None);
+            var assemblyName = keyParts[0];
             
             // Skip system assemblies
             if (assemblyName.StartsWith("mscorlib", StringComparison.OrdinalIgnoreCase) ||
@@ -393,36 +423,106 @@ public class SymbolResolver : IDisposable
                 continue;
             }
             
+            // Check if this is the main assembly
+            bool isMainAssembly = false;
+            if (!string.IsNullOrEmpty(_mainAssemblyName))
+            {
+                var assemblyBaseName = Path.GetFileNameWithoutExtension(assemblyName);
+                isMainAssembly = string.Equals(assemblyBaseName, _mainAssemblyName, StringComparison.OrdinalIgnoreCase);
+            }
+            
             foreach (var sp in kvp.Value)
             {
                 // Skip hidden/generated sequence points
                 if (sp.StartLine <= 0 || sp.SourceFile == null)
                     continue;
                 
-                // Take the first non-hidden sequence point (by IL offset 0 or lowest line number)
-                if (entryPoint == null || sp.StartLine < entryPoint.StartLine)
+                // Check if this is a Main method (entry point)
+                // Also check for Program.cs as fallback since Main is typically there
+                bool isMainMethod = string.Equals(sp.MethodName, "Main", StringComparison.OrdinalIgnoreCase);
+                bool isProgramCs = sp.SourceFile != null && 
+                    Path.GetFileName(sp.SourceFile).Equals("Program.cs", StringComparison.OrdinalIgnoreCase);
+                
+                if (isMainMethod)
                 {
-                    entryPoint = sp;
+                    mainMethodsFound++;
+                    Console.Error.WriteLine($"[DebugBridge] Found Main method: assembly={assemblyName}, isMainAssembly={isMainAssembly}, IL={sp.ILOffsetNanoCLR}, source={sp.SourceFile}:{sp.StartLine}");
+                }
+                
+                // For entry point: prioritize Main method, then Program.cs in main assembly
+                if (isMainMethod && isMainAssembly)
+                {
+                    // Highest priority: Main method in main assembly - take the first IL offset (entry point)
+                    if (mainMethodInMainAssembly == null || sp.ILOffsetNanoCLR < mainMethodInMainAssembly.ILOffsetNanoCLR)
+                    {
+                        mainMethodInMainAssembly = sp;
+                    }
+                }
+                else if (isMainMethod)
+                {
+                    // Second priority: Main method in any user assembly
+                    if (mainMethodInAnyAssembly == null || sp.ILOffsetNanoCLR < mainMethodInAnyAssembly.ILOffsetNanoCLR)
+                    {
+                        mainMethodInAnyAssembly = sp;
+                    }
+                }
+                else if (isMainAssembly && isProgramCs)
+                {
+                    // Third priority: Program.cs in main assembly (likely contains Main)
+                    // Use lowest IL offset to get the actual entry point
+                    if (firstPointInMainAssembly == null || sp.ILOffsetNanoCLR < firstPointInMainAssembly.ILOffsetNanoCLR)
+                    {
+                        firstPointInMainAssembly = sp;
+                    }
+                }
+                else if (isMainAssembly)
+                {
+                    // Fourth priority: Any file in main assembly (by lowest IL offset)
+                    if (fallbackEntryPoint == null || sp.ILOffsetNanoCLR < fallbackEntryPoint.ILOffsetNanoCLR)
+                    {
+                        fallbackEntryPoint = sp;
+                    }
                 }
             }
         }
         
-        if (entryPoint == null)
+        // Select entry point by priority
+        var selectedEntryPoint = mainMethodInMainAssembly ?? mainMethodInAnyAssembly ?? firstPointInMainAssembly ?? fallbackEntryPoint;
+        
+        if (selectedEntryPoint == null)
         {
             Console.Error.WriteLine("[DebugBridge] GetEntryPointLocation: No entry point found");
             return null;
         }
         
-        Console.Error.WriteLine($"[DebugBridge] GetEntryPointLocation: Found entry at {Path.GetFileName(entryPoint.SourceFile ?? "unknown")}:{entryPoint.StartLine}, " +
-                               $"assembly={entryPoint.AssemblyName}, method=0x{entryPoint.MethodToken:X8}, IL={entryPoint.ILOffsetNanoCLR}");
+        // Log what we selected
+        if (mainMethodInMainAssembly != null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetEntryPointLocation: Using Main method in main assembly");
+        }
+        else if (mainMethodInAnyAssembly != null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetEntryPointLocation: Using Main method (not in main assembly)");
+        }
+        else if (firstPointInMainAssembly != null)
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetEntryPointLocation: Using Program.cs in main assembly (Main method not found by name)");
+        }
+        else
+        {
+            Console.Error.WriteLine($"[DebugBridge] GetEntryPointLocation: Using fallback entry point from main assembly");
+        }
+        
+        Console.Error.WriteLine($"[DebugBridge] GetEntryPointLocation: Found entry at {Path.GetFileName(selectedEntryPoint.SourceFile ?? "unknown")}:{selectedEntryPoint.StartLine}, " +
+                               $"assembly={selectedEntryPoint.AssemblyName}, method={selectedEntryPoint.MethodName}, token=0x{selectedEntryPoint.MethodToken:X8}, IL={selectedEntryPoint.ILOffsetNanoCLR}");
         
         return new BreakpointLocation
         {
-            AssemblyName = entryPoint.AssemblyName,
-            MethodToken = entryPoint.MethodToken,
-            ILOffset = entryPoint.ILOffsetNanoCLR,
-            SourceFile = entryPoint.SourceFile,
-            Line = entryPoint.StartLine,
+            AssemblyName = selectedEntryPoint.AssemblyName,
+            MethodToken = selectedEntryPoint.MethodToken,
+            ILOffset = selectedEntryPoint.ILOffsetNanoCLR,
+            SourceFile = selectedEntryPoint.SourceFile,
+            Line = selectedEntryPoint.StartLine,
             Verified = true
         };
     }
@@ -1034,11 +1134,17 @@ public class SymbolResolver : IDisposable
         var assemblyName = pdbxFile.Assembly.FileName ?? "unknown";
         int methodsWithSymbols = 0;
         int methodsWithoutSymbols = 0;
+        
+        // Log all method names in this assembly for debugging
+        var methodNames = new List<string>();
 
         foreach (var cls in pdbxFile.Assembly.Classes ?? Array.Empty<PdbxClass>())
         {
             foreach (var method in cls.Methods ?? Array.Empty<PdbxMethod>())
             {
+                // Collect method names for logging
+                methodNames.Add($"{cls.Name}::{method.Name}");
+                
                 if (method.ILMap == null || method.ILMap.Length == 0)
                 {
                     continue;
@@ -1070,6 +1176,7 @@ public class SymbolResolver : IDisposable
                     var sp = new SequencePoint
                     {
                         AssemblyName = assemblyName,
+                        MethodName = method.Name,
                         MethodToken = method.Token?.NanoCLR ?? 0,
                         ILOffsetCLR = il.CLR,
                         ILOffsetNanoCLR = il.NanoCLR
@@ -1103,6 +1210,13 @@ public class SymbolResolver : IDisposable
                         Console.Error.WriteLine($"[DebugBridge] Example source mapping: {cls.Name}::{method.Name} -> {firstSp.SourceFile}:{firstSp.StartLine}");
                     }
                 }
+                
+                // Log if we find a Main method
+                if (string.Equals(method.Name, "Main", StringComparison.OrdinalIgnoreCase))
+                {
+                    var firstSp = sequencePoints.FirstOrDefault(s => s.SourceFile != null);
+                    Console.Error.WriteLine($"[DebugBridge] Found Main method in {assemblyName}: {cls.Name}::{method.Name}, token=0x{method.Token?.NanoCLR:X8}, source={firstSp?.SourceFile}:{firstSp?.StartLine}");
+                }
 
                 // Sort by nanoFramework IL offset
                 sequencePoints.Sort((a, b) => a.ILOffsetNanoCLR.CompareTo(b.ILOffsetNanoCLR));
@@ -1111,6 +1225,9 @@ public class SymbolResolver : IDisposable
         }
 
         Console.Error.WriteLine($"[DebugBridge] {assemblyName}: {methodsWithSymbols} methods with source info, {methodsWithoutSymbols} methods without");
+        
+        // Log all method names to help debug Main method detection
+        Console.Error.WriteLine($"[DebugBridge] {assemblyName} methods: {string.Join(", ", methodNames.Take(20))}{(methodNames.Count > 20 ? "..." : "")}");
     }
 
     /// <summary>
@@ -1215,6 +1332,7 @@ public class MethodInfo
 internal class SequencePoint
 {
     public string AssemblyName { get; set; } = string.Empty;
+    public string? MethodName { get; set; }
     public uint MethodToken { get; set; }
     public uint ILOffsetCLR { get; set; }
     public uint ILOffsetNanoCLR { get; set; }

@@ -252,6 +252,13 @@ public class LoadSymbolsArgs
     /// </summary>
     [JsonPropertyName("recursive")]
     public bool? Recursive { get; set; }
+
+    /// <summary>
+    /// Optional: Name of the main assembly (e.g., "Meteostanice.pe") to use for entry point resolution.
+    /// If provided, the entry point will be searched in this assembly first.
+    /// </summary>
+    [JsonPropertyName("mainAssembly")]
+    public string? MainAssembly { get; set; }
 }
 
 /// <summary>

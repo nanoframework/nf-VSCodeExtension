@@ -4725,10 +4725,17 @@ public class DebugBridgeSession : IDisposable
     /// </summary>
     /// <param name="directory">Directory containing .pdbx files</param>
     /// <param name="recursive">Whether to search recursively</param>
+    /// <param name="mainAssembly">Optional: name of the main assembly for entry point resolution</param>
     /// <returns>Number of symbol files loaded</returns>
-    public int LoadSymbolsFromDirectory(string directory, bool recursive = true)
+    public int LoadSymbolsFromDirectory(string directory, bool recursive = true, string? mainAssembly = null)
     {
-        LogDebug($"Loading symbols from directory {directory} (recursive={recursive})");
+        LogDebug($"Loading symbols from directory {directory} (recursive={recursive}, mainAssembly={mainAssembly ?? "auto"})");
+        
+        // Set the main assembly for entry point resolution
+        if (!string.IsNullOrEmpty(mainAssembly))
+        {
+            _symbolResolver.SetMainAssembly(mainAssembly);
+        }
         
         // Add this directory to assembly manager search paths and scan
         _assemblyManager.AddSearchPath(directory);
