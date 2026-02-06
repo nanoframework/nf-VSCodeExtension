@@ -4,6 +4,9 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Note: NuGet API responses use any for flexible JSON parsing
+
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,6 +27,7 @@ interface NuGetPackage {
 /**
  * Represents a NuGet package version
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface NuGetPackageVersion {
     version: string;
     downloads: number;

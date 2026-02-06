@@ -9,13 +9,17 @@ import { Executor } from "./executor";
 import * as crypto from "crypto";
 import * as fs from "fs";
 
+/* eslint-disable @typescript-eslint/no-explicit-any, no-var, prefer-const, @typescript-eslint/no-unused-vars, no-useless-escape */
+// Note: This file uses legacy callback-style fs APIs with var declarations
+// A future refactoring should modernize to async/await with fs.promises
+
 export class NfProject {
     /**
      * Creates an sln file in the given path
      * @param fileUri the path to create the sln file
      * @param toolPath the path to the dotnet tool and templates
      */
-    public static CreateSolution(fileUri: string, toolPath: String) {
+    public static CreateSolution(fileUri: string, _toolPath: string) {
         Executor.runCommand("dotnet new sln -o " + fileUri);
     }
 
@@ -27,7 +31,7 @@ export class NfProject {
      * @param toolPath The tool path
      */
     public static async AddProject(fileUri: string, projectName: string, projectType: string, toolPath: string) {
-        var solutionPath = path.dirname(fileUri);
+        const solutionPath = path.dirname(fileUri);
 
         switch (projectType) {
             default:

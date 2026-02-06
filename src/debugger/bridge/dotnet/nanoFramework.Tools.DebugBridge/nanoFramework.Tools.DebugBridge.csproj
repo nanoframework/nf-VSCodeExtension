@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>nanoFramework.Tools.DebugBridge</RootNamespace>
+    <AssemblyName>nanoFramework.Tools.DebugBridge</AssemblyName>
+    <Description>Debug bridge process for VS Code nanoFramework debugging</Description>
+    <Authors>.NET Foundation and Contributors</Authors>
+    <Company>nanoframework</Company>
+    <Copyright>Copyright (c) .NET Foundation and Contributors</Copyright>
+    
+    <!-- Publishing configuration for self-contained deployment -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    
+    <!-- Disable trimming - the nanoFramework debug library uses reflection extensively 
+         for Wire Protocol communication and assembly inspection -->
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference to nf-debugger library -->
+    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="*" />
+    <PackageReference Include="System.IO.Ports" Version="9.*" />
+    <PackageReference Include="System.Text.Json" Version="9.*" />
+    <!-- For parsing portable PDB files to extract source line information -->
+    <PackageReference Include="System.Reflection.Metadata" Version="9.*" />
+    <!-- For reading Windows PDB files using Mono.Cecil -->
+    <PackageReference Include="Mono.Cecil" Version="0.11.*" />
+  </ItemGroup>
+
+</Project>
