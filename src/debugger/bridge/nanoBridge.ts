@@ -139,7 +139,16 @@ export class NanoBridge extends EventEmitter {
      * Start execution
      */
     public async startExecution(stopOnEntry?: boolean): Promise<boolean> {
+        this.log(`startExecution called with stopOnEntry=${stopOnEntry}`);
         const response = await this.sendCommand('startExecution', { stopOnEntry });
+        this.log(`startExecution response: ${JSON.stringify(response)}`);
+        if (!response) {
+            this.logError('startExecution: No response received (timeout or bridge died)');
+            return false;
+        }
+        if (!response.success) {
+            this.logError(`startExecution failed: ${response.error || 'unknown error'}`);
+        }
         return response?.success || false;
     }
 

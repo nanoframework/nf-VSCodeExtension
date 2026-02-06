@@ -3989,10 +3989,16 @@ public class DebugBridgeSession : IDisposable
         
         LogDebug("Waiting for entry point hit...");
         
-        // Poll for breakpoint hit (up to 30 seconds)
-        for (int i = 0; i < 300; i++)
+        // Poll for breakpoint hit (up to 15 seconds - must be less than TypeScript's 30s timeout)
+        for (int i = 0; i < 150; i++)
         {
             await Task.Delay(100);
+            
+            // Log progress every second
+            if (i > 0 && i % 10 == 0)
+            {
+                LogDebug($"Still waiting for entry point... ({i / 10}s)");
+            }
             
             var state = _engine.GetExecutionMode();
             bool isStopped = ((uint)state & 0x80000000) != 0;

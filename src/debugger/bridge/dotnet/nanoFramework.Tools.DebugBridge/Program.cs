@@ -475,7 +475,13 @@ class Program
         }
 
         var args = JsonSerializer.Deserialize<StartExecutionArgs>(request.Args?.ToString() ?? "{}", _jsonOptions);
+        Console.Error.WriteLine($"[DebugBridge] HandleStartExecution: stopOnEntry={args?.StopOnEntry ?? true}");
         var result = await _session.StartExecution(args?.StopOnEntry ?? true);
+        Console.Error.WriteLine($"[DebugBridge] HandleStartExecution result: {result}");
+        if (!result)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "StartExecution returned false - check debug logs for details" };
+        }
         return new BridgeResponse { Id = request.Id, Success = result };
     }
 
