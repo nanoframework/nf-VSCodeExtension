@@ -72,7 +72,7 @@
             "properties": {
               "program": {
                 "type": "string",
-                "description": "Path to the nanoFramework executable (.pe file) to debug",
+                "description": "Path to the output directory containing .pe files, or path to a specific .pe file. The main assembly will be inferred from the directory or filename.",
                 "default": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
               },
               "device": {
@@ -124,7 +124,7 @@
               },
               "program": {
                 "type": "string",
-                "description": "Path to the PDB/PE files for symbol resolution",
+                "description": "Path to the output directory containing .pe/.pdb files for symbol resolution, or path to a specific .pe file",
                 "default": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
               },
               "stopOnEntry": {
@@ -169,7 +169,7 @@
               "type": "nanoframework",
               "request": "launch",
               "name": "nanoFramework: Launch",
-              "program": "^\"\\${workspaceFolder}\\${workspaceFolderBasename}\\bin\\Debug\\\"",
+              "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
               "device": "",
               "stopOnEntry": true,
               "deployAssemblies": true
@@ -183,7 +183,7 @@
               "request": "attach",
               "name": "nanoFramework: Attach",
               "device": "",
-              "program": "^\"\\${workspaceFolder}\\${workspaceFolderBasename}\\bin\\Debug\\\""
+              "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
             }
           }
         ]
