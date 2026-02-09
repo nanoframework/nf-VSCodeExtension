@@ -4,6 +4,10 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, no-async-promise-executor */
+// Note: This file uses callback-style cp.execFile APIs where unused parameters are required
+// by the callback signature. The async promise executor is needed for sequential async operations.
+
 import * as path from "path";
 import * as os from 'os';
 import * as fs from 'fs';
@@ -44,10 +48,10 @@ interface FileDeploymentConfig {
 /**
  * Parses a .csproj or .nfproj file to find content files marked for deployment
  * @param projectPath Path to the project file (.csproj or .nfproj)
- * @param configuration Build configuration (Debug/Release)
+ * @param _configuration Build configuration (Debug/Release)
  * @returns Array of file deployment entries
  */
-function parseProjectForContentFiles(projectPath: string, configuration: string): FileDeploymentEntry[] {
+function parseProjectForContentFiles(projectPath: string, _configuration: string): FileDeploymentEntry[] {
     const entries: FileDeploymentEntry[] = [];
     const projectDir = path.dirname(projectPath);
     
@@ -789,6 +793,7 @@ export class Dotnet {
                         outChannel.appendLine('Deploy FAILED');
                         outChannel.show(true);
                         // Show detailed error information
+                         
                         const errorDetails = deployResult.stdout || deployResult.stderr || 'Unknown error';
                         console.error(`Deploy failed. stdout: ${deployResult.stdout}, stderr: ${deployResult.stderr}`);
                         vscode.window.showErrorMessage(`Deploy failed. See Output panel for details.`);
@@ -1263,10 +1268,10 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
                             const errorLineRegex = /:\s*error\s.*?:/i;
                             const errorLines: string[] = [];
                             if (stdout) {
-                                stdout.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) errorLines.push(l); });
+                                stdout.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) {errorLines.push(l);} });
                             }
                             if (stderr) {
-                                stderr.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) errorLines.push(l); });
+                                stderr.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) {errorLines.push(l);} });
                             }
 
                             if (errorLines.length > 0) {
@@ -1353,10 +1358,10 @@ function executeBuildUnix(fileUri: string, cliBuildArguments: string, msbuildPat
                         const errorLineRegex = /:\s*error\s.*?:/i;
                         const errorLines: string[] = [];
                         if (stdout) {
-                            stdout.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) errorLines.push(l); });
+                            stdout.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) {errorLines.push(l);} });
                         }
                         if (stderr) {
-                            stderr.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) errorLines.push(l); });
+                            stderr.split(/\r?\n/).forEach(l => { if (errorLineRegex.test(l)) {errorLines.push(l);} });
                         }
 
                         if (errorLines.length > 0) {

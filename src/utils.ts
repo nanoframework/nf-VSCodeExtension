@@ -4,11 +4,13 @@
  * See LICENSE file in the project root for full license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
+// Note: axios uses CommonJS require pattern
+
 import * as vscode from 'vscode';
 import * as os from 'os';
 import { SerialPortCtrl } from "./serialportctrl";
 
-const globby = require('globby');
 const axios = require('axios');
 
 /**
@@ -27,7 +29,9 @@ export function getDocumentWorkspaceFolder(): string | undefined {
  * @returns absolute path to selected *.sln
  */
 export async function chooseSolution(workspaceFolder: string) {
-    const paths = await globby(`${workspaceFolder}/**/*.sln`);  
+    // Use VS Code's built-in findFiles API instead of globby
+    const files = await vscode.workspace.findFiles('**/*.sln', '**/node_modules/**');
+    const paths = files.map(file => file.fsPath);
 
 	const result = await vscode.window.showQuickPick(paths, {
 		placeHolder: 'Select the solution you would like to build/deploy',
@@ -77,10 +81,10 @@ export async function chooseSerialPort(): Promise<string> {
 
 /**
  * Dynamically fetches all possible types of target boards and lets user select the appropriate one
- * @param toolPath absolute path to nanoFramework extension
+ * @param _toolPath absolute path to nanoFramework extension (kept for backward compatibility)
  * @returns selected target board
  */
-export async function chooseTarget(toolPath: string) {
+export async function chooseTarget(_toolPath: string) {
 	const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 	const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
