@@ -76,6 +76,16 @@ export class NanoBridge extends EventEmitter {
                 return false;
             }
 
+            // Ensure executable permissions on macOS/Linux
+            // This is needed because VSIX packaging may not preserve Unix permissions
+            if (process.platform !== 'win32') {
+                try {
+                    fs.chmodSync(bridgePath, 0o755);
+                } catch (e) {
+                    this.log(`Note: Could not set executable permission on bridge: ${e}`);
+                }
+            }
+
             // Start the bridge process
             // Self-contained executable - run directly on all platforms
             this._process = spawn(bridgePath, [], {

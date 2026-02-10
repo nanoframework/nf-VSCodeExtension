@@ -202,7 +202,16 @@ public class DebugBridgeSession : IDisposable
                     LogDebug($"  Available: {dev.Description} ({dev.ConnectionId})");
                 }
 
-                return new ConnectResult(false, $"Device '{device}' not found. Make sure it's connected and running nanoFramework.");
+                // On macOS/Linux, the device watcher may not detect all serial ports
+                // (e.g., tty.usbmodem* on macOS, ttyACM* on Linux)
+                // Try to add the device directly using the provided path
+                LogDebug($"Attempting to add device directly: {device}");
+                _device = _portManager.AddDevice(device);
+
+                if (_device == null)
+                {
+                    return new ConnectResult(false, $"Device '{device}' not found. Make sure it's connected and running nanoFramework.");
+                }
             }
 
             LogInfo($"Found device: {_device.Description}");
