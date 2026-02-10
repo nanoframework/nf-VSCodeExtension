@@ -61,7 +61,7 @@ steps:
       Contents: |
         v*.zip
 
-  - script: npm ci
+  - script: npm ci --legacy-peer-deps
     displayName: npm ci
     condition: succeeded()
 
