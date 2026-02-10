@@ -37,19 +37,32 @@ gulp.task("build-debug-bridge", async (done) => {
         }
     }
     
-    // Set executable permissions on Unix binaries (when running on Unix)
-    if (process.platform !== 'win32') {
-        const { chmod } = require('fs').promises;
-        const unixPlatforms = ['linux-x64', 'darwin-x64', 'darwin-arm64'];
-        for (const folder of unixPlatforms) {
-            const execPath = path.join(baseOutputDir, folder, 'nanoFramework.Tools.DebugBridge');
+    // Set executable permissions on Unix binaries
+    // Use both chmod (when on Unix) and git update-index (for CI/CD on Windows)
+    const unixPlatforms = ['linux-x64', 'darwin-x64', 'darwin-arm64'];
+    
+    for (const folder of unixPlatforms) {
+        const execPath = path.join(baseOutputDir, folder, 'nanoFramework.Tools.DebugBridge');
+        const relativePath = path.relative(process.cwd(), execPath).replace(/\\/g, '/');
+        
+        // Try chmod first (works on Unix systems)
+        if (process.platform !== 'win32') {
+            const { chmod } = require('fs').promises;
             try {
                 await chmod(execPath, 0o755);
                 console.log(`Set executable permission on ${execPath}`);
             } catch (e) {
-                // Ignore if file doesn't exist (cross-compiling from Windows)
-                console.log(`Note: Could not set permissions on ${execPath} (expected when cross-compiling)`);
+                console.log(`Note: Could not chmod ${execPath}: ${e.message}`);
             }
+        }
+        
+        // Use git update-index to mark as executable (works on any platform, persists in git)
+        try {
+            await promiseExec(`git update-index --chmod=+x "${relativePath}"`);
+            console.log(`Marked ${relativePath} as executable in git`);
+        } catch (e) {
+            // Not a git repo or git not available - that's fine
+            console.log(`Note: Could not update git index for ${relativePath} (${e.message})`);
         }
     }
     
