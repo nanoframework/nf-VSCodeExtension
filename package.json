@@ -19,7 +19,7 @@
     }
   ],
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.109.0"
   },
   "repository": {
     "type": "git",
