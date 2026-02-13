@@ -304,7 +304,7 @@
     "@types/vscode": "^1.109.0",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^10.0.0",
-    "glob": "^13.0.2",
+    "glob": "^13.0.3",
     "gulp": "^5.0.1",
     "mocha": "^11.7.5",
     "nerdbank-gitversioning": "^3.9.50",
