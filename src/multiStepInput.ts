@@ -13,6 +13,31 @@ import { SerialPortCtrl } from "./serialportctrl";
 
 const axios = require('axios');
 
+// ── Cloudsmith API cache ────────────────────────────────────────────────
+// Target names and image versions rarely change, so we cache them in
+// memory with a 24-hour TTL to avoid redundant network calls.
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+interface CacheEntry<T> {
+	data: T;
+	timestamp: number;
+}
+
+const targetNamesCache: { entry: CacheEntry<QuickPickItem[]> | null } = { entry: null };
+const imageVersionsCache: Map<string, CacheEntry<QuickPickItem[]>> = new Map();
+
+function isCacheValid<T>(entry: CacheEntry<T> | null | undefined): entry is CacheEntry<T> {
+	if (!entry) { return false; }
+	return (Date.now() - entry.timestamp) < CACHE_TTL_MS;
+}
+
+/** Force-refresh both caches (e.g. on user request). */
+export function clearFlashTargetCache(): void {
+	targetNamesCache.entry = null;
+	imageVersionsCache.clear();
+}
+
 /**
  * A multi-step input using window.createQuickPick() and window.createInputBox().
  * @param _context 
@@ -220,6 +245,11 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 	 * @returns QuickPickItem[] with distinct (unique), sorted (a-z) list of target boards
 	 */
 	async function getTargetNames(): Promise<QuickPickItem[]> {
+		// Return cached data if still valid
+		if (isCacheValid(targetNamesCache.entry)) {
+			return targetNamesCache.entry.data;
+		}
+
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
@@ -244,6 +274,9 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 					.filter((value, index, self) => self.indexOf(value) === index)
 					.sort()
 					.map(label => ({ label }));
+
+				// Store in cache
+				targetNamesCache.entry = { data: targetImages, timestamp: Date.now() };
 			})
 			.catch((err: any) => {
 				window.showErrorMessage(`Couldn't retrieve live boards from API: ${JSON.stringify(err)}`);
@@ -262,6 +295,14 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 	 * @returns QuickPickItem[] with sorted (newest first) list of image versions
 	 */
 	async function getImageVersions(targetName: string | undefined): Promise<QuickPickItem[]> {
+		const cacheKey = targetName || '';
+
+		// Return cached data if still valid
+		const cached = imageVersionsCache.get(cacheKey);
+		if (isCacheValid(cached)) {
+			return cached.data;
+		}
+
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
@@ -308,6 +349,9 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 			}
 			return 0;
 		});
+
+		// Store in cache
+		imageVersionsCache.set(cacheKey, { data: targetImages, timestamp: Date.now() });
 
 		return targetImages;
 	}

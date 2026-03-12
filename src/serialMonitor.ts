@@ -99,39 +99,7 @@ export class SerialMonitor {
             this.reconnectTimer = null;
         }
 
-        if (this.serialPort) {
-            // Remove all event listeners to prevent callbacks during close
-            this.serialPort.removeAllListeners();
-            
-            if (this.serialPort.isOpen) {
-                try {
-                    // Flush any pending data before closing
-                    await new Promise<void>((resolve) => {
-                        this.serialPort!.flush((err: Error | null) => {
-                            if (err) {
-                                console.error('Error flushing serial port:', err);
-                            }
-                            resolve();
-                        });
-                    });
-
-                    // Close the port
-                    await new Promise<void>((resolve) => {
-                        this.serialPort!.close((err: Error | null) => {
-                            if (err) {
-                                console.error('Error closing serial port:', err);
-                            }
-                            resolve();
-                        });
-                    });
-                } catch (error) {
-                    console.error('Error stopping serial monitor:', error);
-                }
-            }
-
-            // Ensure reference is cleared
-            this.serialPort = null;
-        }
+        await this.forceCleanupPort();
 
         this.parser = null;
         this.statusBarItem.hide();
@@ -144,6 +112,84 @@ export class SerialMonitor {
             this.outputChannel.appendLine(`--- Serial Monitor stopped at ${new Date().toLocaleTimeString()} ---`);
             // Give the OS time to release the port
             await new Promise(resolve => setTimeout(resolve, 200));
+        }
+    }
+
+    /**
+     * Forcefully cleans up the serial port, ensuring it is closed and the OS handle
+     * is released even if the device was reset or the port is in a broken state.
+     */
+    private async forceCleanupPort(): Promise<void> {
+        const port = this.serialPort;
+        this.serialPort = null;
+
+        if (!port) {
+            return;
+        }
+
+        // Remove all event listeners to prevent callbacks during close
+        port.removeAllListeners();
+
+        if (!port.isOpen) {
+            // Port is already closed; try destroy() to release any lingering OS handles
+            try {
+                port.destroy();
+            } catch (_e) {
+                // ignore
+            }
+            return;
+        }
+
+        // Attempt a graceful close with a timeout.
+        // After a device reset the flush/close callbacks may never fire,
+        // so we cap the wait and fall back to destroy().
+        const CLOSE_TIMEOUT_MS = 1500;
+        let closedGracefully = false;
+
+        try {
+            await Promise.race([
+                (async () => {
+                    // Best-effort flush – ignore errors
+                    try {
+                        await new Promise<void>((resolve) => {
+                            port.flush((err: Error | null) => {
+                                if (err) {
+                                    console.error('Error flushing serial port:', err);
+                                }
+                                resolve();
+                            });
+                        });
+                    } catch (_e) {
+                        // flush may throw if port entered bad state
+                    }
+
+                    // Close the port
+                    await new Promise<void>((resolve, reject) => {
+                        port.close((err: Error | null) => {
+                            if (err) {
+                                reject(err);
+                            } else {
+                                resolve();
+                            }
+                        });
+                    });
+                    closedGracefully = true;
+                })(),
+                new Promise<void>((_, reject) =>
+                    setTimeout(() => reject(new Error('Close timed out')), CLOSE_TIMEOUT_MS)
+                )
+            ]);
+        } catch (error) {
+            console.error('Graceful close failed, forcing destroy:', error);
+        }
+
+        if (!closedGracefully) {
+            // Force-kill the underlying stream so the OS releases the handle
+            try {
+                port.destroy();
+            } catch (destroyErr) {
+                console.error('Error destroying serial port:', destroyErr);
+            }
         }
     }
 
@@ -176,6 +222,9 @@ export class SerialMonitor {
         }
 
         try {
+            // Ensure any previous port is fully released before opening a new one
+            await this.forceCleanupPort();
+
             console.log(`SerialMonitor.connect() creating port with baudRate=${this.baudRate}`);
             
             // Dynamically load the serialport module
@@ -274,9 +323,12 @@ export class SerialMonitor {
         this.outputChannel.appendLine(`[${timestamp}] ERROR: ${error.message}`);
         this.updateStatusBar('error');
 
-        if (this.isRunning) {
-            this.scheduleReconnect();
-        }
+        // Clean up the broken port so the handle is released before reconnect
+        this.forceCleanupPort().then(() => {
+            if (this.isRunning) {
+                this.scheduleReconnect();
+            }
+        });
     }
 
     /**
@@ -291,10 +343,13 @@ export class SerialMonitor {
         this.outputChannel.appendLine(`[${timestamp}] Device disconnected`);
         this.updateStatusBar('disconnected');
 
-        this.serialPort = null;
-        this.parser = null;
-
-        this.scheduleReconnect();
+        // Clean up any remaining port handle before trying to reconnect
+        this.forceCleanupPort().then(() => {
+            this.parser = null;
+            if (this.isRunning) {
+                this.scheduleReconnect();
+            }
+        });
     }
 
     /**

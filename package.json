@@ -233,12 +233,16 @@
       {
         "command": "vscode-nanoframework.nfremovenuget",
         "title": "nanoFramework: Remove NuGet Package"
+      },
+      {
+        "command": "vscode-nanoframework.nfupdatenuget",
+        "title": "nanoFramework: Update NuGet Package Version"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "when": "resourceExtname == .sln",
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfbuild",
           "group": "navigation@1"
         },
@@ -265,6 +269,11 @@
         {
           "when": "resourceExtname == .sln || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfremovenuget",
+          "group": "navigation@2"
+        },
+        {
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfupdatenuget",
           "group": "navigation@2"
         }
       ]
