@@ -306,7 +306,7 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
-			.map(repo => axios.get(apiUrl + repo + '/?page_size=5&query=' + targetName));
+			.map(repo => axios.get(apiUrl + repo + '/?page_size=8&query=' + targetName));
 
 		const imageVersions: string[] = [];
 		let targetImages: QuickPickItem[] = [];
@@ -321,6 +321,8 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 				});
 
 				targetImages = imageVersions
+					// Remove duplicate versions (same target can appear in multiple repos)
+					.filter((value, index, self) => self.indexOf(value) === index)
 					.map(label => ({ label }));
 			})
 			.catch((err: any) => {
