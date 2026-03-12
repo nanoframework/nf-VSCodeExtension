@@ -150,7 +150,7 @@ public class DebugBridgeSession : IDisposable
     {
         try
         {
-            LogInfo($"Connecting to device: {device} at baud rate {baudRate}");
+            LogAlways($"Connecting to device: {device} at baud rate {baudRate}");
 
             // Determine if this is a serial or network connection
             bool isNetworkConnection = device.Contains(':') && !device.StartsWith("COM", StringComparison.OrdinalIgnoreCase);
@@ -214,7 +214,7 @@ public class DebugBridgeSession : IDisposable
                 }
             }
 
-            LogInfo($"Found device: {_device.Description}");
+            LogAlways($"Found device: {_device.Description}");
 
             // Create debug engine
             _device.CreateDebugEngine();
@@ -284,12 +284,12 @@ public class DebugBridgeSession : IDisposable
             // Send initialized event
             RaiseEvent("initialized", new { });
             
-            LogInfo("Connected successfully!");
+            LogAlways("Connected successfully!");
             return new ConnectResult(true);
         }
         catch (Exception ex)
         {
-            LogInfo($"Connection error: {ex.Message}");
+            LogError($"Connection error: {ex.Message}. Ensure the device is connected, running nanoFramework, and the COM port is correct.");
             return new ConnectResult(false, ex.Message);
         }
     }
@@ -329,7 +329,7 @@ public class DebugBridgeSession : IDisposable
         }
         catch (Exception ex)
         {
-            LogInfo($"Disconnect error: {ex.Message}");
+            LogError($"Disconnect error: {ex.Message}");
         }
         
         await Task.CompletedTask;
@@ -3729,7 +3729,7 @@ public class DebugBridgeSession : IDisposable
 
         try
         {
-            LogInfo($"Deploying assemblies from {assembliesPath}...");
+            LogAlways($"Deploying assemblies from {assembliesPath}...");
             
             // Get all .pe files from the assemblies folder
             var peFiles = Directory.GetFiles(assembliesPath, "*.pe");
@@ -3789,7 +3789,7 @@ public class DebugBridgeSession : IDisposable
             
             if (result)
             {
-                LogInfo("Deployment completed successfully");
+                LogAlways("Deployment completed successfully");
                 
                 RaiseEvent("output", new OutputEventBody
                 {
@@ -3799,7 +3799,7 @@ public class DebugBridgeSession : IDisposable
             }
             else
             {
-                LogDebug("Deployment failed");
+                LogError("Deployment failed. Erase the device and try again, or check the Debug Console for details.");
             }
             
             await Task.CompletedTask;
@@ -3807,7 +3807,7 @@ public class DebugBridgeSession : IDisposable
         }
         catch (Exception ex)
         {
-            LogInfo($"Deploy error: {ex.Message}");
+            LogError($"Deploy error: {ex.Message}");
             return new DeployResult(false, ex.Message);
         }
     }
@@ -3821,48 +3821,106 @@ public class DebugBridgeSession : IDisposable
     {
         if (!_isConnected || _engine == null)
         {
+            LogError("StartExecution: Not connected or engine is null. Ensure the device is connected and a successful connection was established.");
             return false;
         }
 
         try
         {
-            LogDebug($"Starting execution (stopOnEntry: {stopOnEntry})");
+            LogAlways($"Starting execution (stopOnEntry: {stopOnEntry})");
             
             // After deployment, we need to reboot the CLR to start fresh execution
-            LogDebug("Rebooting CLR to start execution...");
+            LogAlways("Rebooting CLR to start execution...");
             
             // Use RebootDevice with ClrOnly option to restart just the CLR
             // This is faster than a full reboot and starts the deployed application
-            bool rebooted = _engine.RebootDevice(RebootOptions.ClrOnly);
-            LogDebug($"RebootDevice returned: {rebooted}");
+            bool rebooted = false;
+            
+            // Retry reboot up to 3 times - USB/serial can be flaky
+            for (int rebootAttempt = 1; rebootAttempt <= 3 && !rebooted; rebootAttempt++)
+            {
+                try
+                {
+                    rebooted = _engine.RebootDevice(RebootOptions.ClrOnly);
+                    LogDebug($"RebootDevice attempt {rebootAttempt} returned: {rebooted}");
+                }
+                catch (Exception ex)
+                {
+                    LogDebug($"RebootDevice attempt {rebootAttempt} threw: {ex.Message}");
+                }
+
+                if (!rebooted && rebootAttempt < 3)
+                {
+                    await Task.Delay(1000);
+                }
+            }
             
             if (!rebooted)
             {
-                LogDebug("Failed to reboot CLR");
+                // Fallback: try a full soft reboot
+                LogAlways("CLR-only reboot failed, trying NormalReboot...");
+                try
+                {
+                    rebooted = _engine.RebootDevice(RebootOptions.NormalReboot);
+                    LogDebug($"NormalReboot returned: {rebooted}");
+                }
+                catch (Exception ex)
+                {
+                    LogDebug($"NormalReboot threw: {ex.Message}");
+                }
+            }
+
+            if (!rebooted)
+            {
+                LogError("Failed to reboot device after all attempts. Please manually reset the device and try again.");
                 return false;
             }
             
             // Wait for the device to reboot and reconnect
             LogDebug("Waiting for device to restart...");
-            await Task.Delay(1000);
+            await Task.Delay(2000);
             
             // Re-establish connection after reboot
-            for (int attempt = 0; attempt < 10; attempt++)
+            bool reconnected = false;
+            for (int attempt = 0; attempt < 15; attempt++)
             {
                 await Task.Delay(500);
                 
-                if (_engine.IsConnectedTonanoCLR)
+                try
                 {
-                    LogDebug("Device reconnected to nanoCLR");
-                    break;
+                    if (_engine.IsConnectedTonanoCLR)
+                    {
+                        LogDebug("Device reconnected to nanoCLR");
+                        reconnected = true;
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDebug($"Reconnect check attempt {attempt + 1} threw: {ex.Message}");
                 }
                 
-                LogDebug($"Waiting for reconnect (attempt {attempt + 1}/10)...");
+                LogDebug($"Waiting for reconnect (attempt {attempt + 1}/15)...");
             }
             
-            if (!_engine.IsConnectedTonanoCLR)
+            if (!reconnected)
             {
-                LogDebug("Failed to reconnect after reboot");
+                // Try explicit reconnect
+                LogAlways("Passive reconnect failed, trying explicit Connect...");
+                try
+                {
+                    reconnected = _engine.Connect(5000, true, true);
+                    LogDebug($"Explicit Connect returned: {reconnected}");
+                }
+                catch (Exception ex)
+                {
+                    LogDebug($"Explicit Connect threw: {ex.Message}");
+                }
+            }
+
+            if (!reconnected)
+            {
+                LogError("Failed to reconnect to device after reboot. Check the device connection and try resetting it manually.");
                 return false;
             }
             
@@ -3917,7 +3975,8 @@ public class DebugBridgeSession : IDisposable
         }
         catch (Exception ex)
         {
-            LogDebug($"StartExecution error: {ex.Message}");
+            LogError($"StartExecution error: {ex.Message}");
+            LogError($"StartExecution stack trace: {ex.StackTrace}");
             return false;
         }
     }
@@ -4623,7 +4682,7 @@ public class DebugBridgeSession : IDisposable
         }
         catch (Exception ex)
         {
-            LogInfo($"Reboot error: {ex.Message}");
+            LogError($"Reboot error: {ex.Message}");
             return false;
         }
     }
@@ -4636,28 +4695,41 @@ public class DebugBridgeSession : IDisposable
         /// <summary>Informational message (shown at Information verbosity and above)</summary>
         Info,
         /// <summary>Debug/diagnostic message (shown only at Debug verbosity)</summary>
-        Debug
+        Debug,
+        /// <summary>Always shown (even at None verbosity), displayed as normal console text</summary>
+        Always,
+        /// <summary>Error message (always shown, displayed in red/stderr)</summary>
+        Error
     }
 
     private void LogMessage(LogLevel level, string message)
     {
-        // Check if we should log based on verbosity level
-        if (_verbosity == VerbosityLevel.None)
+        // Always and Error levels always log, regardless of verbosity
+        if (level != LogLevel.Error && level != LogLevel.Always)
         {
-            return;
+            // Check if we should log based on verbosity level
+            if (_verbosity == VerbosityLevel.None)
+            {
+                return;
+            }
+
+            if (_verbosity == VerbosityLevel.Information && level == LogLevel.Debug)
+            {
+                return;
+            }
         }
 
-        if (_verbosity == VerbosityLevel.Information && level == LogLevel.Debug)
+        var prefix = level switch
         {
-            return;
-        }
-
-        var prefix = level == LogLevel.Debug ? "[nF-Debug:DBG]" : "[nF-Debug]";
+            LogLevel.Error => "[nF-Debug:ERR]",
+            LogLevel.Debug => "[nF-Debug:DBG]",
+            _ => "[nF-Debug]"
+        };
         
         // Send log message as output event
         RaiseEvent("output", new OutputEventBody
         {
-            Category = "console",
+            Category = level == LogLevel.Error ? "stderr" : "console",
             Output = $"{prefix} {message}\n"
         });
         
@@ -4674,6 +4746,16 @@ public class DebugBridgeSession : IDisposable
     /// Log a debug message (shown only at Debug verbosity).
     /// </summary>
     private void LogDebug(string message) => LogMessage(LogLevel.Debug, message);
+
+    /// <summary>
+    /// Log a message that is always shown regardless of verbosity, displayed as normal text.
+    /// </summary>
+    private void LogAlways(string message) => LogMessage(LogLevel.Always, message);
+
+    /// <summary>
+    /// Log an error message (always shown, displayed in red/stderr).
+    /// </summary>
+    private void LogError(string message) => LogMessage(LogLevel.Error, message);
 
     private void ClearState()
     {

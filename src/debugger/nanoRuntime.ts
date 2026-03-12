@@ -245,9 +245,15 @@ export class NanoRuntime extends EventEmitter {
             // Configure exception handling
             await this._bridge.setExceptionHandling(this._breakOnAllExceptions, this._breakOnUncaughtExceptions);
 
-            // Start execution
-            if (!await this._bridge.startExecution(stopOnEntry)) {
-                this.log('Failed to start execution');
+            // Start execution (retry once after a delay if it fails — device may need more time after deploy)
+            let executionStarted = await this._bridge.startExecution(stopOnEntry);
+            if (!executionStarted) {
+                this.log('First startExecution attempt failed, retrying after delay...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                executionStarted = await this._bridge.startExecution(stopOnEntry);
+            }
+            if (!executionStarted) {
+                this.log('Failed to start execution after retry');
                 return false;
             }
 

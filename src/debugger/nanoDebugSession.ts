@@ -266,7 +266,7 @@ export class NanoDebugSession extends LoggingDebugSession {
             if (!success) {
                 this.sendErrorResponse(response, {
                     id: 1001,
-                    format: 'Failed to start debugging session. Check device connection.',
+                    format: 'Failed to start debugging session. The device may need a manual reset, or check the Debug Console for details.',
                     showUser: true
                 });
                 return;
