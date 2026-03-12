@@ -14,8 +14,9 @@ import { SerialPortCtrl } from "./serialportctrl";
 const axios = require('axios');
 
 // ── Cloudsmith API cache ────────────────────────────────────────────────
-// Target names and image versions rarely change, so we cache them in
-// memory with a 24-hour TTL to avoid redundant network calls.
+// Target names rarely change, so we cache them in memory with a 24-hour
+// TTL to avoid redundant network calls. Versions are NOT cached as they
+// can change frequently.
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -25,17 +26,15 @@ interface CacheEntry<T> {
 }
 
 const targetNamesCache: { entry: CacheEntry<QuickPickItem[]> | null } = { entry: null };
-const imageVersionsCache: Map<string, CacheEntry<QuickPickItem[]>> = new Map();
 
 function isCacheValid<T>(entry: CacheEntry<T> | null | undefined): entry is CacheEntry<T> {
 	if (!entry) { return false; }
 	return (Date.now() - entry.timestamp) < CACHE_TTL_MS;
 }
 
-/** Force-refresh both caches (e.g. on user request). */
+/** Force-refresh the target names cache (e.g. on user request). */
 export function clearFlashTargetCache(): void {
 	targetNamesCache.entry = null;
-	imageVersionsCache.clear();
 }
 
 /**
@@ -130,20 +129,38 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 	}
 
 	async function imageVersion(input: MultiStepInput, state: Partial<State>) {
-		const imageVersions = await getImageVersions(state.targetName);
+		const loadMoreLabel = '$(ellipsis) Load more versions...';
+		let pageSize = 8;
 
-		const imageVersion = await input.showQuickPick({
-			title,
-			step: 2,
-			totalSteps: state.totalSteps || 5,
-			placeholder: 'Choose the image version for your target board (' + state.targetName + ')',
-			items: imageVersions,
-			shouldResume: shouldResume,
-			// Set the default selection to the latest version
-			activeItem: imageVersions[0]
-		});
+		// Loop to allow the user to load more versions
+		// eslint-disable-next-line no-constant-condition
+		while (true) {
+			const imageVersions = await getImageVersions(state.targetName, pageSize);
 
-		state.imageVersion = imageVersion;
+			// Add a "Load more" item at the bottom
+			const loadMoreItem: QuickPickItem = { label: loadMoreLabel, description: `(currently showing up to ${pageSize} per repo)` };
+			const items = [...imageVersions, loadMoreItem];
+
+			const selected = await input.showQuickPick({
+				title,
+				step: 2,
+				totalSteps: state.totalSteps || 5,
+				placeholder: 'Choose the image version for your target board (' + state.targetName + ')',
+				items: items,
+				shouldResume: shouldResume,
+				// Set the default selection to the latest version
+				activeItem: imageVersions[0]
+			});
+
+			if (selected.label === loadMoreLabel) {
+				// Double the page size and re-fetch
+				pageSize = Math.min(pageSize * 2, 100);
+				continue;
+			}
+
+			state.imageVersion = selected;
+			break;
+		}
 
 		if ((state.targetNameType !== 'TI') && (state.targetNameType !== 'SL')) {
 			return (input: MultiStepInput) => state.targetNameType === 'ESP32' ? pickDevicePath(input, state) : pickJTAGOrDFU(input, state);
@@ -294,36 +311,31 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 	 * @param targetName target board to get image versions for
 	 * @returns QuickPickItem[] with sorted (newest first) list of image versions
 	 */
-	async function getImageVersions(targetName: string | undefined): Promise<QuickPickItem[]> {
-		const cacheKey = targetName || '';
-
-		// Return cached data if still valid
-		const cached = imageVersionsCache.get(cacheKey);
-		if (isCacheValid(cached)) {
-			return cached.data;
-		}
-
+	async function getImageVersions(targetName: string | undefined, pageSize: number = 8): Promise<QuickPickItem[]> {
 		const apiUrl = 'https://api.cloudsmith.io/v1/packages/net-nanoframework/';
 
 		const apiRepos = ['nanoframework-images-dev', 'nanoframework-images', 'nanoframework-images-community-targets']
-			.map(repo => axios.get(apiUrl + repo + '/?page_size=8&query=' + targetName));
+			.map(repo => axios.get(apiUrl + repo + '/?page_size=' + pageSize + '&query=' + targetName));
 
-		const imageVersions: string[] = [];
+		const imageVersions: { version: string; date: string }[] = [];
 		let targetImages: QuickPickItem[] = [];
 
 		await Promise
 			.all(apiRepos)
 			.then((responses: any) => {
-				responses.forEach((res: { data: { version: string; }[]; }) => {
-					res.data.forEach((resData: { version: string; }) => {
-						imageVersions.push(resData.version);
+				responses.forEach((res: { data: { version: string; uploaded_at: string }[]; }) => {
+					res.data.forEach((resData: { version: string; uploaded_at: string }) => {
+						imageVersions.push({ version: resData.version, date: resData.uploaded_at });
 					});
 				});
 
 				targetImages = imageVersions
 					// Remove duplicate versions (same target can appear in multiple repos)
-					.filter((value, index, self) => self.indexOf(value) === index)
-					.map(label => ({ label }));
+					.filter((value, index, self) => self.findIndex(v => v.version === value.version) === index)
+					.map(v => ({
+						label: v.version,
+						description: v.date ? (() => { const d = new Date(v.date); return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`; })() : ''
+					}));
 			})
 			.catch((err: any) => {
 				window.showErrorMessage(`Couldn't retrieve live board versions from API: ${JSON.stringify(err)}`);
@@ -351,9 +363,6 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 			}
 			return 0;
 		});
-
-		// Store in cache
-		imageVersionsCache.set(cacheKey, { data: targetImages, timestamp: Date.now() });
 
 		return targetImages;
 	}

@@ -16,7 +16,7 @@ import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
 
-const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false';
+const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false -p:UseSharedCompilation=false';
 
 // Deploy operation tracking - used to cancel previous deploys when a new one starts
 let currentDeployId = 0;
@@ -551,8 +551,11 @@ export class Dotnet {
                     return;
                 }
                 
-                Executor.runCommand('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
-                    '& "' + nugetPath + '" restore "' + restoreTarget.target + '" ' + restoreTarget.extraArgs + '; ' +
+                Executor.runCommand(
+                    '$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
+                    'if (-not $path) { $path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1 }; ' +
+                    'if (-not $path) { Write-Error "MSBuild not found. Please install Visual Studio with the .NET desktop development workload."; exit 1 }; ' +
+                    '& "' + nugetPath + '" restore "' + restoreTarget.target + '" ' + restoreTarget.extraArgs + ' -MSBuildPath (Split-Path $path); ' +
                     '& $path "' + fileUri + '" -p:platform="Any CPU" -p:Configuration="' + configuration + '" "-p:NanoFrameworkProjectSystemPath=' + nfProjectSystemPath + '" ' + mdpBuildProperties + ' -verbosity:minimal');
             }
             // Using msbuild (comes with mono-complete) on Unix 
@@ -624,8 +627,17 @@ export class Dotnet {
             return;
         }
 
-        // Clean .bin files before building to avoid stale files
-        cleanBinFiles(fileUri, configuration);
+        // Clean only the deploy target project (not the whole solution)
+        if (deployProjectDir) {
+            // Find the .nfproj in the selected project directory
+            const nfprojFiles = fs.readdirSync(deployProjectDir).filter(f => f.endsWith('.nfproj'));
+            if (nfprojFiles.length > 0) {
+                cleanBinFiles(path.join(deployProjectDir, nfprojFiles[0]), configuration);
+            }
+        } else {
+            // Fallback: clean everything (no specific project selected)
+            cleanBinFiles(fileUri, configuration);
+        }
 
         const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
         
@@ -663,8 +675,11 @@ export class Dotnet {
                 }
                 
                 // Build command for terminal - same as regular build
-                const buildCommand = '$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
-                    '& "' + nugetPath + '" restore "' + fileUri + '"; ' +
+                const restoreTarget = resolveNugetRestoreTarget(fileUri);
+                const buildCommand = '$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
+                    'if (-not $path) { $path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1 }; ' +
+                    'if (-not $path) { Write-Error "MSBuild not found. Please install Visual Studio with the .NET desktop development workload."; exit 1 }; ' +
+                    '& "' + nugetPath + '" restore "' + restoreTarget.target + '" ' + restoreTarget.extraArgs + ' -MSBuildPath (Split-Path $path); ' +
                     '& $path "' + fileUri + '" ' + cliBuildArguments;
                 
                 Executor.runInTerminal(buildCommand);
@@ -1176,7 +1191,7 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
             // Use execFile with separate arguments array to avoid shell injection
             const vswhereArgs = [
                 '-products', '*',
-                '-latest',
+                '-all',
                 '-prerelease',
                 '-requires', 'Microsoft.Component.MSBuild',
                 '-find', 'MSBuild\\**\\Bin\\amd64\\MSBuild.exe'
@@ -1191,18 +1206,41 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
                 }
 
                 // Split the output by new lines to get an array of paths
-                const paths = stdout.split(/\r?\n/);
+                let paths = stdout.split(/\r?\n/);
 
                 // Select the first non-empty path as the MSBuild path
-                const msBuildPath = paths.find(p => p.trim() !== '');
+                let msBuildPath = paths.find(p => p.trim() !== '');
 
                 if (!msBuildPath) {
-                    vscode.window.showErrorMessage('MSBuild path not found.');
-                    reject(new Error('MSBuild path not found.'));
+                    // Fallback: try non-amd64 path
+                    const fallbackArgs = [
+                        '-products', '*',
+                        '-all',
+                        '-prerelease',
+                        '-requires', 'Microsoft.Component.MSBuild',
+                        '-find', 'MSBuild\\**\\Bin\\MSBuild.exe'
+                    ];
+                    cp.execFile(vswhereExe, fallbackArgs, (err2, stdout2) => {
+                        if (err2 || !stdout2.trim()) {
+                            vscode.window.showErrorMessage('MSBuild path not found. Please install Visual Studio with the .NET desktop development workload.');
+                            reject(new Error('MSBuild path not found.'));
+                            return;
+                        }
+                        const fallbackPath = stdout2.split(/\r?\n/).find(p => p.trim() !== '');
+                        if (!fallbackPath) {
+                            vscode.window.showErrorMessage('MSBuild path not found.');
+                            reject(new Error('MSBuild path not found.'));
+                            return;
+                        }
+                        proceedWithMsBuild(fallbackPath.trim());
+                    });
                     return;
                 }
 
-                const msBuildPathTrimmed = msBuildPath.trim();
+                proceedWithMsBuild(msBuildPath.trim());
+            });
+
+            function proceedWithMsBuild(msBuildPathTrimmed: string) {
 
                 // Parse the build arguments into an array and run MSBuild using execFile (safe)
                 const buildArgs = [fileUri, ...parseBuildArguments(cliBuildArguments)];
@@ -1223,7 +1261,7 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
                         reject(new Error('Executable name not found in build output.'));
                     }
                 });
-            });
+            }
         } else {
             // For non-Windows platforms, use the provided msbuild path or try to find it
             const msbuildPath = unixMsBuildPath || findUnixMsBuild();
@@ -1340,7 +1378,7 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
         // Use execFile with separate arguments array to avoid shell injection
         const vswhereArgs = [
             '-products', '*',
-            '-latest',
+            '-all',
             '-prerelease',
             '-requires', 'Microsoft.Component.MSBuild',
             '-find', 'MSBuild\\**\\Bin\\amd64\\MSBuild.exe'
@@ -1365,13 +1403,37 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
             const msBuildPath = paths.find(p => p.trim() !== '');
 
             if (!msBuildPath) {
-                console.error('MSBuild path not found in vswhere output.');
-                vscode.window.showErrorMessage('MSBuild not found. Please install Visual Studio with .NET desktop development workload.');
-                resolve({ success: false, stdout: '', stderr: 'MSBuild path not found in vswhere output.', exitCode: null });
+                // Fallback: try non-amd64 path
+                const fallbackArgs = [
+                    '-products', '*',
+                    '-all',
+                    '-prerelease',
+                    '-requires', 'Microsoft.Component.MSBuild',
+                    '-find', 'MSBuild\\**\\Bin\\MSBuild.exe'
+                ];
+                cp.execFile(vswhereExe, fallbackArgs, (err2, stdout2) => {
+                    if (err2 || !stdout2.trim()) {
+                        console.error('MSBuild path not found in vswhere output.');
+                        vscode.window.showErrorMessage('MSBuild not found. Please install Visual Studio with .NET desktop development workload.');
+                        resolve({ success: false, stdout: '', stderr: 'MSBuild path not found in vswhere output.', exitCode: null });
+                        return;
+                    }
+                    const fallbackPath = stdout2.split(/\r?\n/).find(p => p.trim() !== '');
+                    if (!fallbackPath) {
+                        console.error('MSBuild path not found in vswhere output.');
+                        vscode.window.showErrorMessage('MSBuild not found. Please install Visual Studio with .NET desktop development workload.');
+                        resolve({ success: false, stdout: '', stderr: 'MSBuild path not found in vswhere output.', exitCode: null });
+                        return;
+                    }
+                    proceedWithBuild(fallbackPath.trim());
+                });
                 return;
             }
 
-            const msBuildPathTrimmed = msBuildPath.trim();
+            proceedWithBuild(msBuildPath.trim());
+        });
+
+        function proceedWithBuild(msBuildPathTrimmed: string) {
             console.log(`Found MSBuild at: ${msBuildPathTrimmed}`);
 
             // Run nuget restore using execFile (safe)
@@ -1450,7 +1512,7 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
                     resolve({ success: true, stdout: stdout, stderr: stderr, exitCode: exitCode });
                 });
             });
-        });
+        }
     });
 }
 
@@ -1608,26 +1670,19 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
  * @param configuration The build configuration to clean (Debug|Release)
  */
 function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void {
-    const dirsToClean: string[] = [];
+    const projectDirs: string[] = [];
 
     if (filePath.endsWith('.nfproj') || filePath.endsWith('.csproj')) {
-        // Single project: clean its own bin/<configuration> folder
-        const projectDir = path.dirname(filePath);
-        const configDir = path.join(projectDir, 'bin', configuration);
-        if (fs.existsSync(configDir)) {
-            dirsToClean.push(configDir);
-        }
+        // Single project: clean its own bin and obj folders
+        projectDirs.push(path.dirname(filePath));
     } else {
-        // Solution file: walk subdirectories
+        // Solution file: walk subdirectories for project folders
         const solutionDir = path.dirname(filePath);
         try {
             const entries = fs.readdirSync(solutionDir, { withFileTypes: true });
             for (const entry of entries) {
-                if (entry.isDirectory()) {
-                    const configDir = path.join(solutionDir, entry.name, 'bin', configuration);
-                    if (fs.existsSync(configDir)) {
-                        dirsToClean.push(configDir);
-                    }
+                if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'packages' && entry.name !== 'node_modules') {
+                    projectDirs.push(path.join(solutionDir, entry.name));
                 }
             }
         } catch (error) {
@@ -1635,26 +1690,22 @@ function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void 
         }
     }
 
-    console.log(`Cleaning .bin files for configuration: ${configuration} (${dirsToClean.length} folder(s))`);
+    console.log(`Cleaning build output for configuration: ${configuration} (${projectDirs.length} project folder(s))`);
 
-    for (const configDir of dirsToClean) {
-        try {
-            const files = fs.readdirSync(configDir);
-            for (const file of files) {
-                if (file.toLowerCase().endsWith('.bin')) {
-                    const fullPath = path.join(configDir, file);
-                    try {
-                        fs.unlinkSync(fullPath);
-                        console.log(`Deleted .bin file: ${fullPath}`);
-                    } catch (deleteError) {
-                        console.error(`Failed to delete ${fullPath}: ${deleteError}`);
-                    }
+    for (const projectDir of projectDirs) {
+        // Clean bin/<configuration> and obj/<configuration> folders entirely
+        for (const folder of ['bin', 'obj']) {
+            const configDir = path.join(projectDir, folder, configuration);
+            if (fs.existsSync(configDir)) {
+                try {
+                    fs.rmSync(configDir, { recursive: true, force: true });
+                    console.log(`Deleted folder: ${configDir}`);
+                } catch (error) {
+                    console.error(`Failed to delete ${configDir}: ${error}`);
                 }
             }
-        } catch (error) {
-            console.error(`Error cleaning ${configDir}: ${error}`);
         }
     }
     
-    console.log(`Finished cleaning .bin files for configuration: ${configuration}`);
+    console.log(`Finished cleaning build output for configuration: ${configuration}`);
 }
