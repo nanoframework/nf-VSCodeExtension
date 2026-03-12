@@ -19,7 +19,7 @@
     }
   ],
   "engines": {
-    "vscode": "^1.109.0"
+    "vscode": "^1.110.0"
   },
   "repository": {
     "type": "git",
@@ -233,12 +233,16 @@
       {
         "command": "vscode-nanoframework.nfremovenuget",
         "title": "nanoFramework: Remove NuGet Package"
+      },
+      {
+        "command": "vscode-nanoframework.nfupdatenuget",
+        "title": "nanoFramework: Update NuGet Package Version"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "when": "resourceExtname == .sln",
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfbuild",
           "group": "navigation@1"
         },
@@ -265,6 +269,11 @@
         {
           "when": "resourceExtname == .sln || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfremovenuget",
+          "group": "navigation@2"
+        },
+        {
+          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfupdatenuget",
           "group": "navigation@2"
         }
       ]
@@ -301,7 +310,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.4.0",
     "@types/semver": "^7.7.1",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.110.0",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^10.0.3",
     "glob": "^13.0.6",

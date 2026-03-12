@@ -164,6 +164,34 @@ export class NuGetManager {
     }
 
     /**
+     * Update a NuGet package version in a project
+     * @param projectPath Path to the .nfproj file
+     * @param packageId The package ID to update
+     * @param newVersion The new package version
+     */
+    public static async updatePackageVersion(projectPath: string, packageId: string, newVersion: string): Promise<void> {
+        const projectDir = path.dirname(projectPath);
+        const packagesConfigPath = path.join(projectDir, 'packages.config');
+
+        // Validate paths exist
+        if (!fs.existsSync(projectPath)) {
+            throw new Error(`Project file not found: ${projectPath}`);
+        }
+
+        if (!fs.existsSync(packagesConfigPath)) {
+            throw new Error(`packages.config not found: ${packagesConfigPath}`);
+        }
+
+        // Update version in packages.config
+        await this.updateVersionInPackagesConfig(packagesConfigPath, packageId, newVersion);
+
+        // Update version in .nfproj HintPath
+        await this.updateVersionInNfproj(projectPath, packageId, newVersion);
+
+        console.log(`Successfully updated ${packageId} to v${newVersion}`);
+    }
+
+    /**
      * Get currently installed packages from a project
      * @param projectPath Path to the .nfproj file
      * @returns Array of installed package IDs and versions
@@ -191,6 +219,41 @@ export class NuGetManager {
         }
         
         return packages;
+    }
+
+    /**
+     * Update version of a package in packages.config
+     */
+    private static async updateVersionInPackagesConfig(packagesConfigPath: string, packageId: string, newVersion: string): Promise<void> {
+        let content = fs.readFileSync(packagesConfigPath, 'utf-8');
+
+        const updateRegex = new RegExp(
+            `(<package\\s+id="${packageId}"\\s+version=")[^"]+(")`,
+            'i'
+        );
+
+        if (!updateRegex.test(content)) {
+            throw new Error(`Package ${packageId} not found in packages.config`);
+        }
+
+        content = content.replace(updateRegex, `$1${newVersion}$2`);
+        fs.writeFileSync(packagesConfigPath, content, 'utf-8');
+    }
+
+    /**
+     * Update version of a package reference in .nfproj file (HintPath)
+     */
+    private static async updateVersionInNfproj(projectPath: string, packageId: string, newVersion: string): Promise<void> {
+        let content = fs.readFileSync(projectPath, 'utf-8');
+
+        // Update version in HintPath: ...\packages\PackageId.OldVersion\lib\... -> ...\packages\PackageId.NewVersion\lib\...
+        const updateRegex = new RegExp(
+            `(<HintPath>[^<]*\\\\packages\\\\${packageId}\\.)([^\\\\]+)(\\\\lib\\\\[^<]+</HintPath>)`,
+            'gi'
+        );
+
+        content = content.replace(updateRegex, `$1${newVersion}$3`);
+        fs.writeFileSync(projectPath, content, 'utf-8');
     }
 
     /**
@@ -510,6 +573,104 @@ export async function showInstalledPackagePicker(projectPath: string): Promise<s
     });
 
     return selected?.label;
+}
+
+/**
+ * Shows a quick pick to select an installed package and choose a new version
+ * @param projectPath Path to the project file
+ * @returns Selected package ID and new version, or undefined if cancelled
+ */
+export async function showUpdatePackagePicker(projectPath: string): Promise<{ packageId: string; version: string } | undefined> {
+    const installedPackages = NuGetManager.getInstalledPackages(projectPath);
+
+    if (installedPackages.length === 0) {
+        vscode.window.showInformationMessage('No packages are installed in this project.');
+        return undefined;
+    }
+
+    // Step 1: Pick an installed package
+    const packageItems = installedPackages.map(pkg => ({
+        label: pkg.id,
+        description: `v${pkg.version}`
+    }));
+
+    const selectedPackage = await vscode.window.showQuickPick(packageItems, {
+        placeHolder: 'Select a package to update'
+    });
+
+    if (!selectedPackage) {
+        return undefined;
+    }
+
+    const currentVersion = installedPackages.find(p => p.id === selectedPackage.label)!.version;
+
+    // Step 2: Fetch available versions
+    const versions = await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: `Getting versions for ${selectedPackage.label}...`,
+            cancellable: false
+        },
+        async () => {
+            return await NuGetService.getPackageVersions(selectedPackage.label);
+        }
+    );
+
+    if (versions.length === 0) {
+        vscode.window.showWarningMessage(`No versions found for ${selectedPackage.label}`);
+        return undefined;
+    }
+
+    // Separate stable and preview versions
+    const stableVersions = versions.filter(v => !v.includes('-'));
+    const previewVersions = versions.filter(v => v.includes('-'));
+
+    // Take latest N of each category
+    const latestStable = stableVersions.slice(0, 10);
+    const latestPreview = previewVersions.slice(0, 10);
+
+    // Build version items with separators
+    const versionItems: vscode.QuickPickItem[] = [];
+
+    if (latestStable.length > 0) {
+        versionItems.push({ label: 'Stable Versions', kind: vscode.QuickPickItemKind.Separator });
+        for (const ver of latestStable) {
+            const isCurrent = ver === currentVersion;
+            versionItems.push({
+                label: ver,
+                description: isCurrent ? '(current)' : (ver === latestStable[0] ? '(latest stable)' : '')
+            });
+        }
+    }
+
+    if (latestPreview.length > 0) {
+        versionItems.push({ label: 'Preview Versions', kind: vscode.QuickPickItemKind.Separator });
+        for (const ver of latestPreview) {
+            const isCurrent = ver === currentVersion;
+            versionItems.push({
+                label: ver,
+                description: isCurrent ? '(current)' : (ver === latestPreview[0] ? '(latest preview)' : '')
+            });
+        }
+    }
+
+    const selectedVersion = await vscode.window.showQuickPick(versionItems, {
+        placeHolder: `Select a new version for ${selectedPackage.label} (current: v${currentVersion})`
+    });
+
+    if (!selectedVersion) {
+        return undefined;
+    }
+
+    if (selectedVersion.label === currentVersion) {
+        vscode.window.showInformationMessage(`${selectedPackage.label} is already at v${currentVersion}.`);
+        return undefined;
+    }
+
+    return {
+        packageId: selectedPackage.label,
+        version: selectedVersion.label
+    };
 }
 
 /**

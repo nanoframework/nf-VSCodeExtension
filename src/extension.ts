@@ -9,7 +9,7 @@ import * as path from 'path';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
 import { NfProject } from "./createProject";
-import { NuGetManager, showNuGetPackagePicker, showInstalledPackagePicker, showProjectPicker, findProjectFiles } from "./nuget";
+import { NuGetManager, showNuGetPackagePicker, showInstalledPackagePicker, showUpdatePackagePicker, showProjectPicker, findProjectFiles } from "./nuget";
 
 import { multiStepInput } from './multiStepInput';
 import {
@@ -378,6 +378,67 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage(`Successfully removed ${packageId} from the project.`);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to remove NuGet package: ${error}`);
+        }
+    }));
+
+    // Register command to update NuGet package version
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfupdatenuget", async (fileUri: vscode.Uri) => {
+        try {
+            let projectPath: string | undefined;
+
+            if (fileUri) {
+                const filePath = fileUri.fsPath;
+
+                if (filePath.endsWith('.nfproj')) {
+                    projectPath = filePath;
+                } else if (filePath.endsWith('.sln')) {
+                    projectPath = await showProjectPicker(filePath);
+                }
+            } else {
+                if (workspaceFolder) {
+                    const projects = findProjectFiles(workspaceFolder);
+                    if (projects.length === 1) {
+                        projectPath = projects[0];
+                    } else if (projects.length > 1) {
+                        projectPath = await showProjectPicker(workspaceFolder);
+                    } else {
+                        vscode.window.showErrorMessage('No .nfproj files found in the workspace.');
+                        return;
+                    }
+                } else {
+                    vscode.window.showErrorMessage('No workspace folder is open.');
+                    return;
+                }
+            }
+
+            if (!projectPath) {
+                return;
+            }
+
+            // Show update package picker (select package, then version)
+            const updateInfo = await showUpdatePackagePicker(projectPath);
+
+            if (!updateInfo) {
+                return;
+            }
+
+            // Update the package version
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Updating ${updateInfo.packageId} to v${updateInfo.version}...`,
+                    cancellable: false
+                },
+                async () => {
+                    await NuGetManager.updatePackageVersion(projectPath!, updateInfo.packageId, updateInfo.version);
+                }
+            );
+
+            vscode.window.showInformationMessage(
+                `Successfully updated ${updateInfo.packageId} to v${updateInfo.version}. Run 'nuget restore' or build to download the package.`
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to update NuGet package: ${error}`);
         }
     }));
 

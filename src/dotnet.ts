@@ -31,6 +31,100 @@ function getBuildOutputChannel(): vscode.OutputChannel {
 }
 
 /**
+ * Represents an EXE-type nanoFramework project found in the solution
+ */
+interface ExeProjectInfo {
+    /** Display name (project file basename without extension) */
+    name: string;
+    /** Full path to the .nfproj file */
+    projectPath: string;
+    /** Directory containing the .nfproj file */
+    projectDir: string;
+}
+
+/**
+ * Scans the solution directory for .nfproj files whose OutputType is Exe (application projects).
+ * @param solutionPath Path to the solution file
+ * @returns Array of EXE project information
+ */
+function findExeProjects(solutionPath: string): ExeProjectInfo[] {
+    const solutionDir = path.dirname(solutionPath);
+    const exeProjects: ExeProjectInfo[] = [];
+
+    try {
+        const entries = fs.readdirSync(solutionDir, { withFileTypes: true });
+
+        for (const entry of entries) {
+            if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'packages' || entry.name === 'bin' || entry.name === 'obj') {
+                continue;
+            }
+
+            const projectDir = path.join(solutionDir, entry.name);
+
+            let projectFiles: string[];
+            try {
+                projectFiles = fs.readdirSync(projectDir).filter(f => f.endsWith('.nfproj'));
+            } catch {
+                continue;
+            }
+
+            for (const pf of projectFiles) {
+                const projectPath = path.join(projectDir, pf);
+                try {
+                    const content = fs.readFileSync(projectPath, 'utf-8');
+                    // Match <OutputType>Exe</OutputType> (case-insensitive)
+                    if (/<OutputType>\s*Exe\s*<\/OutputType>/i.test(content)) {
+                        exeProjects.push({
+                            name: path.basename(pf, '.nfproj'),
+                            projectPath,
+                            projectDir
+                        });
+                    }
+                } catch {
+                    // skip unreadable project files
+                }
+            }
+        }
+    } catch (error) {
+        console.error(`Error scanning for EXE projects: ${error}`);
+    }
+
+    return exeProjects;
+}
+
+/**
+ * Prompts the user to choose which EXE project to deploy when multiple are found.
+ * Returns the project directory to scope deployment to, or undefined to deploy all.
+ * If only one EXE project exists it is returned automatically.
+ * @param solutionPath Path to the solution file
+ * @returns The selected project directory, or undefined (deploy all)
+ */
+async function chooseDeployProject(solutionPath: string): Promise<string | undefined> {
+    const exeProjects = findExeProjects(solutionPath);
+
+    if (exeProjects.length <= 1) {
+        // 0 or 1 EXE project – no need to ask
+        return exeProjects.length === 1 ? exeProjects[0].projectDir : undefined;
+    }
+
+    const items = exeProjects.map(p => ({
+        label: p.name,
+        description: path.relative(path.dirname(solutionPath), p.projectDir),
+        projectDir: p.projectDir
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Multiple EXE projects found – select the project to deploy'
+    });
+
+    if (!selected) {
+        return undefined; // cancelled
+    }
+
+    return selected.projectDir;
+}
+
+/**
  * Represents a file to be deployed to device storage
  */
 interface FileDeploymentEntry {
@@ -121,12 +215,14 @@ function parseProjectForContentFiles(projectPath: string, _configuration: string
 }
 
 /**
- * Finds all project files in a solution and collects content files for deployment
+ * Finds all project files in a solution and collects content files for deployment.
+ * When deployProjectDir is provided, only that project's content files are collected.
  * @param solutionPath Path to the solution file
  * @param configuration Build configuration (Debug/Release)
- * @returns Array of file deployment entries from all projects
+ * @param deployProjectDir Optional: restrict to this project directory
+ * @returns Array of file deployment entries from all (or the selected) project(s)
  */
-function findContentFilesForDeployment(solutionPath: string, configuration: string): FileDeploymentEntry[] {
+function findContentFilesForDeployment(solutionPath: string, configuration: string, deployProjectDir?: string): FileDeploymentEntry[] {
     const solutionDir = path.dirname(solutionPath);
     const allEntries: FileDeploymentEntry[] = [];
     
@@ -137,6 +233,12 @@ function findContentFilesForDeployment(solutionPath: string, configuration: stri
         for (const entry of entries) {
             if (entry.isDirectory()) {
                 const projectDir = path.join(solutionDir, entry.name);
+
+                // If a specific project was selected, skip other directories
+                if (deployProjectDir && path.resolve(projectDir) !== path.resolve(deployProjectDir)) {
+                    continue;
+                }
+
                 const projectFiles = fs.readdirSync(projectDir).filter(f => 
                     f.endsWith('.nfproj') || f.endsWith('.csproj')
                 );
@@ -159,10 +261,11 @@ function findContentFilesForDeployment(solutionPath: string, configuration: stri
  * Creates a file deployment JSON file for nanoff
  * @param solutionPath Path to the solution file
  * @param configuration Build configuration (Debug/Release)
+ * @param deployProjectDir Optional: restrict to this project directory
  * @returns Path to the created JSON file, or null if no files to deploy
  */
-function createFileDeploymentJson(solutionPath: string, configuration: string): string | null {
-    const contentFiles = findContentFilesForDeployment(solutionPath, configuration);
+function createFileDeploymentJson(solutionPath: string, configuration: string, deployProjectDir?: string): string | null {
+    const contentFiles = findContentFilesForDeployment(solutionPath, configuration, deployProjectDir);
     
     if (contentFiles.length === 0) {
         console.log('No content files found for file deployment');
@@ -361,6 +464,45 @@ async function findOrDownloadWindowsNuget(extensionPath: string): Promise<string
 }
 
 /**
+ * Resolves the correct target and arguments for `nuget restore`.
+ * - If the file is a .sln, it is returned as-is with no extra args.
+ * - If the file is a .nfproj (or .csproj), we look for a packages.config in the
+ *   project directory and, if present, use it with -SolutionDirectory pointing at
+ *   the parent so packages land in the shared packages/ folder.
+ *   If no packages.config exists we look for a .sln in the parent directory.
+ * - Falls back to the original path.
+ * @returns An object with `target` (the file to restore) and `extraArgs` (additional nuget CLI flags).
+ */
+function resolveNugetRestoreTarget(filePath: string): { target: string; extraArgs: string } {
+    if (filePath.endsWith('.sln')) {
+        return { target: filePath, extraArgs: '' };
+    }
+
+    const projectDir = path.dirname(filePath);
+    const parentDir = path.dirname(projectDir);
+
+    // Prefer packages.config in the project directory
+    const packagesConfig = path.join(projectDir, 'packages.config');
+    if (fs.existsSync(packagesConfig)) {
+        // -SolutionDirectory tells nuget where the packages/ folder lives
+        return { target: packagesConfig, extraArgs: `-SolutionDirectory "${parentDir}"` };
+    }
+
+    // Try to find a .sln in the parent directory (common solution layout)
+    try {
+        const slnFiles = fs.readdirSync(parentDir).filter(f => f.endsWith('.sln'));
+        if (slnFiles.length > 0) {
+            return { target: path.join(parentDir, slnFiles[0]), extraArgs: '' };
+        }
+    } catch {
+        // ignore read errors
+    }
+
+    // Fall back to the file itself
+    return { target: filePath, extraArgs: '' };
+}
+
+/**
  * Builds the nanoFramework project system path using proper path separators
  * @param toolPath The base tool path
  * @returns Properly formatted path for the current platform (with trailing separator)
@@ -374,8 +516,8 @@ function buildNanoFrameworkProjectSystemPath(toolPath: string): string {
 
 export class Dotnet {
     /**
-     * Builds the nanoFramework solution in a Terminal using MSBuild.exe (win32) or msbuild from mono (linux/macOS)
-     * @param fileUri absolute path to *.sln
+     * Builds the nanoFramework solution or project in a Terminal using MSBuild.exe (win32) or msbuild from mono (linux/macOS)
+     * @param fileUri absolute path to *.sln or *.nfproj
      * @param toolPath absolute path to root of nanoFramework extension 
      */
     public static async build(fileUri: string, toolPath: string, configuration?: string) {
@@ -387,6 +529,11 @@ export class Dotnet {
             cleanBinFiles(fileUri, configuration);
 
             const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
+
+            // Determine the restore target: for .nfproj files use the packages.config
+            // in the project directory (or the parent .sln if one exists).
+            // nuget restore works differently for project files vs solution files.
+            const restoreTarget = resolveNugetRestoreTarget(fileUri);
             
             // Using dynamically-solved MSBuild.exe when run from win32
             if (os.platform() === "win32") {
@@ -405,7 +552,7 @@ export class Dotnet {
                 }
                 
                 Executor.runCommand('$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -latest -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
-                    '& "' + nugetPath + '" restore "' + fileUri + '"; ' +
+                    '& "' + nugetPath + '" restore "' + restoreTarget.target + '" ' + restoreTarget.extraArgs + '; ' +
                     '& $path "' + fileUri + '" -p:platform="Any CPU" -p:Configuration="' + configuration + '" "-p:NanoFrameworkProjectSystemPath=' + nfProjectSystemPath + '" ' + mdpBuildProperties + ' -verbosity:minimal');
             }
             // Using msbuild (comes with mono-complete) on Unix 
@@ -440,7 +587,7 @@ export class Dotnet {
                 }
                 
                 // Use the found paths with proper quoting for paths with spaces
-                const buildCommand = `"${nugetPath}" restore "${fileUri}" && "${msbuildPath}" "${fileUri}" -p:platform="Any CPU" -p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjectSystemPath}" ${mdpBuildProperties} -verbosity:minimal`;
+                const buildCommand = `"${nugetPath}" restore "${restoreTarget.target}" ${restoreTarget.extraArgs} && "${msbuildPath}" "${fileUri}" -p:platform="Any CPU" -p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjectSystemPath}" ${mdpBuildProperties} -verbosity:minimal`;
                 Executor.runCommand(buildCommand);
             }
         }
@@ -466,6 +613,16 @@ export class Dotnet {
         currentDeployId++;
         const thisDeployId = currentDeployId;
         console.log(`Deploy #${thisDeployId} starting - Solution: ${fileUri}, Port: ${serialPath}, ToolPath: ${toolPath}`);
+
+        // If multiple EXE projects exist, let the user choose which one to deploy
+        const deployProjectDir = await chooseDeployProject(fileUri);
+        // chooseDeployProject returns undefined if the user cancels or there are no exe projects
+        // When cancelled from the picker (multiple projects) we should abort
+        const exeProjects = findExeProjects(fileUri);
+        if (exeProjects.length > 1 && !deployProjectDir) {
+            // User cancelled the picker
+            return;
+        }
 
         // Clean .bin files before building to avoid stale files
         cleanBinFiles(fileUri, configuration);
@@ -545,7 +702,7 @@ export class Dotnet {
                         return null; // Return null to indicate cancellation
                     }
                     
-                    const files = await findDeployableBinFiles(solutionPath, configurationParam);
+                    const files = await findDeployableBinFiles(solutionPath, configurationParam, deployProjectDir);
                     
                     if (files.length > 0) {
                         // Found .bin files - wait a bit more to ensure build is fully complete
@@ -559,7 +716,7 @@ export class Dotnet {
                         }
                         
                         // Re-check to get final list
-                        const finalFiles = await findDeployableBinFiles(solutionPath, configurationParam);
+                        const finalFiles = await findDeployableBinFiles(solutionPath, configurationParam, deployProjectDir);
                         return finalFiles;
                     }
                     
@@ -596,7 +753,7 @@ export class Dotnet {
             let cliDeployArguments = `nanoff --nanodevice --deploy --serialport "${serialPath}" ${imageArgs}`;
 
             // Check for content files to deploy
-            const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration);
+            const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
             if (fileDeploymentJsonPath) {
                 cliDeployArguments += ` --filedeployment "${fileDeploymentJsonPath}"`;
                 vscode.window.showInformationMessage(`File deployment enabled: deploying content files to device storage.`);
@@ -724,7 +881,7 @@ export class Dotnet {
                     progress.report({ message: "Finding BIN files to deploy..." });
 
                     // Find all BIN files in project output directories
-                    const binFiles = await findDeployableBinFiles(fileUri, configuration);
+                    const binFiles = await findDeployableBinFiles(fileUri, configuration, deployProjectDir);
                     
                     if (binFiles.length === 0) {
                         outChannel.appendLine('No .bin files found in project output directories.');
@@ -752,7 +909,7 @@ export class Dotnet {
                     let cliDeployArguments = `nanoff --nanodevice --deploy --serialport "${serialPath}" ${imageArgs}`;
                     
                     // Check for content files to deploy
-                    const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration);
+                    const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
                     if (fileDeploymentJsonPath) {
                         cliDeployArguments += ` --filedeployment "${fileDeploymentJsonPath}"`;
                         outChannel.appendLine('=== File Deployment ===');
@@ -1389,13 +1546,14 @@ function executeBuildUnix(fileUri: string, cliBuildArguments: string, msbuildPat
  * Searches in bin/<configuration> folders of each project
  * @param solutionPath The path to the solution file
  * @param configuration The build configuration to search for (Debug|Release)
+ * @param deployProjectDir Optional: restrict search to this single project directory
  * @returns Array of full paths to .bin files found
  */
-async function findDeployableBinFiles(solutionPath: string, configuration: string = 'Debug'): Promise<string[]> {
+async function findDeployableBinFiles(solutionPath: string, configuration: string = 'Debug', deployProjectDir?: string): Promise<string[]> {
     const solutionDir = path.dirname(solutionPath);
     const binFiles: string[] = [];
     
-    console.log(`Searching for .bin files in solution directory: ${solutionDir}`);
+    console.log(`Searching for .bin files in solution directory: ${solutionDir}${deployProjectDir ? ` (scoped to ${deployProjectDir})` : ''}`);
     
     try {
         // Get all subdirectories (project folders)
@@ -1403,8 +1561,15 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
         
         for (const entry of entries) {
             if (entry.isDirectory()) {
+                const projectDir = path.join(solutionDir, entry.name);
+
+                // If a specific project was selected, skip other directories
+                if (deployProjectDir && path.resolve(projectDir) !== path.resolve(deployProjectDir)) {
+                    continue;
+                }
+
                 // Check bin/<configuration> folder
-                const configDir = path.join(solutionDir, entry.name, 'bin', configuration);
+                const configDir = path.join(projectDir, 'bin', configuration);
 
                 if (fs.existsSync(configDir)) {
                     const files = fs.readdirSync(configDir);
@@ -1436,47 +1601,60 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
 }
 
 /**
- * Cleans (deletes) all .bin files in the solution's project directories for a specific configuration
- * This ensures that stale .bin files from previous builds don't get picked up during deployment
- * @param solutionPath The path to the solution file
+ * Cleans (deletes) all .bin files for a specific configuration.
+ * When given a .sln file, cleans across all project subdirectories.
+ * When given a .nfproj file, cleans only that project's bin folder.
+ * @param filePath The path to the solution or project file
  * @param configuration The build configuration to clean (Debug|Release)
  */
-function cleanBinFiles(solutionPath: string, configuration: string = 'Debug'): void {
-    const solutionDir = path.dirname(solutionPath);
-    
-    console.log(`Cleaning .bin files in solution directory: ${solutionDir} for configuration: ${configuration}`);
-    
-    try {
-        // Get all subdirectories (project folders)
-        const entries = fs.readdirSync(solutionDir, { withFileTypes: true });
-        
-        for (const entry of entries) {
-            if (entry.isDirectory()) {
-                // Check bin/<configuration> folder
-                const configDir = path.join(solutionDir, entry.name, 'bin', configuration);
+function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void {
+    const dirsToClean: string[] = [];
 
-                if (fs.existsSync(configDir)) {
-                    const files = fs.readdirSync(configDir);
-                    for (const file of files) {
-                        const lower = file.toLowerCase();
-                        const fullPath = path.join(configDir, file);
-
-                        // Delete .bin files
-                        if (lower.endsWith('.bin')) {
-                            try {
-                                fs.unlinkSync(fullPath);
-                                console.log(`Deleted .bin file: ${fullPath}`);
-                            } catch (deleteError) {
-                                console.error(`Failed to delete ${fullPath}: ${deleteError}`);
-                            }
-                        }                        
+    if (filePath.endsWith('.nfproj') || filePath.endsWith('.csproj')) {
+        // Single project: clean its own bin/<configuration> folder
+        const projectDir = path.dirname(filePath);
+        const configDir = path.join(projectDir, 'bin', configuration);
+        if (fs.existsSync(configDir)) {
+            dirsToClean.push(configDir);
+        }
+    } else {
+        // Solution file: walk subdirectories
+        const solutionDir = path.dirname(filePath);
+        try {
+            const entries = fs.readdirSync(solutionDir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isDirectory()) {
+                    const configDir = path.join(solutionDir, entry.name, 'bin', configuration);
+                    if (fs.existsSync(configDir)) {
+                        dirsToClean.push(configDir);
                     }
                 }
             }
+        } catch (error) {
+            console.error(`Error reading solution directory: ${error}`);
         }
-        
-        console.log(`Finished cleaning .bin files for configuration: ${configuration}`);
-    } catch (error) {
-        console.error(`Error cleaning .bin files: ${error}`);
     }
+
+    console.log(`Cleaning .bin files for configuration: ${configuration} (${dirsToClean.length} folder(s))`);
+
+    for (const configDir of dirsToClean) {
+        try {
+            const files = fs.readdirSync(configDir);
+            for (const file of files) {
+                if (file.toLowerCase().endsWith('.bin')) {
+                    const fullPath = path.join(configDir, file);
+                    try {
+                        fs.unlinkSync(fullPath);
+                        console.log(`Deleted .bin file: ${fullPath}`);
+                    } catch (deleteError) {
+                        console.error(`Failed to delete ${fullPath}: ${deleteError}`);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error cleaning ${configDir}: ${error}`);
+        }
+    }
+    
+    console.log(`Finished cleaning .bin files for configuration: ${configuration}`);
 }
