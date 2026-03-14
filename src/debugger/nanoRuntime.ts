@@ -6,6 +6,8 @@
 import { EventEmitter } from 'events';
 import { NanoBridge } from './bridge/nanoBridge';
 import { DebugProtocol } from '@vscode/debugprotocol';
+import * as os from 'os';
+import * as nodePath from 'path';
 
 /**
  * Breakpoint interface for nanoFramework
@@ -141,6 +143,18 @@ export class NanoRuntime extends EventEmitter {
     private _verbose = false;
     private _verbosity = 'information';
 
+    /**
+     * Normalize a file path for use as a breakpoint map key.
+     * On Windows, paths are case-insensitive and may use mixed separators.
+     */
+    private normalizePathKey(filePath: string): string {
+        let normalized = nodePath.normalize(filePath);
+        if (os.platform() === 'win32') {
+            normalized = normalized.toLowerCase();
+        }
+        return normalized;
+    }
+
     constructor() {
         super();
         this._bridge = new NanoBridge();
@@ -219,12 +233,11 @@ export class NanoRuntime extends EventEmitter {
             }
 
             // Determine the assemblies directory (the program path might be the bin/Debug folder)
-            const path = await import('path');
             let assembliesPath = program;
             
             // If program is a file path, get the directory
             if (program.endsWith('.pe') || program.endsWith('.exe')) {
-                assembliesPath = path.dirname(program);
+                assembliesPath = nodePath.dirname(program);
             }
             
             this.log(`Assemblies path for deployment: ${assembliesPath}`);
@@ -321,25 +334,24 @@ export class NanoRuntime extends EventEmitter {
     private async loadSymbolsFromProgram(program: string): Promise<void> {
         try {
             // Determine the symbol directory from the program path
-            const path = await import('path');
             let symbolPath: string;
             let mainAssembly: string | undefined;
             
             if (program.endsWith('.pe')) {
                 // If it's a .pe file, use its directory and set it as the main assembly
-                symbolPath = path.dirname(program);
-                mainAssembly = path.basename(program);
+                symbolPath = nodePath.dirname(program);
+                mainAssembly = nodePath.basename(program);
                 this.log(`Main assembly: ${mainAssembly}`);
             } else {
                 // Otherwise assume it's a directory
                 symbolPath = program;
                 // Try to infer the main assembly from directory name
-                const dirName = path.basename(program);
+                const dirName = nodePath.basename(program);
                 // Check for common patterns like bin/Debug - use parent folder name
                 if (dirName.toLowerCase() === 'debug' || dirName.toLowerCase() === 'release') {
-                    const parentDir = path.basename(path.dirname(program));
+                    const parentDir = nodePath.basename(nodePath.dirname(program));
                     if (parentDir.toLowerCase() === 'bin') {
-                        mainAssembly = path.basename(path.dirname(path.dirname(program))) + '.pe';
+                        mainAssembly = nodePath.basename(nodePath.dirname(nodePath.dirname(program))) + '.pe';
                         this.log(`Inferred main assembly from path: ${mainAssembly}`);
                     }
                 }
@@ -364,10 +376,11 @@ export class NanoRuntime extends EventEmitter {
             source: path
         };
 
-        let bps = this._breakpoints.get(path);
+        const key = this.normalizePathKey(path);
+        let bps = this._breakpoints.get(key);
         if (!bps) {
             bps = [];
-            this._breakpoints.set(path, bps);
+            this._breakpoints.set(key, bps);
         }
         bps.push(bp);
 
@@ -387,14 +400,15 @@ export class NanoRuntime extends EventEmitter {
      * Clear breakpoints for a file
      */
     public async clearBreakpoints(path: string): Promise<void> {
-        const bps = this._breakpoints.get(path);
+        const key = this.normalizePathKey(path);
+        const bps = this._breakpoints.get(key);
         if (bps) {
             if (this._isRunning) {
                 for (const bp of bps) {
                     await this._bridge.clearBreakpoint(bp.id);
                 }
             }
-            this._breakpoints.delete(path);
+            this._breakpoints.delete(key);
         }
     }
 
