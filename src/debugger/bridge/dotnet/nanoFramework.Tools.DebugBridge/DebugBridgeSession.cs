@@ -76,6 +76,10 @@ public class DebugBridgeSession : IDisposable
     private bool _disposed;
     private VerbosityLevel _verbosity = VerbosityLevel.None;
     
+    // Remember the device path for reconnection after USB re-enumeration
+    private string? _connectedDevicePath;
+    private int _connectedBaudRate = 921600;
+    
     // Symbol resolver for source mapping
     private readonly SymbolResolver _symbolResolver = new();
     
@@ -151,6 +155,10 @@ public class DebugBridgeSession : IDisposable
         try
         {
             LogAlways($"Connecting to device: {device} at baud rate {baudRate}");
+
+            // Remember device path for potential reconnection
+            _connectedDevicePath = device;
+            _connectedBaudRate = baudRate;
 
             // Determine if this is a serial or network connection
             bool isNetworkConnection = device.Contains(':') && !device.StartsWith("COM", StringComparison.OrdinalIgnoreCase);
@@ -3829,6 +3837,38 @@ public class DebugBridgeSession : IDisposable
         {
             LogAlways($"Starting execution (stopOnEntry: {stopOnEntry})");
             
+            // After deployment the wire-protocol link may be stale.
+            // Give the device a moment to finish its internal flash housekeeping
+            // and verify the engine connection before we try anything else.
+            LogDebug("Post-deploy stabilisation: waiting for device...");
+            await Task.Delay(1000);
+            
+            if (!_engine.IsConnectedTonanoCLR)
+            {
+                LogDebug("Engine lost connection after deploy, attempting reconnect...");
+                bool preReconnect = false;
+                for (int pre = 0; pre < 10 && !preReconnect; pre++)
+                {
+                    await Task.Delay(500);
+                    try { preReconnect = _engine.Connect(3000, true, true); }
+                    catch (Exception ex) { LogDebug($"Pre-reboot reconnect attempt {pre + 1} threw: {ex.Message}"); }
+                }
+                if (!preReconnect)
+                {
+                    // Lightweight reconnect failed — the serial port itself may have
+                    // disappeared (common on ESP32-S3 native USB CDC after flash ops).
+                    // Tear down everything and re-create the connection from scratch.
+                    LogAlways("Lightweight reconnect failed, trying full reconnect (USB port may have re-enumerated)...");
+                    preReconnect = await ReconnectFromScratch();
+                }
+                if (!preReconnect)
+                {
+                    LogError("Cannot communicate with device after deployment. Please reset the device and try again.");
+                    return false;
+                }
+                LogDebug("Re-established connection after deploy");
+            }
+            
             // After deployment, we need to reboot the CLR to start fresh execution
             LogAlways("Rebooting CLR to start execution...");
             
@@ -3847,6 +3887,9 @@ public class DebugBridgeSession : IDisposable
                 catch (Exception ex)
                 {
                     LogDebug($"RebootDevice attempt {rebootAttempt} threw: {ex.Message}");
+                    // Connection may have died — try to re-establish before next attempt
+                    try { _engine.Connect(3000, true, true); }
+                    catch { /* best effort */ }
                 }
 
                 if (!rebooted && rebootAttempt < 3)
@@ -3867,6 +3910,26 @@ public class DebugBridgeSession : IDisposable
                 catch (Exception ex)
                 {
                     LogDebug($"NormalReboot threw: {ex.Message}");
+                }
+            }
+
+            if (!rebooted)
+            {
+                // Last resort: try to reconnect from scratch and issue reboot
+                LogAlways("All reboot attempts failed, trying reconnect then reboot...");
+                try
+                {
+                    bool freshConnect = _engine.Connect(5000, true, true);
+                    LogDebug($"Fresh Connect returned: {freshConnect}");
+                    if (freshConnect)
+                    {
+                        rebooted = _engine.RebootDevice(RebootOptions.ClrOnly);
+                        LogDebug($"Post-reconnect RebootDevice returned: {rebooted}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDebug($"Reconnect+reboot threw: {ex.Message}");
                 }
             }
 
@@ -3916,6 +3979,14 @@ public class DebugBridgeSession : IDisposable
                 {
                     LogDebug($"Explicit Connect threw: {ex.Message}");
                 }
+            }
+
+            if (!reconnected)
+            {
+                // The serial port itself may have disappeared (ESP32-S3 native USB CDC).
+                // Try full teardown and reconnection from scratch.
+                LogAlways("Explicit Connect failed, trying full reconnect (USB port may have re-enumerated)...");
+                reconnected = await ReconnectFromScratch();
             }
 
             if (!reconnected)
@@ -4211,6 +4282,147 @@ public class DebugBridgeSession : IDisposable
         }
         
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Tear down the current connection completely and re-establish it from scratch.
+    /// This handles the case where the USB serial port disappears and re-enumerates
+    /// (common on ESP32-S3 native USB CDC after flash erase/write or NormalReboot).
+    /// </summary>
+    private async Task<bool> ReconnectFromScratch()
+    {
+        if (string.IsNullOrEmpty(_connectedDevicePath))
+        {
+            LogDebug("ReconnectFromScratch: no device path stored, cannot reconnect");
+            return false;
+        }
+
+        LogDebug($"ReconnectFromScratch: tearing down connection to {_connectedDevicePath}...");
+
+        // Tear down existing connection
+        try
+        {
+            if (_engine != null)
+            {
+                _engine.OnMessage -= OnEngineMessage;
+                try { _engine.Stop(); } catch { }
+                try { _engine.Dispose(); } catch { }
+                _engine = null;
+            }
+            if (_device != null)
+            {
+                try { _device.Disconnect(true); } catch { }
+                _device = null;
+            }
+            if (_portManager != null)
+            {
+                try { _portManager.StopDeviceWatchers(); } catch { }
+                _portManager = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogDebug($"ReconnectFromScratch: teardown error (non-fatal): {ex.Message}");
+        }
+
+        // Wait for the device to re-appear on the bus
+        LogDebug("ReconnectFromScratch: waiting for device to re-enumerate...");
+        await Task.Delay(2000);
+
+        // Re-create the full connection chain
+        for (int attempt = 1; attempt <= 5; attempt++)
+        {
+            LogDebug($"ReconnectFromScratch: attempt {attempt}/5...");
+
+            try
+            {
+                _portManager = PortBase.CreateInstanceForSerial(
+                    startDeviceWatchers: false,
+                    portExclusionList: null,
+                    bootTime: 1000);
+
+                _portManager.StartDeviceWatchers();
+
+                // Wait for enumeration
+                for (int wait = 0; wait < 30; wait++)
+                {
+                    if (_portManager.IsDevicesEnumerationComplete) break;
+                    await Task.Delay(200);
+                }
+
+                // Find the device
+                _device = _portManager.NanoFrameworkDevices.FirstOrDefault(d =>
+                    d.ConnectionId?.Contains(_connectedDevicePath, StringComparison.OrdinalIgnoreCase) == true ||
+                    d.Description?.Contains(_connectedDevicePath, StringComparison.OrdinalIgnoreCase) == true);
+
+                if (_device == null)
+                {
+                    _device = _portManager.AddDevice(_connectedDevicePath);
+                }
+
+                if (_device == null)
+                {
+                    LogDebug($"ReconnectFromScratch: device not found on attempt {attempt}");
+                    _portManager.StopDeviceWatchers();
+                    _portManager = null;
+                    await Task.Delay(1000);
+                    continue;
+                }
+
+                LogDebug($"ReconnectFromScratch: found device: {_device.Description}");
+
+                _device.CreateDebugEngine();
+                _engine = _device.DebugEngine;
+
+                if (_engine == null)
+                {
+                    LogDebug("ReconnectFromScratch: failed to create debug engine");
+                    _device = null;
+                    _portManager.StopDeviceWatchers();
+                    _portManager = null;
+                    await Task.Delay(1000);
+                    continue;
+                }
+
+                _engine.StopDebuggerOnConnect = true;
+                _engine.Silent = false;
+                _engine.OnMessage += OnEngineMessage;
+
+                bool connected = _engine.Connect(5000, true, true);
+                if (!connected)
+                {
+                    LogDebug("ReconnectFromScratch: engine.Connect failed");
+                    _engine.OnMessage -= OnEngineMessage;
+                    _engine.Dispose();
+                    _engine = null;
+                    _device = null;
+                    _portManager.StopDeviceWatchers();
+                    _portManager = null;
+                    await Task.Delay(1000);
+                    continue;
+                }
+
+                // Re-enable source-level debugging
+                _engine.UpdateDebugFlags();
+                _isConnected = true;
+                LogAlways("ReconnectFromScratch: successfully reconnected!");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"ReconnectFromScratch: attempt {attempt} threw: {ex.Message}");
+                // Clean up partial state
+                try { _engine?.Dispose(); } catch { }
+                _engine = null;
+                _device = null;
+                try { _portManager?.StopDeviceWatchers(); } catch { }
+                _portManager = null;
+                await Task.Delay(1000);
+            }
+        }
+
+        LogDebug("ReconnectFromScratch: all attempts failed");
+        return false;
     }
 
     /// <summary>

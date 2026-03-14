@@ -241,18 +241,42 @@ export class NuGetManager {
     }
 
     /**
-     * Update version of a package reference in .nfproj file (HintPath)
+     * Update version of a package reference in .nfproj file (HintPath and Reference Include version)
      */
     private static async updateVersionInNfproj(projectPath: string, packageId: string, newVersion: string): Promise<void> {
         let content = fs.readFileSync(projectPath, 'utf-8');
 
+        // Escape package ID for safe use in regex (dots in names like nanoFramework.System.Net must not match arbitrary characters)
+        const escapedPackageId = packageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
         // Update version in HintPath: ...\packages\PackageId.OldVersion\lib\... -> ...\packages\PackageId.NewVersion\lib\...
-        const updateRegex = new RegExp(
-            `(<HintPath>[^<]*\\\\packages\\\\${packageId}\\.)([^\\\\]+)(\\\\lib\\\\[^<]+</HintPath>)`,
+        // Support both backslash and forward slash path separators
+        const hintPathRegex = new RegExp(
+            `(<HintPath>[^<]*[/\\\\]packages[/\\\\]${escapedPackageId}\\.)([^/\\\\]+)([/\\\\]lib[/\\\\][^<]+</HintPath>)`,
             'gi'
         );
 
-        content = content.replace(updateRegex, `$1${newVersion}$3`);
+        content = content.replace(hintPathRegex, `$1${newVersion}$3`);
+
+        // Update version in Reference Include attribute when present (VS-created projects)
+        // e.g. <Reference Include="AssemblyName, Version=1.2.3.0, Culture=neutral, ...">
+        //        <HintPath>..\packages\PackageId.1.2.3\lib\AssemblyName.dll</HintPath>
+        const refBlockRegex = /<Reference\s+Include="[^"]*"[^>]*>[\s\S]*?<\/Reference>/gi;
+        const packageHintPathTest = new RegExp(
+            `[/\\\\]packages[/\\\\]${escapedPackageId}\\.[^/\\\\]+[/\\\\]lib[/\\\\]`,
+            'i'
+        );
+        content = content.replace(refBlockRegex, (match) => {
+            if (packageHintPathTest.test(match)) {
+                // Update Version=X.Y.Z.0 in the Include attribute
+                return match.replace(
+                    /(<Reference\s+Include="[^"]*?,\s*Version=)[\d.]+/i,
+                    `$1${newVersion}.0`
+                );
+            }
+            return match;
+        });
+
         fs.writeFileSync(projectPath, content, 'utf-8');
     }
 
@@ -320,12 +344,16 @@ export class NuGetManager {
         // Determine the assembly name (usually the package ID without 'nanoFramework.' prefix, or the full name)
         const assemblyName = this.getAssemblyName(packageId);
         
+        // Escape names for safe use in regex
+        const escapedAssemblyName = assemblyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedPackageId = packageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
         // Check if reference already exists
-        const existingRefRegex = new RegExp(`<Reference\\s+Include="${assemblyName}`, 'i');
+        const existingRefRegex = new RegExp(`<Reference\\s+Include="${escapedAssemblyName}`, 'i');
         if (existingRefRegex.test(content)) {
-            // Update existing reference version in HintPath
+            // Update existing reference version in HintPath (support both / and \ separators)
             const updateRegex = new RegExp(
-                `(<HintPath>[^<]*\\\\packages\\\\${packageId}\\.)([^\\\\]+)(\\\\lib\\\\[^<]+</HintPath>)`,
+                `(<HintPath>[^<]*[/\\\\]packages[/\\\\]${escapedPackageId}\\.)([^/\\\\]+)([/\\\\]lib[/\\\\][^<]+</HintPath>)`,
                 'gi'
             );
             content = content.replace(updateRegex, `$1${version}$3`);
