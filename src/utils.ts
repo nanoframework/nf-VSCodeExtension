@@ -14,6 +14,13 @@ import { SerialPortCtrl } from "./serialportctrl";
 const axios = require('axios');
 
 /**
+ * Checks whether the given file path points to a solution file (.sln or .slnx).
+ */
+export function isSolutionFile(filePath: string): boolean {
+    return filePath.endsWith('.sln') || filePath.endsWith('.slnx');
+}
+
+/**
  * Gets absolute path of current open workspace in VSCode
  * @returns (first) absolute path of the workspace folder
  */
@@ -22,16 +29,19 @@ export function getDocumentWorkspaceFolder(): string | undefined {
 }
 
 /**
- * Finds all *.sln files in your VSCode Workspace
+ * Finds all solution files (*.sln and *.slnx) in your VSCode Workspace
  * Shows a QuickPick window that lets the user select one of these solutions
  * Returns the absolute path to the selected solution
  * @param workspaceFolder absolute path to workspace
- * @returns absolute path to selected *.sln
+ * @returns absolute path to selected solution file
  */
 export async function chooseSolution(workspaceFolder: string) {
     // Use VS Code's built-in findFiles API instead of globby
-    const files = await vscode.workspace.findFiles('**/*.sln', '**/node_modules/**');
-    const paths = files.map(file => file.fsPath);
+    const [slnFiles, slnxFiles] = await Promise.all([
+        vscode.workspace.findFiles('**/*.sln', '**/node_modules/**'),
+        vscode.workspace.findFiles('**/*.slnx', '**/node_modules/**')
+    ]);
+    const paths = [...slnFiles, ...slnxFiles].map(file => file.fsPath);
 
 	const result = await vscode.window.showQuickPick(paths, {
 		placeHolder: 'Select the solution you would like to build/deploy',
@@ -121,11 +131,11 @@ export async function chooseTarget(_toolPath: string) {
 }
 
 /**
- * If a path to a specific .sln is given, this is used. 
- * Otherwise, the user is prompted with a selection of all *.sln in workspace to choose from
- * @param fileUri *.sln (can be empty)
+ * If a path to a specific solution file (.sln/.slnx) is given, this is used. 
+ * Otherwise, the user is prompted with a selection of all solution files in workspace to choose from
+ * @param fileUri solution file (can be empty)
  * @param workspaceFolder absolute path to workspace
- * @returns absolute path to selected *.sln file
+ * @returns absolute path to selected solution file
  */
 export async function solvePath(fileUri: vscode.Uri, workspaceFolder: string) {
 	let path = fileUri ? fileUri.fsPath: '';

@@ -15,6 +15,7 @@ import * as https from 'https';
 import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
+import { isSolutionFile } from './utils';
 
 const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false -p:UseSharedCompilation=false';
 
@@ -474,7 +475,7 @@ async function findOrDownloadWindowsNuget(extensionPath: string): Promise<string
  * @returns An object with `target` (the file to restore) and `extraArgs` (additional nuget CLI flags).
  */
 function resolveNugetRestoreTarget(filePath: string): { target: string; extraArgs: string } {
-    if (filePath.endsWith('.sln')) {
+    if (isSolutionFile(filePath)) {
         return { target: filePath, extraArgs: '' };
     }
 
@@ -490,7 +491,7 @@ function resolveNugetRestoreTarget(filePath: string): { target: string; extraArg
 
     // Try to find a .sln in the parent directory (common solution layout)
     try {
-        const slnFiles = fs.readdirSync(parentDir).filter(f => f.endsWith('.sln'));
+        const slnFiles = fs.readdirSync(parentDir).filter(f => isSolutionFile(f));
         if (slnFiles.length > 0) {
             return { target: path.join(parentDir, slnFiles[0]), extraArgs: '' };
         }
@@ -608,7 +609,7 @@ export class Dotnet {
             configuration = await vscode.window.showQuickPick(['Debug', 'Release'], { placeHolder: 'Select build configuration', canPickMany: false }) || 'Debug';
         }
         if (!fileUri) {
-            vscode.window.showErrorMessage('No solution file selected. Please select a .sln file.');
+            vscode.window.showErrorMessage('No solution file selected. Please select a .sln or .slnx file.');
             return;
         }
 

@@ -178,6 +178,10 @@ You will need to make sure you'll have the following elements installed:
 - **Windows only:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with ".NET desktop build tools" workload
 - **Linux/macOS only:** [mono-complete](https://www.mono-project.com/docs/getting-started/install/) with msbuild, and [nuget CLI](https://www.nuget.org/downloads)
 
+> **Note:** The `.slnx` solution format is fully supported on Windows. On Linux/macOS,  
+> `.slnx` requires a recent Mono installation with an updated MSBuild. If your Mono  
+> version does not support `.slnx`, use the classic `.sln` format instead.
+
 ### Linux-specific Requirements
 
 On Linux, you may need to add your user to the `dialout` group to access serial ports:
@@ -207,6 +211,8 @@ This extension works on:
 ## Known Issues
 
 Step over in debug mode is like continue so far. We're activey working on improving this. You can setup as many break points as you want, so, if you need an equivalent of setp over, you can do this!
+
+The new `.slnx` solution format is supported on Windows (Visual Studio Build Tools with MSBuild 17.12+). On Linux and macOS, `.slnx` support requires a recent Mono installation that includes an updated MSBuild. If your Mono version does not support `.slnx`, use the classic `.sln` format instead.
 
 ## Developing for the VS Code extension
 
