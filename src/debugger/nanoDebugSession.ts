@@ -26,7 +26,7 @@ import * as path from 'path';
  * Launch request arguments for nanoFramework debugging
  */
 interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
-    /** Path to the .nfproj or .sln file */
+    /** Path to the .nfproj, .sln, or .slnx file */
     program: string;
     /** Target device (COM port or IP address) */
     device?: string;

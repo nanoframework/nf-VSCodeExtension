@@ -88,6 +88,9 @@ The following packages/tools/frameworks are required on all platforms:
 > The [preview](https://www.mono-project.com/download/preview/) version is recommended
 > as the [stable](https://www.mono-project.com/download/stable/) version is outdated.
 
+> **Note:** The `.slnx` solution format requires a recent Mono/MSBuild version.  
+> If your Mono installation does not support `.slnx`, use the classic `.sln` format.
+
 > **Note:** If you're running into a `langversion:9` error, try installing the latest mono-nightly.
 
 ### Verify PowerShell Installation

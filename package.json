@@ -242,12 +242,12 @@
     "menus": {
       "explorer/context": [
         {
-          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "when": "resourceExtname == .sln || resourceExtname == .slnx || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfbuild",
           "group": "navigation@1"
         },
         {
-          "when": "resourceExtname == .sln",
+          "when": "resourceExtname == .sln || resourceExtname == .slnx",
           "command": "vscode-nanoframework.nfdeploy",
           "group": "navigation@1"
         },
@@ -257,22 +257,22 @@
           "group": "navigation@1"
         },
         {
-          "when": "resourceExtname == .sln",
+          "when": "resourceExtname == .sln || resourceExtname == .slnx",
           "command": "vscode-nanoframework.nfadd",
           "group": "navigation@1"
         },
         {
-          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "when": "resourceExtname == .sln || resourceExtname == .slnx || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfaddnuget",
           "group": "navigation@2"
         },
         {
-          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "when": "resourceExtname == .sln || resourceExtname == .slnx || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfremovenuget",
           "group": "navigation@2"
         },
         {
-          "when": "resourceExtname == .sln || resourceExtname == .nfproj",
+          "when": "resourceExtname == .sln || resourceExtname == .slnx || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfupdatenuget",
           "group": "navigation@2"
         }

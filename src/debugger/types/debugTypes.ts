@@ -17,7 +17,7 @@ export interface NanoLaunchConfig {
     request: 'launch' | 'attach';
     /** Configuration name */
     name: string;
-    /** Path to the .nfproj or .sln file */
+    /** Path to the .nfproj, .sln, or .slnx file */
     program?: string;
     /** Target device (COM port or IP address) */
     device?: string;

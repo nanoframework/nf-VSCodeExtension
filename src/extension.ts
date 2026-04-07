@@ -13,7 +13,7 @@ import { NuGetManager, showNuGetPackagePicker, showInstalledPackagePicker, showU
 
 import { multiStepInput } from './multiStepInput';
 import {
-    getDocumentWorkspaceFolder, solvePath, chooseSerialPort, chooseSolutionWorkspace,
+    getDocumentWorkspaceFolder, isSolutionFile, solvePath, chooseSerialPort, chooseSolutionWorkspace,
     chooseName, chooseProjectType
 } from './utils';
 import { SerialPortCtrl } from './serialportctrl';
@@ -258,7 +258,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (filePath.endsWith('.nfproj')) {
                     // Direct project file
                     projectPath = filePath;
-                } else if (filePath.endsWith('.sln')) {
+                } else if (isSolutionFile(filePath)) {
                     // Solution file - let user pick a project
                     projectPath = await showProjectPicker(filePath);
                 }
@@ -321,7 +321,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 
                 if (filePath.endsWith('.nfproj')) {
                     projectPath = filePath;
-                } else if (filePath.endsWith('.sln')) {
+                } else if (isSolutionFile(filePath)) {
                     projectPath = await showProjectPicker(filePath);
                 }
             } else {
@@ -391,7 +391,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 if (filePath.endsWith('.nfproj')) {
                     projectPath = filePath;
-                } else if (filePath.endsWith('.sln')) {
+                } else if (isSolutionFile(filePath)) {
                     projectPath = await showProjectPicker(filePath);
                 }
             } else {
