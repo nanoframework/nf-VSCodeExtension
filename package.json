@@ -318,7 +318,7 @@
     "mocha": "^11.7.5",
     "nerdbank-gitversioning": "^3.9.50",
     "rimraf": "^6.1.3",
-    "ts-loader": "^9.5.4",
+    "ts-loader": "^9.5.7",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.58.0",
     "webpack": "^5.105.4",
