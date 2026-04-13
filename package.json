@@ -237,6 +237,10 @@
       {
         "command": "vscode-nanoframework.nfupdatenuget",
         "title": "nanoFramework: Update NuGet Package Version"
+      },
+      {
+        "command": "vscode-nanoframework.configureRunSettings",
+        "title": "nanoFramework: Configure Test Run Settings"
       }
     ],
     "menus": {
@@ -285,6 +289,54 @@
           "type": "boolean",
           "default": true,
           "description": "Show command output in the terminal. When disabled, commands run in the background and key elements are displayed in the Output window."
+        },
+        "nanoFramework.test.sessionTimeout": {
+          "type": "number",
+          "default": 120000,
+          "description": "Test session timeout in milliseconds."
+        },
+        "nanoFramework.test.logging": {
+          "type": "string",
+          "enum": ["None", "Detailed", "Verbose", "Error"],
+          "default": "None",
+          "description": "Logging level for test execution."
+        },
+        "nanoFramework.test.nanoclrVersion": {
+          "type": "string",
+          "default": "",
+          "description": "Specific nanoCLR version to use. Leave empty for latest stable."
+        },
+        "nanoFramework.test.usePreviewClr": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the preview version of nanoCLR instead of the latest stable."
+        },
+        "nanoFramework.test.pathToLocalCLRInstance": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a local nanoCLR instance. If empty, the default installed instance is used."
+        },
+        "nanoFramework.test.hardwarePort": {
+          "type": "string",
+          "default": "",
+          "description": "Serial port (e.g. COM3, /dev/ttyUSB0) or IP:port of the device used for hardware test runs. If empty, a port picker is shown."
+        },
+        "nanoFramework.test.hardwareRetries": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Number of retry attempts when connecting to a hardware device for test execution."
+        },
+        "nanoFramework.test.runSettingsPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a nano.runsettings file. If empty, auto-detects in the workspace."
+        },
+        "nanoFramework.test.watchMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, saving a C# file in a test project automatically triggers a test run for that project."
         }
       }
     }
