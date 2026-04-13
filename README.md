@@ -85,7 +85,7 @@ The extension integrates with the VS Code **Test Explorer** to discover, run, an
 | **Automatic Discovery** | Detects `[TestClass]`, `[TestMethod]`, `[Setup]`, `[Cleanup]`, and `[DataRow]` attributes in `.nfproj` projects |
 | **Emulator Execution** | Runs tests on the **nanoCLR** emulator — no hardware required |
 | **Device Execution** | Deploys and runs tests on a physical nanoFramework device via serial/network |
-| **DataRow Support** | Parameterised tests with `[DataRow(...)]` are shown as individual child items |
+| **DataRow Support** | Parameterised tests with `[DataRow(...)]` shown as individual items per data row |
 | **CodeLens** | Inline "Run Test" / "Run Class" links above test methods and classes |
 | **Watch Mode** | Automatically re-runs tests when source files are saved |
 | **Tag Filtering** | Filter by test type: `@testMethod`, `@dataRow`, `@setup`, `@cleanup` |

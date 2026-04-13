@@ -82,7 +82,7 @@ The extension discovers tests by scanning `.cs` source files in projects that re
 - `[TestMethod]` — marks a method as a test
 - `[Setup]` — method that runs before each test in the class
 - `[Cleanup]` — method that runs after each test in the class
-- `[DataRow(...)]` — parameterised test data
+- `[DataRow(...)]` — parameterised test data (one entry per attribute)
 
 Discovery is **automatic** and re-runs when:
 
@@ -92,26 +92,27 @@ Discovery is **automatic** and re-runs when:
 
 ## DataRow Parameterised Tests
 
-Methods decorated with multiple `[DataRow(...)]` attributes appear as expandable parent items in the Test Explorer, with one child per data row:
+Methods decorated with `[DataRow(...)]` attributes are grouped under a parent method node in the Test Explorer. Each data row appears as a child item labelled with its arguments:
 
 ```csharp
 [TestMethod]
-[DataRow(1, "one")]
-[DataRow(2, "two")]
-[DataRow(3, "three")]
-public void MyTest(int value, string name) { ... }
+[DataRow(true, true)]
+[DataRow(false, false)]
+public void BoolConverter_ToType_ShouldReturnValidData(object value, bool expected) { ... }
 ```
 
-This produces:
+Appears in the Test Explorer as:
 
 ```text
-▸ MyTest
-    MyTest(1, "one")
-    MyTest(2, "two")
-    MyTest(3, "three")
+▸ BoolConverterTests
+    ▸ BoolConverter_ToType_ShouldReturnValidData
+        (true, true)
+        (false, false)
 ```
 
-Each child is individually reportable — you can see which specific data row passed or failed.
+Each data row is its own test item with a unique FQN (`Method.0`, `Method.1`, …), so you can see which specific input combination passed or failed.
+
+> **Note:** The `[DataRow]` attributes must be on the same line as their closing `)]`. Multi-line `[DataRow]` attributes are not currently supported.
 
 ## CodeLens
 

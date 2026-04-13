@@ -193,20 +193,31 @@ function updateProjectItems(project: TestProjectInfo): void {
         // Track method IDs
         const currentMethodIds = new Set<string>();
 
+        // Group DataRow methods by base method name so they can be nested
+        // under a parent method node with short "(args)" labels.
+        const dataRowGroups = new Map<string, typeof cls.methods>();
         for (const method of cls.methods) {
+            if (method.traitType === 'DataRow' && method.dataRowArgs) {
+                const group = dataRowGroups.get(method.methodName) || [];
+                group.push(method);
+                dataRowGroups.set(method.methodName, group);
+            }
+        }
+
+        for (const method of cls.methods) {
+            // DataRow entries are handled as a group below
+            if (method.traitType === 'DataRow' && method.dataRowArgs) {
+                continue;
+            }
+
             const methodId = `method:${method.fullyQualifiedName}:${project.projectPath}`;
             currentMethodIds.add(methodId);
-
-            // Build display name: for DataRow, append the arguments
-            const displayName = method.dataRowArgs
-                ? `${method.methodName}(${method.dataRowArgs})`
-                : method.methodName;
 
             let methodItem = classItem.children.get(methodId);
             if (!methodItem) {
                 methodItem = testController.createTestItem(
                     methodId,
-                    displayName,
+                    method.methodName,
                     method.uri
                 );
                 classItem.children.add(methodItem);
@@ -218,7 +229,6 @@ function updateProjectItems(project: TestProjectInfo): void {
             switch (method.traitType) {
                 case 'Setup': tags.push(tagSetup); break;
                 case 'Cleanup': tags.push(tagCleanup); break;
-                case 'DataRow': tags.push(tagDataRow); break;
                 default: tags.push(tagTestMethod); break;
             }
             methodItem.tags = tags;
@@ -231,11 +241,69 @@ function updateProjectItems(project: TestProjectInfo): void {
             });
         }
 
-        // Remove methods that no longer exist
+        // Create grouped DataRow entries: parent method node → child "(args)" items
+        for (const [methodName, rows] of dataRowGroups) {
+            const firstRow = rows[0];
+            const baseFqn = firstRow.fullyQualifiedName.replace(/\.\d+$/, '');
+            const groupId = `method-group:${baseFqn}:${project.projectPath}`;
+            currentMethodIds.add(groupId);
+
+            let groupItem = classItem.children.get(groupId);
+            if (!groupItem) {
+                groupItem = testController.createTestItem(
+                    groupId,
+                    methodName,
+                    firstRow.uri
+                );
+                classItem.children.add(groupItem);
+            }
+            groupItem.range = new vscode.Range(firstRow.line, 0, firstRow.line, 0);
+            groupItem.tags = [tagTestMethod];
+
+            setItemData(groupItem, {
+                kind: 'class', // treat as container so collectMethodItems recurses into children
+                projectPath: project.projectPath,
+                projectDir: project.projectDir
+            });
+
+            const currentRowIds = new Set<string>();
+            for (const row of rows) {
+                const rowId = `method:${row.fullyQualifiedName}:${project.projectPath}`;
+                currentMethodIds.add(rowId);
+                currentRowIds.add(rowId);
+
+                const rowLabel = `(${row.dataRowArgs})`;
+
+                let rowItem = groupItem.children.get(rowId);
+                if (!rowItem) {
+                    rowItem = testController.createTestItem(rowId, rowLabel, row.uri);
+                    groupItem.children.add(rowItem);
+                }
+                rowItem.range = new vscode.Range(row.line, 0, row.line, 0);
+                rowItem.tags = [tagDataRow];
+
+                setItemData(rowItem, {
+                    kind: 'method',
+                    projectPath: project.projectPath,
+                    projectDir: project.projectDir,
+                    fullyQualifiedName: row.fullyQualifiedName
+                });
+            }
+
+            // Remove stale DataRow children
+            groupItem.children.forEach(child => {
+                if (!currentRowIds.has(child.id)) {
+                    groupItem!.children.delete(child.id);
+                    testItemDataMap.delete(child.id);
+                }
+            });
+        }
+
+        // Remove methods/groups that no longer exist
         classItem.children.forEach(child => {
             if (!currentMethodIds.has(child.id)) {
                 classItem!.children.delete(child.id);
-                testItemDataMap.delete(child.id);
+                deleteItemData(child);
             }
         });
     }
