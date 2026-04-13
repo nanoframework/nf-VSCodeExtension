@@ -27,25 +27,81 @@ function nfProjectSystemPath(extensionPath: string): string {
  * Otherwise looks for a parent .sln.
  * Falls back to the project file itself.
  */
-function resolveRestoreTarget(projectPath: string): { target: string; extraArgs: string } {
+function resolveRestoreTarget(projectPath: string): { target: string; solutionDir?: string } {
     const projectDir = path.dirname(projectPath);
     const parentDir = path.dirname(projectDir);
 
     const packagesConfig = path.join(projectDir, 'packages.config');
     if (fs.existsSync(packagesConfig)) {
-        return { target: packagesConfig, extraArgs: `-SolutionDirectory "${parentDir}"` };
+        return { target: packagesConfig, solutionDir: parentDir };
     }
 
     try {
         const slnFiles = fs.readdirSync(parentDir).filter(f => f.endsWith('.sln') || f.endsWith('.slnx'));
         if (slnFiles.length > 0) {
-            return { target: path.join(parentDir, slnFiles[0]), extraArgs: '' };
+            return { target: path.join(parentDir, slnFiles[0]) };
         }
     } catch {
         // ignore
     }
 
-    return { target: projectPath, extraArgs: '' };
+    return { target: projectPath };
+}
+
+/**
+ * Locates MSBuild on Windows using vswhere.exe.
+ * Tries the amd64 variant first, then falls back to the default (x86) path.
+ */
+async function findMSBuildWindows(): Promise<string | undefined> {
+    const vsWherePath = path.join(
+        process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+        'microsoft visual studio', 'installer', 'vswhere.exe'
+    );
+
+    for (const pattern of [
+        'MSBuild\\**\\Bin\\amd64\\MSBuild.exe',
+        'MSBuild\\**\\Bin\\MSBuild.exe'
+    ]) {
+        const found = await new Promise<string>((resolve) => {
+            cp.execFile(vsWherePath, [
+                '-products', '*', '-all', '-prerelease',
+                '-requires', 'Microsoft.Component.MSBuild',
+                '-find', pattern
+            ], (_error, stdout) => {
+                const first = (stdout || '').trim().split(/\r?\n/)[0] || '';
+                resolve(first);
+            });
+        });
+        if (found) { return found; }
+    }
+
+    return undefined;
+}
+
+/**
+ * Runs a build-step process with an argument array (no shell interpolation).
+ * Returns true when the process exits with code 0.
+ */
+function runBuildStep(
+    command: string,
+    args: string[],
+    channel: vscode.OutputChannel,
+    token?: vscode.CancellationToken
+): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+        channel.appendLine(`> ${command} ${args.join(' ')}`);
+
+        const child = cp.execFile(command, args, {
+            timeout: 120000,
+            maxBuffer: 10 * 1024 * 1024
+        }, (error, stdout, stderr) => {
+            if (stdout) { channel.append(String(stdout)); }
+            if (stderr) { channel.append(String(stderr)); }
+            resolve(!error);
+        });
+
+        token?.onCancellationRequested(() => child.kill());
+    });
 }
 
 /**
@@ -74,55 +130,62 @@ export async function buildTestProject(
 
     const nfProjSysPath = nfProjectSystemPath(extensionPath);
     const restore = resolveRestoreTarget(projectPath);
-    const msbuildProps = `-p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjSysPath}" -p:NFMDP_PE_Verbose=false -p:UseSharedCompilation=false -verbosity:minimal`;
 
-    let shellCmd: string;
-
+    // Locate MSBuild
+    let msbuildExe: string;
     if (os.platform() === 'win32') {
-        // PowerShell command: find MSBuild via vswhere, run nuget restore, then build
-        const vsWhere = '${env:ProgramFiles(x86)}\\\\microsoft visual studio\\\\installer\\\\vswhere.exe';
-        shellCmd = [
-            `$msbuild = & "${vsWhere}" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1`,
-            `if (-not $msbuild) { $msbuild = & "${vsWhere}" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1 }`,
-            `if (-not $msbuild) { Write-Error "MSBuild not found. Install Visual Studio with .NET desktop development workload."; exit 1 }`,
-            `nuget restore "${restore.target}" ${restore.extraArgs} -MSBuildPath (Split-Path $msbuild)`,
-            `& $msbuild "${projectPath}" ${msbuildProps}`
-        ].join('; ');
+        const found = await findMSBuildWindows();
+        if (!found) {
+            channel.appendLine(
+                'MSBuild not found. Install Visual Studio with .NET desktop development workload.'
+            );
+            return false;
+        }
+        msbuildExe = found;
     } else {
-        // Unix: use msbuild and nuget from PATH (Mono)
-        shellCmd = `nuget restore "${restore.target}" ${restore.extraArgs} && msbuild "${projectPath}" ${msbuildProps}`;
+        msbuildExe = 'msbuild';
     }
 
-    channel.appendLine(`> ${shellCmd}`);
+    if (token?.isCancellationRequested) { return false; }
 
-    return new Promise<boolean>((resolve) => {
-        const execOptions: cp.ExecOptions = {
-            timeout: 120000,
-            maxBuffer: 10 * 1024 * 1024, // 10 MB
-            env: { ...process.env },
-            shell: os.platform() === 'win32' ? 'powershell.exe' : '/bin/bash'
-        };
+    // nuget restore (best-effort — nuget.exe may not be on PATH)
+    const nugetArgs = ['restore', restore.target];
+    if (restore.solutionDir) {
+        nugetArgs.push('-SolutionDirectory', restore.solutionDir);
+    }
+    if (os.platform() === 'win32') {
+        nugetArgs.push('-MSBuildPath', path.dirname(msbuildExe));
+    }
 
-        const child = cp.exec(shellCmd, execOptions, (error, stdout, stderr) => {
-            if (stdout) { channel.append(String(stdout)); }
-            if (stderr) { channel.append(String(stderr)); }
+    const nugetOk = await runBuildStep('nuget', nugetArgs, channel, token);
+    if (!nugetOk) {
+        channel.appendLine(
+            'nuget restore failed (packages may already be restored). Continuing with build...'
+        );
+    }
 
-            if (error) {
-                channel.appendLine(`Build failed: ${error.message}`);
-                channel.appendLine(
-                    'Tip: You can also build using "nanoFramework: Build Project" command before running tests.'
-                );
-                resolve(false);
-            } else {
-                channel.appendLine('Build succeeded.');
-                resolve(true);
-            }
-        });
+    if (token?.isCancellationRequested) { return false; }
 
-        token?.onCancellationRequested(() => {
-            child.kill();
-        });
-    });
+    // MSBuild arguments as an array — avoids shell interpolation (CodeQL js/shell-command-constructed-from-input)
+    const msbuildArgs = [
+        projectPath,
+        `-p:Configuration=${configuration}`,
+        `-p:NanoFrameworkProjectSystemPath=${nfProjSysPath}`,
+        '-p:NFMDP_PE_Verbose=false',
+        '-p:UseSharedCompilation=false',
+        '-verbosity:minimal'
+    ];
+
+    const buildOk = await runBuildStep(msbuildExe, msbuildArgs, channel, token);
+    if (!buildOk) {
+        channel.appendLine(
+            'Tip: You can also build using "nanoFramework: Build Project" command before running tests.'
+        );
+        return false;
+    }
+
+    channel.appendLine('Build succeeded.');
+    return true;
 }
 
 /**
