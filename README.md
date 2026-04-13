@@ -74,6 +74,50 @@ Then select the type of project you want to add.
 
 ![type of project](docs/create-solution-step4.png)
 
+## Unit Testing
+
+The extension integrates with the VS Code **Test Explorer** to discover, run, and report results for [nanoFramework.TestFramework](https://github.com/nanoframework/nanoFramework.TestFramework) tests.
+
+### Test Runner Features
+
+| Feature | Description |
+| ------- | ----------- |
+| **Automatic Discovery** | Detects `[TestClass]`, `[TestMethod]`, `[Setup]`, `[Cleanup]`, and `[DataRow]` attributes in `.nfproj` projects |
+| **Emulator Execution** | Runs tests on the **nanoCLR** emulator — no hardware required |
+| **Device Execution** | Deploys and runs tests on a physical nanoFramework device via serial/network |
+| **DataRow Support** | Parameterised tests with `[DataRow(...)]` shown as individual items per data row |
+| **CodeLens** | Inline "Run Test" / "Run Class" links above test methods and classes |
+| **Watch Mode** | Automatically re-runs tests when source files are saved |
+| **Tag Filtering** | Filter by test type: `@testMethod`, `@dataRow`, `@setup`, `@cleanup` |
+| **runsettings** | Optional `nano.runsettings` for timeout and environment configuration |
+
+### Running Tests
+
+1. Open a workspace containing a `.nfproj` test project that references `nanoFramework.TestFramework`.
+2. Open the **Testing** side bar (click the flask icon in the Activity Bar, or run `Testing: Focus on Test Explorer View` from the Command Palette).
+3. Tests are discovered automatically. Click the **Run** button to execute on the nanoCLR emulator.
+4. To run on a physical device, click the dropdown arrow next to Run and select **"Run on Device"**, then choose a serial port.
+
+### Test Settings
+
+Configure under `nanoFramework.test.*` in VS Code settings:
+
+| Setting | Default | Description |
+| ------- | ------- | ----------- |
+| `sessionTimeout` | `120000` | Max time (ms) to wait for test output |
+| `logging` | `None` | Logging level: `None`, `Normal`, `Verbose` |
+| `nanoclrVersion` | `""` | Specific nanoCLR version (empty = latest stable) |
+| `usePreviewClr` | `false` | Use preview nanoCLR builds |
+| `pathToLocalCLRInstance` | `""` | Path to a local nanoCLR binary |
+| `hardwarePort` | `""` | Pre-configured device port (e.g. `COM3`) |
+| `hardwareRetries` | `3` | Connection retry count for hardware runs |
+| `runSettingsPath` | `""` | Path to `nano.runsettings` file |
+| `watchMode` | `false` | Auto-run tests on file save |
+
+> **Note:** The nanoCLR emulator always runs _all_ tests in the assembly. When you select a single test, only that test's result is reported, but the full suite executes internally.
+
+For detailed information, see the [Testing Guide](docs/testing.md).
+
 ## Debugging
 
 The extension provides full debugging support for .NET nanoFramework applications running on connected devices.
