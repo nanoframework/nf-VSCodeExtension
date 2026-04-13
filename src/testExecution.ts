@@ -272,6 +272,8 @@ export async function runTestsOnEmulator(
 
         let stdout = '';
         let stderr = '';
+        let killedByTimeout = false;
+        let killedByCancellation = false;
 
         child.stdout?.on('data', (data: Buffer) => {
             const text = data.toString();
@@ -286,11 +288,13 @@ export async function runTestsOnEmulator(
 
         // Timeout handling
         const timer = setTimeout(() => {
+            killedByTimeout = true;
             child.kill();
             channel.appendLine(`Test execution timed out after ${timeout}ms`);
         }, timeout);
 
         const onCancel = token?.onCancellationRequested(() => {
+            killedByCancellation = true;
             child.kill();
             clearTimeout(timer);
         });
@@ -319,7 +323,15 @@ export async function runTestsOnEmulator(
             }
 
             const parsed = parseTestOutput(stdout);
-            if (code !== 0 && code !== null && !parsed.runError) {
+
+            // Preserve timeout/cancellation failures even if output was partially valid
+            if (killedByCancellation && !parsed.runError) {
+                parsed.completed = false;
+                parsed.runError = 'Test execution was cancelled';
+            } else if (killedByTimeout && !parsed.runError) {
+                parsed.completed = false;
+                parsed.runError = `Test execution timed out after ${timeout}ms`;
+            } else if (code !== 0 && code !== null && !parsed.runError) {
                 parsed.runError = `nanoclr exited with code ${code}. ${stderr || ''}`.trim();
             }
             resolve(parsed);

@@ -340,7 +340,7 @@ async function runHandler(
             return;
         }
 
-        if (token.isCancellationRequested) { run.end(); return; }
+        if (token.isCancellationRequested) { return; }
 
         // Collect tests to run, grouped by project
         const projectGroups = groupTestsByProject(request);
@@ -395,10 +395,10 @@ async function runHandler(
         }
     } catch (err) {
         run.appendOutput(`Unexpected error: ${err}\r\n`);
+    } finally {
+        hideStatusBar();
+        run.end();
     }
-
-    hideStatusBar();
-    run.end();
 }
 
 /**
@@ -463,13 +463,12 @@ async function runOnDeviceHandler(
         const device = await pickDevicePort(token);
         if (!device) {
             run.appendOutput('No device selected. Aborting hardware test run.\r\n');
-            run.end();
             return;
         }
 
         showStatusBar(`Running tests on ${device}...`, `Deploying and running tests on device ${device}`);
 
-        if (token.isCancellationRequested) { run.end(); return; }
+        if (token.isCancellationRequested) { return; }
 
         // Collect tests grouped by project
         const projectGroups = groupTestsByProject(request);
@@ -516,10 +515,10 @@ async function runOnDeviceHandler(
         }
     } catch (err) {
         run.appendOutput(`Unexpected error: ${err}\r\n`);
+    } finally {
+        hideStatusBar();
+        run.end();
     }
-
-    hideStatusBar();
-    run.end();
 }
 
 /**
@@ -660,7 +659,8 @@ function mapResults(
 }
 
 /**
- * Marks all methods in a request as errored and ends the run.
+ * Marks all methods in a request as errored.
+ * Does not call run.end() - caller is responsible for cleanup via finally block.
  * Respects request.exclude by not marking excluded items.
  */
 function endRunWithError(run: vscode.TestRun, request: vscode.TestRunRequest, message: string): void {
@@ -671,7 +671,6 @@ function endRunWithError(run: vscode.TestRun, request: vscode.TestRunRequest, me
     for (const m of methods) {
         run.errored(m, new vscode.TestMessage(message));
     }
-    run.end();
 }
 
 /**

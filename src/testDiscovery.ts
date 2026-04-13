@@ -277,19 +277,8 @@ export class TestDiscovery {
             const line = lines[i];
             const trimmed = line.trim();
 
-            // Skip comments and empty lines for attribute detection
-            if (trimmed.startsWith('//') || trimmed.length === 0) {
-                continue;
-            }
-
-            // Track namespace
-            const nsMatch = line.match(namespacePattern);
-            if (nsMatch) {
-                currentNamespace = nsMatch[1];
-                continue;
-            }
-
-            // Track brace depth (skipping braces inside strings, chars, and comments)
+            // Track brace depth first (skipping braces inside strings, chars, and comments)
+            // This must happen before skipping comment lines to properly detect block comment closures
             const braceResult = countBraces(line, inBlockComment);
             inBlockComment = braceResult.inBlockComment;
             for (const _pos of braceResult.opens) {
@@ -308,6 +297,18 @@ export class TestDiscovery {
                     }
                     currentClass = null;
                 }
+            }
+
+            // Skip comments and empty lines for attribute detection (after brace counting)
+            if (trimmed.startsWith('//') || trimmed.length === 0) {
+                continue;
+            }
+
+            // Track namespace
+            const nsMatch = line.match(namespacePattern);
+            if (nsMatch) {
+                currentNamespace = nsMatch[1];
+                continue;
             }
 
             // Detect [TestClass] attribute
@@ -332,8 +333,8 @@ export class TestDiscovery {
                     };
                     continue;
                 }
-                // If it's not a comment or attribute, reset pending
-                if (!trimmed.startsWith('[') && !trimmed.startsWith('//')) {
+                // If it's not an attribute, reset pending (comments already skipped above)
+                if (!trimmed.startsWith('[')) {
                     pendingTestClass = false;
                 }
             }
