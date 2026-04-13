@@ -200,7 +200,13 @@ export async function configureRunSettings(): Promise<void> {
     }
 
     const filePath = path.join(folder.uri.fsPath, 'nano.runsettings');
-    fs.writeFileSync(filePath, xml, 'utf-8');
+
+    try {
+        fs.writeFileSync(filePath, xml, 'utf-8');
+    } catch (err) {
+        vscode.window.showErrorMessage(`Failed to write ${filePath}: ${err instanceof Error ? err.message : err}`);
+        return;
+    }
 
     const doc = await vscode.workspace.openTextDocument(filePath);
     await vscode.window.showTextDocument(doc);

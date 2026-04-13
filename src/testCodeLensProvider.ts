@@ -5,6 +5,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import { countBraces } from './testDiscovery';
 
 // Regex patterns matching those in testDiscovery.ts
 const testClassAttribute = /\[\s*TestClass\s*\]/;
@@ -47,6 +48,8 @@ export class TestCodeLensProvider implements vscode.CodeLensProvider {
         let pendingTestMethod = false;
         let braceDepth = 0;
         let classStartBraceDepth = 0;
+        let awaitingClassBrace = false;
+        let inBlockComment = false;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -61,15 +64,21 @@ export class TestCodeLensProvider implements vscode.CodeLensProvider {
                 continue;
             }
 
-            // Track braces
-            for (const ch of line) {
-                if (ch === '{') { braceDepth++; }
-                if (ch === '}') {
-                    braceDepth--;
-                    if (insideTestClass && braceDepth < classStartBraceDepth) {
-                        insideTestClass = false;
-                        currentClassName = '';
-                    }
+            // Track braces (skipping braces inside strings, chars, and comments)
+            const braceResult = countBraces(line, inBlockComment);
+            inBlockComment = braceResult.inBlockComment;
+            for (const _pos of braceResult.opens) {
+                braceDepth++;
+                if (awaitingClassBrace) {
+                    classStartBraceDepth = braceDepth;
+                    awaitingClassBrace = false;
+                }
+            }
+            for (const _pos of braceResult.closes) {
+                braceDepth--;
+                if (insideTestClass && braceDepth < classStartBraceDepth) {
+                    insideTestClass = false;
+                    currentClassName = '';
                 }
             }
 
@@ -84,7 +93,7 @@ export class TestCodeLensProvider implements vscode.CodeLensProvider {
                 if (classMatch) {
                     pendingTestClass = false;
                     insideTestClass = true;
-                    classStartBraceDepth = braceDepth;
+                    awaitingClassBrace = true;
                     currentClassName = classMatch[1];
 
                     const fqClass = currentNamespace

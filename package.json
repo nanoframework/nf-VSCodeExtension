@@ -297,9 +297,9 @@
         },
         "nanoFramework.test.logging": {
           "type": "string",
-          "enum": ["None", "Detailed", "Verbose", "Error"],
+          "enum": ["None", "Normal", "Verbose"],
           "default": "None",
-          "description": "Logging level for test execution."
+          "description": "Logging level for test execution: None (no extra output), Normal (important events), Verbose (full diagnostics)."
         },
         "nanoFramework.test.nanoclrVersion": {
           "type": "string",

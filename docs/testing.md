@@ -40,7 +40,7 @@ The extension integrates with the VS Code **Testing** API to provide:
 
 1. Open a workspace (or folder) containing your `.nfproj` test project.
 2. The extension scans for `.nfproj` files that reference `nanoFramework.TestFramework` and automatically discovers test classes.
-3. Open the **Testing** side bar (click the flask icon in the Activity Bar, or press `Ctrl+Shift+T`).
+3. Open the **Testing** side bar (click the flask icon in the Activity Bar, or run `Testing: Focus on Test Explorer View` from the Command Palette).
 4. Your test classes and methods appear in the tree.
 
 ## Running Tests on the Emulator

@@ -94,7 +94,7 @@ The extension integrates with the VS Code **Test Explorer** to discover, run, an
 ### Running Tests
 
 1. Open a workspace containing a `.nfproj` test project that references `nanoFramework.TestFramework`.
-2. Open the **Testing** side bar (`Ctrl+Shift+T` or the flask icon).
+2. Open the **Testing** side bar (click the flask icon in the Activity Bar, or run `Testing: Focus on Test Explorer View` from the Command Palette).
 3. Tests are discovered automatically. Click the **Run** button to execute on the nanoCLR emulator.
 4. To run on a physical device, click the dropdown arrow next to Run and select **"Run on Device"**, then choose a serial port.
 

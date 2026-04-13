@@ -754,18 +754,27 @@ function hideStatusBar(): void {
 async function runSingleMethod(fqn: string, _uri: vscode.Uri): Promise<void> {
     if (!testController) { return; }
 
-    // Find the TestItem matching this FQN
+    // Find the TestItem matching this FQN (exact match for plain methods,
+    // or the DataRow group node whose children share the base FQN).
     let targetItem: vscode.TestItem | undefined;
-    testItemDataMap.forEach((data, id) => {
-        if (data.kind === 'method' && data.fullyQualifiedName === fqn && !targetItem) {
-            // Walk controller tree to find it
-            testController!.items.forEach(project => {
-                project.children.forEach(cls => {
-                    const item = cls.children.get(id);
-                    if (item) { targetItem = item; }
-                });
+
+    testController.items.forEach(project => {
+        project.children.forEach(cls => {
+            if (targetItem) { return; }
+
+            // Check direct method children of the class
+            cls.children.forEach(child => {
+                if (targetItem) { return; }
+                const data = testItemDataMap.get(child.id);
+                if (data?.kind === 'method' && data.fullyQualifiedName === fqn) {
+                    targetItem = child;
+                }
+                // Check DataRow group node — its id is `method-group:<baseFqn>:<project>`
+                if (!targetItem && child.id.startsWith('method-group:') && child.id.includes(`:${fqn}:`)) {
+                    targetItem = child;
+                }
             });
-        }
+        });
     });
 
     if (!targetItem) {

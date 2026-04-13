@@ -239,8 +239,10 @@ export async function runTestsOnEmulator(
 
     const config = vscode.workspace.getConfiguration('nanoFramework.test');
     const logging = config.get<string>('logging', 'None');
-    if (logging !== 'None') {
+    if (logging === 'Verbose') {
         args.push('-v', 'diag');
+    } else if (logging === 'Normal') {
+        args.push('-v', 'detail');
     }
 
     const localClrPath = config.get<string>('pathToLocalCLRInstance', '');
@@ -373,7 +375,7 @@ export async function runTestsOnHardware(
     const timeout = config.get<number>('sessionTimeout', 120000);
     const maxRetries = config.get<number>('hardwareRetries', 3);
     const logging = config.get<string>('logging', 'None');
-    const verbosity = logging === 'None' ? 'none' : (logging === 'Verbose' ? 'debug' : 'information');
+    const verbosity = logging === 'Verbose' ? 'debug' : (logging === 'Normal' ? 'information' : 'none');
 
     channel.appendLine(`Deploying tests to device: ${device}`);
     channel.appendLine(`Assemblies path: ${assembliesPath}`);

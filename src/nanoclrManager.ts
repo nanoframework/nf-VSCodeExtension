@@ -98,7 +98,11 @@ export class NanoCLRManager {
         if (usePreview) {
             args += ' --preview';
         } else if (clrVersion) {
-            args += ` --version ${clrVersion}`;
+            if (!/^\d+\.\d+\.\d+/.test(clrVersion)) {
+                channel.appendLine(`Invalid nanoclrVersion "${clrVersion}" — expected semver (e.g. 1.2.3). Skipping version pin.`);
+            } else {
+                args += ` --version ${clrVersion}`;
+            }
         }
 
         channel.appendLine(`Updating nanoCLR instance: nanoclr ${args}`);

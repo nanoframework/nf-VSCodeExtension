@@ -9,6 +9,107 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
+ * Counts structural brace depth changes in a line of C# code while
+ * skipping braces inside string literals, char literals, and comments.
+ *
+ * Tracks cross-line state via `inBlockComment` (caller must persist).
+ * Handles: regular strings, verbatim strings (@"..."), interpolated
+ * strings ($"...{expr}..."), char literals ('{'), single-line comments
+ * (// ...), and block comments.
+ *
+ * @returns An object with `delta` (net brace depth change) and the
+ *   positions (character indices) of each structural `{` and `}`.
+ */
+export function countBraces(
+    line: string,
+    inBlockComment: boolean
+): { delta: number; opens: number[]; closes: number[]; inBlockComment: boolean } {
+    let delta = 0;
+    const opens: number[] = [];
+    const closes: number[] = [];
+    let inString = false;
+    let inVerbatimString = false;
+    let inChar = false;
+
+    for (let j = 0; j < line.length; j++) {
+        const ch = line[j];
+        const next = j + 1 < line.length ? line[j + 1] : '';
+
+        // Block comment state
+        if (inBlockComment) {
+            if (ch === '*' && next === '/') {
+                inBlockComment = false;
+                j++; // skip '/'
+            }
+            continue;
+        }
+
+        // Start of block comment
+        if (ch === '/' && next === '*') {
+            inBlockComment = true;
+            j++;
+            continue;
+        }
+
+        // Single-line comment — rest of line is ignored
+        if (ch === '/' && next === '/') {
+            break;
+        }
+
+        // Character literal
+        if (inChar) {
+            if (ch === '\\') { j++; continue; } // skip escaped char
+            if (ch === '\'') { inChar = false; }
+            continue;
+        }
+        if (ch === '\'' && !inString && !inVerbatimString) {
+            inChar = true;
+            continue;
+        }
+
+        // Verbatim string (@"...""...")
+        if (inVerbatimString) {
+            if (ch === '"') {
+                if (next === '"') { j++; continue; } // escaped quote
+                inVerbatimString = false;
+            }
+            continue;
+        }
+
+        // Regular / interpolated string ("..." or $"...")
+        if (inString) {
+            if (ch === '\\') { j++; continue; } // skip escape sequence
+            if (ch === '"') { inString = false; }
+            continue;
+        }
+
+        // Start of string
+        if (ch === '"') {
+            // Check for verbatim: @" or $@" or @$"
+            const prev = j > 0 ? line[j - 1] : '';
+            const prev2 = j > 1 ? line[j - 2] : '';
+            if (prev === '@' || (prev === '@' && prev2 === '$') || (prev === '$' && prev2 === '@')) {
+                inVerbatimString = true;
+            } else {
+                inString = true;
+            }
+            continue;
+        }
+
+        // Structural braces
+        if (ch === '{') {
+            delta++;
+            opens.push(j);
+        } else if (ch === '}') {
+            delta--;
+            closes.push(j);
+        }
+    }
+
+    return { delta, opens, closes, inBlockComment };
+}
+
+/**
  * Represents a discovered test method.
  */
 export interface TestMethodInfo {
@@ -164,6 +265,8 @@ export class TestDiscovery {
         let pendingDataRows: string[] = [];
         let braceDepth = 0;
         let classStartBraceDepth = 0;
+        let awaitingClassBrace = false;
+        let inBlockComment = false;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -181,19 +284,24 @@ export class TestDiscovery {
                 continue;
             }
 
-            // Track brace depth
-            for (const ch of line) {
-                if (ch === '{') { braceDepth++; }
-                if (ch === '}') {
-                    braceDepth--;
-                    // Check if we exited the current class
-                    if (insideTestClass && currentClass && braceDepth < classStartBraceDepth) {
-                        insideTestClass = false;
-                        if (currentClass.methods.length > 0) {
-                            results.push(currentClass);
-                        }
-                        currentClass = null;
+            // Track brace depth (skipping braces inside strings, chars, and comments)
+            const braceResult = countBraces(line, inBlockComment);
+            inBlockComment = braceResult.inBlockComment;
+            for (const _pos of braceResult.opens) {
+                braceDepth++;
+                if (awaitingClassBrace) {
+                    classStartBraceDepth = braceDepth;
+                    awaitingClassBrace = false;
+                }
+            }
+            for (const _pos of braceResult.closes) {
+                braceDepth--;
+                if (insideTestClass && currentClass && braceDepth < classStartBraceDepth) {
+                    insideTestClass = false;
+                    if (currentClass.methods.length > 0) {
+                        results.push(currentClass);
                     }
+                    currentClass = null;
                 }
             }
 
@@ -209,7 +317,7 @@ export class TestDiscovery {
                 if (classMatch) {
                     pendingTestClass = false;
                     insideTestClass = true;
-                    classStartBraceDepth = braceDepth;
+                    awaitingClassBrace = true;
                     currentClass = {
                         className: classMatch[1],
                         namespace: currentNamespace,
