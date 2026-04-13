@@ -162,7 +162,9 @@ function updateProjectItems(project: TestProjectInfo): void {
     const currentClassIds = new Set<string>();
 
     for (const cls of project.classes) {
-        const classId = `class:${project.projectPath}:${cls.namespace}.${cls.className}`;
+        // Build FQN conditionally to match CodeLens resolution (no leading dot when namespace is empty)
+        const classFqn = cls.namespace ? `${cls.namespace}.${cls.className}` : cls.className;
+        const classId = `class:${project.projectPath}:${classFqn}`;
         currentClassIds.add(classId);
 
         let classItem = projectItem.children.get(classId);
