@@ -344,6 +344,7 @@ async function runHandler(
 
         // Collect tests to run, grouped by project
         const projectGroups = groupTestsByProject(request);
+        const excludeSet = new Set(request.exclude ?? []);
 
         const configuration = 'Debug'; // Default for test runs
 
@@ -355,8 +356,8 @@ async function runHandler(
 
             const projectDir = data.projectDir;
 
-            // Enqueue all tests in this project
-            const allMethods = collectMethodItems(items);
+            // Enqueue all tests in this project (respecting excludes)
+            const allMethods = collectMethodItems(items, excludeSet);
             for (const m of allMethods) { run.enqueued(m); }
 
             // Build
@@ -472,6 +473,7 @@ async function runOnDeviceHandler(
 
         // Collect tests grouped by project
         const projectGroups = groupTestsByProject(request);
+        const excludeSet = new Set(request.exclude ?? []);
         const configuration = 'Debug';
 
         for (const [projectPath, items] of projectGroups) {
@@ -482,8 +484,8 @@ async function runOnDeviceHandler(
 
             const projectDir = data.projectDir;
 
-            // Enqueue all tests
-            const allMethods = collectMethodItems(items);
+            // Enqueue all tests (respecting excludes)
+            const allMethods = collectMethodItems(items, excludeSet);
             for (const m of allMethods) { run.enqueued(m); }
 
             // Build
@@ -523,13 +525,17 @@ async function runOnDeviceHandler(
 /**
  * Groups requested test items by their project path.
  * If request.include is undefined (run all), gathers all project items.
+ * Respects request.exclude by filtering out excluded items and their descendants.
  */
 function groupTestsByProject(request: vscode.TestRunRequest): Map<string, vscode.TestItem[]> {
     const groups = new Map<string, vscode.TestItem[]>();
+    const excludeSet = new Set(request.exclude ?? []);
 
     const items = request.include ?? gatherAllItems();
 
     for (const item of items) {
+        if (isExcluded(item, excludeSet)) { continue; }
+
         const data = testItemDataMap.get(item.id);
         const projectPath = data?.projectPath;
         if (!projectPath) { continue; }
@@ -555,12 +561,28 @@ function gatherAllItems(): vscode.TestItem[] {
 }
 
 /**
- * Recursively collects all leaf method-level TestItems from the given items.
+ * Checks if a test item or any of its ancestors is in the exclude set.
  */
-function collectMethodItems(items: vscode.TestItem[]): vscode.TestItem[] {
+function isExcluded(item: vscode.TestItem, excludeSet: Set<vscode.TestItem>): boolean {
+    let current: vscode.TestItem | undefined = item;
+    while (current) {
+        if (excludeSet.has(current)) { return true; }
+        current = current.parent;
+    }
+    return false;
+}
+
+/**
+ * Recursively collects all leaf method-level TestItems from the given items.
+ * Skips items that are in the exclude set or have an excluded ancestor.
+ */
+function collectMethodItems(items: vscode.TestItem[], excludeSet?: Set<vscode.TestItem>): vscode.TestItem[] {
     const methods: vscode.TestItem[] = [];
+    const excluded = excludeSet ?? new Set<vscode.TestItem>();
 
     function walk(item: vscode.TestItem) {
+        if (isExcluded(item, excluded)) { return; }
+
         const data = testItemDataMap.get(item.id);
         if (data?.kind === 'method') {
             methods.push(item);
@@ -639,10 +661,13 @@ function mapResults(
 
 /**
  * Marks all methods in a request as errored and ends the run.
+ * Respects request.exclude by not marking excluded items.
  */
 function endRunWithError(run: vscode.TestRun, request: vscode.TestRunRequest, message: string): void {
-    const items = request.include ? [...request.include] : gatherAllItems();
-    const methods = collectMethodItems(items);
+    const excludeSet = new Set(request.exclude ?? []);
+    const items = (request.include ? [...request.include] : gatherAllItems())
+        .filter(item => !isExcluded(item, excludeSet));
+    const methods = collectMethodItems(items, excludeSet);
     for (const m of methods) {
         run.errored(m, new vscode.TestMessage(message));
     }
@@ -701,8 +726,13 @@ function setupWatchMode(context: vscode.ExtensionContext): void {
 
         testController.items.forEach(projectItem => {
             const data = testItemDataMap.get(projectItem.id);
-            if (data?.projectDir && filePath.startsWith(data.projectDir)) {
-                targetProject = projectItem;
+            if (data?.projectDir) {
+                // Use path.relative() to properly check containment - startsWith() would
+                // incorrectly match sibling directories like /tests and /tests-integration
+                const rel = path.relative(data.projectDir, filePath);
+                if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+                    targetProject = projectItem;
+                }
             }
         });
 
@@ -751,14 +781,27 @@ function hideStatusBar(): void {
 /**
  * Run a single test method by its fully-qualified name, triggered from CodeLens.
  */
-async function runSingleMethod(fqn: string, _uri: vscode.Uri): Promise<void> {
+async function runSingleMethod(fqn: string, uri: vscode.Uri): Promise<void> {
     if (!testController) { return; }
 
     // Find the TestItem matching this FQN (exact match for plain methods,
     // or the DataRow group node whose children share the base FQN).
+    // Scope by uri to avoid matching tests in different projects with the same FQN.
     let targetItem: vscode.TestItem | undefined;
+    const filePath = uri.fsPath;
 
     testController.items.forEach(project => {
+        if (targetItem) { return; }
+        
+        // Check if this project contains the file
+        const projectData = testItemDataMap.get(project.id);
+        if (projectData?.projectDir) {
+            const rel = path.relative(projectData.projectDir, filePath);
+            if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+                return; // File is not in this project
+            }
+        }
+        
         project.children.forEach(cls => {
             if (targetItem) { return; }
 
@@ -790,14 +833,29 @@ async function runSingleMethod(fqn: string, _uri: vscode.Uri): Promise<void> {
 /**
  * Run all test methods in a class, triggered from CodeLens.
  */
-async function runSingleClass(fqClass: string, _uri: vscode.Uri): Promise<void> {
+async function runSingleClass(fqClass: string, uri: vscode.Uri): Promise<void> {
     if (!testController) { return; }
 
+    // Scope by uri to avoid matching tests in different projects with the same class name.
     let targetItem: vscode.TestItem | undefined;
+    const filePath = uri.fsPath;
+
     testController.items.forEach(project => {
+        if (targetItem) { return; }
+        
+        // Check if this project contains the file
+        const projectData = testItemDataMap.get(project.id);
+        if (projectData?.projectDir) {
+            const rel = path.relative(projectData.projectDir, filePath);
+            if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+                return; // File is not in this project
+            }
+        }
+        
         project.children.forEach(cls => {
+            if (targetItem) { return; }
             const data = testItemDataMap.get(cls.id);
-            // The class id is `class:<projectPath>:<namespace.className>`
+            // Match by FQN stored in metadata, not by id suffix
             if (data?.kind === 'class' && cls.id.endsWith(`:${fqClass}`)) {
                 targetItem = cls;
             }

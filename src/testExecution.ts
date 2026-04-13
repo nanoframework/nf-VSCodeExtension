@@ -382,6 +382,7 @@ export async function runTestsOnHardware(
 
     // We may retry the entire connect→deploy→run cycle if the device is flaky.
     let lastError = '';
+    let lastRawOutput = '';
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         if (token?.isCancellationRequested) {
             return { completed: false, results: [], rawOutput: '', runError: 'Cancelled' };
@@ -461,7 +462,21 @@ export async function runTestsOnHardware(
             channel.appendLine('Waiting for test output...');
             const result = await waitForTestCompletion(rawOutput, bridge, timeout, token);
             await cleanupBridge(bridge);
-            return result;
+
+            // If completed successfully or cancelled, return immediately
+            if (result.completed || result.runError === 'Cancelled') {
+                return result;
+            }
+
+            // Transient runtime failure (disconnect/timeout) - retry if attempts remain
+            lastError = result.runError || 'Test execution failed';
+            lastRawOutput = result.rawOutput;
+            channel.appendLine(lastError);
+            if (attempt < maxRetries) {
+                channel.appendLine('Retrying in 3 seconds...');
+                await delay(3000);
+            }
+            continue;
 
         } catch (err) {
             lastError = `Unexpected error: ${err}`;
@@ -477,7 +492,7 @@ export async function runTestsOnHardware(
     return {
         completed: false,
         results: [],
-        rawOutput: '',
+        rawOutput: lastRawOutput,
         runError: `Hardware test failed after ${maxRetries} attempts. Last error: ${lastError}`
     };
 }

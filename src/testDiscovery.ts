@@ -211,7 +211,12 @@ export class TestDiscovery {
             }
 
             return false;
-        } catch {
+        } catch (err: unknown) {
+            // ENOENT (file not found) is expected when probing paths; log other errors for debugging
+            const code = (err as NodeJS.ErrnoException)?.code;
+            if (code !== 'ENOENT') {
+                console.warn(`[testDiscovery] Error reading project file '${projectPath}':`, err);
+            }
             return false;
         }
     }
