@@ -360,7 +360,7 @@ export class NanoBridge extends EventEmitter {
             fileName = 'nanoFramework.Tools.DebugBridge';
         } else {
             // Linux and others default to linux-x64
-            platformFolder = 'linux-x64';
+            platformFolder = arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
             fileName = 'nanoFramework.Tools.DebugBridge';
         }
         
