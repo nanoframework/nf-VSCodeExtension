@@ -40,7 +40,7 @@ gulp.task("build-debug-bridge", async (done) => {
     
     // Set executable permissions on Unix binaries
     // Use both chmod (when on Unix) and git update-index (for CI/CD on Windows)
-    const unixPlatforms = ['linux-x64', 'darwin-x64', 'darwin-arm64'];
+    const unixPlatforms = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'];
     
     for (const folder of unixPlatforms) {
         const execPath = path.join(baseOutputDir, folder, 'nanoFramework.Tools.DebugBridge');
