@@ -10,11 +10,12 @@ gulp.task("build-debug-bridge", async (done) => {
     const baseOutputDir = path.resolve("bin", "nanoDebugBridge");
     const promiseExec = require("util").promisify(exec);
     
-    // Target platforms: Windows x64/arm64, macOS x64/arm64, Linux x64
+    // Target platforms: Windows x64/arm64, macOS x64/arm64, Linux x64/arm64
     const platforms = [
         { rid: "win-x64", folder: "win32-x64" },
         { rid: "win-arm64", folder: "win32-arm64" },
         { rid: "linux-x64", folder: "linux-x64" },
+        { rid: "linux-arm64", folder: "linux-arm64" },
         { rid: "osx-x64", folder: "darwin-x64" },
         { rid: "osx-arm64", folder: "darwin-arm64" }
     ];
