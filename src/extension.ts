@@ -22,6 +22,7 @@ import { HttpClient } from 'typed-rest-client/HttpClient';
 import * as semver from 'semver';
 import { validatePrerequisites, showPrerequisiteStatus, getPlatformInfo } from './prerequisites';
 import { SerialMonitor, chooseBaudRate } from './serialMonitor';
+import { activateTestRunner, deactivateTestRunner } from './testRunner';
 
 // Import debug adapter components
 import { NanoDebugSession } from './debugger/nanoDebugSession';
@@ -193,6 +194,9 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.debug.registerDebugAdapterDescriptorFactory('nanoframework', debugAdapterFactory)
     );
+
+    // Register test runner (Test Explorer integration)
+    activateTestRunner(context);
 
     // Register command to select debug device
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.selectDebugDevice", async () => {
@@ -618,4 +622,6 @@ function checkDotNetToolInstalled(toolName: string): Promise<void> {
 }
 
 // this method is called when your extension is deactivated
-export function deactivate() { }
+export function deactivate() {
+    deactivateTestRunner();
+}
