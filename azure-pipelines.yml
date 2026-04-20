@@ -78,7 +78,7 @@ steps:
     displayName: Build for production
     condition: succeeded()
 
-  # Package as preview (pre-release) for develop branch
+  # Package as preview (pre-release) for develop branch and PRs targeting develop
   - script: npm run package:preview
     env:
       PublicRelease: true
@@ -86,10 +86,13 @@ steps:
     condition: >-
       and(
         succeeded(),
-        eq(variables['Build.SourceBranch'], 'refs/heads/develop')
+        or(
+          eq(variables['Build.SourceBranch'], 'refs/heads/develop'),
+          eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/develop')
+        )
       )
 
-  # Package as stable release for tags
+  # Package as stable release for tags and other branches
   - script: npm run package
     env:
       PublicRelease: true
@@ -97,7 +100,8 @@ steps:
     condition: >-
       and(
         succeeded(),
-        ne(variables['Build.SourceBranch'], 'refs/heads/develop')
+        ne(variables['Build.SourceBranch'], 'refs/heads/develop'),
+        ne(variables['System.PullRequest.TargetBranch'], 'refs/heads/develop')
       )
   
   - task: DotNetCoreCLI@2
