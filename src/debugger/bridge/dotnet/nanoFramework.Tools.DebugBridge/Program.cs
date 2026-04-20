@@ -186,11 +186,18 @@ class Program
             }
         }
 
+        // Report bridge version so the TypeScript side can verify it spawned the right binary
+#if NANOFRAMEWORK_V2
+        var bridgeVersion = "v2";
+#else
+        var bridgeVersion = "v1";
+#endif
+
         return new BridgeResponse
         {
             Id = request.Id,
             Success = true,
-            Data = new { version = "1.0.0", capabilities = new[] { "breakpoints", "variables", "stepping" } }
+            Data = new { version = "1.0.0", bridgeVersion, capabilities = new[] { "breakpoints", "variables", "stepping" } }
         };
     }
 

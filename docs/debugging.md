@@ -13,6 +13,7 @@ This guide provides detailed information about debugging .NET nanoFramework appl
 - [Debug Console](#debug-console)
 - [Exception Handling](#exception-handling)
 - [Symbol Files](#symbol-files)
+- [v2 (Generics) Support](#v2-generics-support)
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
 
@@ -281,6 +282,50 @@ If breakpoints aren't working:
 1. Check that `.pdbx` and `.pdb` files exist alongside your `.pe` file
 2. Ensure the files match (same build)
 3. Rebuild the project to regenerate symbol files
+
+## v2 (Generics) Support
+
+The extension supports both nanoFramework v1 (stable) and v2 (preview with generics). Version detection is automatic but can be overridden.
+
+### How Version Detection Works
+
+1. **Project-level:** The extension reads the `nanoFramework.CoreLibrary` package version from your `.nfproj` file. Major version 1.x → v1, 2.x → v2.
+2. **Device-level:** At connect time, the debug bridge checks the `mscorlib` assembly version on the device and warns if there is a mismatch with the bridge version.
+
+### Configuring Target Version
+
+The version is auto-detected by default. To override, add `targetVersion` to your `launch.json`:
+
+```json
+{
+    "name": "Debug v2 Project",
+    "type": "nanoframework",
+    "request": "launch",
+    "program": "${workspaceFolder}/bin/Debug",
+    "targetVersion": "v2"
+}
+```
+
+Or set the global setting `nanoFramework.targetVersion` to `"v1"` or `"v2"`.
+
+### Debugging Generic Types
+
+When debugging v2 projects that use generics, the debugger can:
+
+- Display generic type names (e.g., `List<int>`, `Dictionary<string, MyClass>`)
+- Inspect fields and properties of generic instances
+- Show type parameters in the Variables pane
+
+> **Note:** Generics debugging requires both v2 firmware on the device and the v2 debug bridge. The extension uses separate bridge binaries for v1 and v2 to ensure wire protocol compatibility.
+
+### Dual Bridge Architecture
+
+The extension ships two debug bridge binaries:
+
+- **v1 bridge**: Built against `nf-debugger` NuGet 2.x (stable), compatible with v1 firmware
+- **v2 bridge**: Built against `nf-debugger` NuGet 3.0.0-preview.x, compatible with v2 firmware
+
+The correct bridge is selected automatically based on the detected project version. This is necessary because the wire protocol structs changed between v1 and v2 (specifically `Debugging_Value`), making the two versions binary-incompatible.
 
 ## Troubleshooting
 

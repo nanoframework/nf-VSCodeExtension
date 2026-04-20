@@ -22,11 +22,28 @@
     <!-- Disable trimming - the nanoFramework debug library uses reflection extensively 
          for Wire Protocol communication and assembly inspection -->
     <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- BridgeVersion property: set to "v2" to build with v2 (generics) debugger library.
+         Default (empty or "v1") builds with stable v1 debugger. -->
+    <BridgeVersion Condition="'$(BridgeVersion)' == ''">v1</BridgeVersion>
   </PropertyGroup>
 
+  <!-- v2 build: define NANOFRAMEWORK_V2 compilation constant -->
+  <PropertyGroup Condition="'$(BridgeVersion)' == 'v2'">
+    <DefineConstants>$(DefineConstants);NANOFRAMEWORK_V2</DefineConstants>
+  </PropertyGroup>
+
+  <!-- v1 build: stable debugger library -->
+  <ItemGroup Condition="'$(BridgeVersion)' != 'v2'">
+    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="2.*" />
+  </ItemGroup>
+
+  <!-- v2 build: preview debugger library with generics support -->
+  <ItemGroup Condition="'$(BridgeVersion)' == 'v2'">
+    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="3.0.0-preview.*" />
+  </ItemGroup>
+
   <ItemGroup>
-    <!-- Reference to nf-debugger library -->
-    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="*" />
     <PackageReference Include="System.IO.Ports" Version="9.*" />
     <PackageReference Include="System.Text.Json" Version="9.*" />
     <!-- For parsing portable PDB files to extract source line information -->

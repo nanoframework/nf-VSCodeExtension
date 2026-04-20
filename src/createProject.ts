@@ -30,7 +30,7 @@ export class NfProject {
      * @param projectType The project type
      * @param toolPath The tool path
      */
-    public static async AddProject(fileUri: string, projectName: string, projectType: string, toolPath: string) {
+    public static async AddProject(fileUri: string, projectName: string, projectType: string, toolPath: string, targetVersion?: 'v1' | 'v2') {
         const solutionPath = path.dirname(fileUri);
 
         switch (projectType) {
@@ -38,7 +38,7 @@ export class NfProject {
             case "Blank Application":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.BlankApplication-vs2022', 'NFApp.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath, targetVersion).then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -70,7 +70,7 @@ export class NfProject {
             case "Class Library":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.ClassLibrary-vs2022', 'NFClassLibrary.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath, targetVersion).then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -101,7 +101,7 @@ export class NfProject {
             case "Unit Test":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.TestApplication-vs2022', 'NFUnitTest.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath, targetVersion).then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -132,7 +132,7 @@ export class NfProject {
         }
     }
 
-    private static async CreateProject(solutionPath: string, filePath: string, projectName: string, toolPath: string) {
+    private static async CreateProject(solutionPath: string, filePath: string, projectName: string, toolPath: string, targetVersion?: 'v1' | 'v2') {
         await fs.readFile(filePath, 'utf8', async function (err: any, data: any) {
             if (err) {
                 return err;
@@ -157,7 +157,7 @@ export class NfProject {
                         return err;
                     }
 
-                    await NfProject.AddCoreLib(filePath, toolPath).then(function (err: any) {
+                    await NfProject.AddCoreLib(filePath, toolPath, targetVersion).then(function (err: any) {
                         if (err) {
                             return err;
                         }
@@ -229,9 +229,11 @@ export class NfProject {
         });
     }
 
-    private static async AddCoreLib(fileUri: string, toolPath: string) {
+    private static async AddCoreLib(fileUri: string, toolPath: string, targetVersion?: 'v1' | 'v2') {
+        // v2 CoreLibrary NuGet uses lib\netnano1.0\ subfolder; v1 uses lib\ directly
+        const libSubPath = targetVersion === 'v2' ? 'lib\\netnano1.0' : 'lib';
         let reference = `    <Reference Include="mscorlib">
-        <HintPath>..\\packages\\nanoFramework.CoreLibrary.$version$\\lib\\mscorlib.dll</HintPath>
+        <HintPath>..\\packages\\nanoFramework.CoreLibrary.$version$\\${libSubPath}\\mscorlib.dll</HintPath>
     </Reference>
     <None Include="packages.config" />`;
 
@@ -249,6 +251,13 @@ export class NfProject {
                 return console.log(`Error: Unable to find the version of the core library in the template file ${filePath}`);
             }
 
+            // For v2 targets, use the v2 CoreLibrary version from settings or default
+            let coreLibVersion = version[2];
+            if (targetVersion === 'v2') {
+                const config = (await import('vscode')).workspace.getConfiguration('nanoFramework');
+                coreLibVersion = config.get<string>('v2CoreLibraryVersion', '2.0.0-preview.39');
+            }
+
             filePath = path.join(fileUri);
             await fs.readFile(filePath, 'utf8', async function (err: any, data: any) {
                 if (err) {
@@ -256,7 +265,7 @@ export class NfProject {
                 }
 
                 // Replace the tokens
-                reference = reference.replace(/\$version\$/g, version![2]);
+                reference = reference.replace(/\$version\$/g, coreLibVersion);
 
                 // Add the reference to the project
                 var result = data.replace(/<ItemGroup>/g, '<ItemGroup>\r\n' + reference);
@@ -273,7 +282,7 @@ export class NfProject {
                             return console.log(err);
                         }
 
-                        var result = data.replace(/\$version\$/g, version![2]);
+                        var result = data.replace(/\$version\$/g, coreLibVersion);
                         await fs.writeFile(path.join(path.dirname(fileUri), 'packages.config'), result, 'utf8', async function (err: any) {
                             if (err) {
                                 return console.log(err);
