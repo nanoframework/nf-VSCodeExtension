@@ -354,7 +354,9 @@
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
     "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
-    "deploy": "vsce publish --allow-star-activation"
+    "package:preview": "npm run clean && nbgv-setversion && vsce package --pre-release --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
+    "deploy": "vsce publish --allow-star-activation",
+    "deploy:preview": "vsce publish --pre-release --allow-star-activation"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

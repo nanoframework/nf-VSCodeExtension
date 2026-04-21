@@ -78,18 +78,43 @@ steps:
     displayName: Build for production
     condition: succeeded()
 
+  # Package as preview (pre-release) for develop branch and PRs targeting develop
+  - script: npm run package:preview
+    env:
+      PublicRelease: true
+    displayName: Package extension (preview)
+    condition: >-
+      and(
+        succeeded(),
+        or(
+          eq(variables['Build.SourceBranch'], 'refs/heads/develop'),
+          eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/develop'),
+          eq(variables['System.PullRequest.TargetBranch'], 'develop')
+        )
+      )
+
+  # Package as stable release for tags and other branches
   - script: npm run package
     env:
       PublicRelease: true
     displayName: Package extension
-    condition: succeeded()
+    condition: >-
+      and(
+        succeeded(),
+        ne(variables['Build.SourceBranch'], 'refs/heads/develop'),
+        ne(variables['System.PullRequest.TargetBranch'], 'refs/heads/develop'),
+        ne(variables['System.PullRequest.TargetBranch'], 'develop')
+      )
   
   - task: DotNetCoreCLI@2
     displayName: Install Sign Client CLI
     condition: >-
       and(
         succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+        or(
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
+          eq(variables['Build.SourceBranch'], 'refs/heads/develop')
+        )
       )
     inputs:
       command: custom
@@ -114,17 +139,35 @@ steps:
     condition: >-
       and(
         succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+        or(
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
+          eq(variables['Build.SourceBranch'], 'refs/heads/develop')
+        )
       )
   
+  # Publish stable release from tags
   - bash: |
-      echo ">>> Publish"
+      echo ">>> Publish stable release"
       npm run deploy
-    displayName: Publish to marketplace
+    displayName: Publish to marketplace (stable)
     condition: >-
       and(
         succeeded(),
         startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+      )
+    env:
+      VSCE_PAT: $(VSCE_PAT)
+
+  # Publish preview release from develop branch
+  - bash: |
+      echo ">>> Publish preview release"
+      npm run deploy:preview
+    displayName: Publish to marketplace (preview)
+    condition: >-
+      and(
+        succeeded(),
+        eq(variables['Build.SourceBranch'], 'refs/heads/develop'),
+        eq(variables['System.PullRequest.PullRequestId'], '')
       )
     env:
       VSCE_PAT: $(VSCE_PAT)
@@ -151,14 +194,15 @@ steps:
       PathtoPublish: $(Build.ArtifactStagingDirectory)
       ArtifactType: Container
 
-  # create or update GitHub release
+  # create or update GitHub release (stable, from main branch)
   - task: GithubRelease@1
     condition: >-
       and(
         succeeded(),
         eq(variables['System.PullRequest.PullRequestId'], ''),
         ne(variables['StartReleaseCandidate'], true),
-        not(startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+        not(startsWith(variables['Build.SourceBranch'], 'refs/tags/v')),
+        ne(variables['Build.SourceBranch'], 'refs/heads/develop')
       )
     displayName: Create/Update GitHub release
     inputs:
@@ -168,6 +212,34 @@ steps:
       title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
       assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
       isPreRelease: false
+      addChangeLog: true
+      releaseNotesSource: inline
+      changeLogType: issueBased
+      changeLogLabels: |
+        [
+          { "label" : "Type: bug", "displayName" : "Bugs fixed", "state" : "closed" },
+          { "label" : "Type: enhancement", "displayName" : "Enhancements and new features", "state" : "closed" },
+          { "label" : "Breaking-Change", "displayName" : "Breaking Changes", "state" : "closed" },
+          { "label" : "Type: dependencies", "displayName" : "Dependencies updated", "state" : "closed" },
+          { "label" : "Type: documentation", "displayName" : "Documentation", "state" : "closed" }
+        ]
+
+  # create or update GitHub pre-release (preview, from develop branch)
+  - task: GithubRelease@1
+    condition: >-
+      and(
+        succeeded(),
+        eq(variables['System.PullRequest.PullRequestId'], ''),
+        eq(variables['Build.SourceBranch'], 'refs/heads/develop')
+      )
+    displayName: Create/Update GitHub pre-release
+    inputs:
+      gitHubConnection: 'github.com_nano-$(System.TeamProject)'
+      tagSource: userSpecifiedTag
+      tag: v$(NBGV_SimpleVersion)-preview
+      title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion) (Preview)'
+      assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
+      isPreRelease: true
       addChangeLog: true
       releaseNotesSource: inline
       changeLogType: issueBased
