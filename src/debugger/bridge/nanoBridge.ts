@@ -51,17 +51,20 @@ export class NanoBridge extends EventEmitter {
     private _verbosity = 'information';
     private _buffer = '';
     private _device?: string;
+    private _targetVersion: 'v1' | 'v2' = 'v1';
 
     /**
      * Initialize the bridge
      * @param device The device to connect to
      * @param verbose Legacy verbose flag (deprecated, use verbosity instead)
      * @param verbosity Verbosity level: 'none', 'information', or 'debug'
+     * @param targetVersion nanoFramework target version: 'v1' (stable) or 'v2' (generics/preview)
      */
-    public async initialize(device?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
+    public async initialize(device?: string, verbose?: boolean, verbosity?: string, targetVersion?: 'v1' | 'v2'): Promise<boolean> {
         this._verbose = verbose || false;
         this._verbosity = verbosity || (verbose ? 'debug' : 'information');
         this._device = device;
+        this._targetVersion = targetVersion || 'v1';
 
         try {
             // Find the bridge executable path
@@ -121,6 +124,15 @@ export class NanoBridge extends EventEmitter {
 
             // Wait for initialization confirmation
             const response = await this.sendCommand('initialize', { device, verbose, verbosity: this._verbosity });
+
+            if (response?.success && response?.data?.bridgeVersion) {
+                const reportedVersion = response.data.bridgeVersion;
+                this.log(`Bridge reports version: ${reportedVersion} (requested: ${this._targetVersion})`);
+                if (reportedVersion !== this._targetVersion) {
+                    this.logError(`Bridge version mismatch: expected ${this._targetVersion}, got ${reportedVersion}`);
+                }
+            }
+
             return response?.success || false;
 
         } catch (error) {
@@ -341,7 +353,8 @@ export class NanoBridge extends EventEmitter {
     }
 
     /**
-     * Get the path to the bridge executable
+     * Get the path to the bridge executable.
+     * Selects v1 or v2 bridge binary based on the target version.
      */
     private getBridgePath(): string {
         // The bridge is expected to be in the extension's bin directory
@@ -363,8 +376,19 @@ export class NanoBridge extends EventEmitter {
             platformFolder = arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
             fileName = 'nanoFramework.Tools.DebugBridge';
         }
-        
-        return path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', platformFolder, fileName);
+
+        // Select v1 or v2 bridge binary
+        const versionFolder = this._targetVersion;
+        const versionedPath = path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', versionFolder, platformFolder, fileName);
+
+        // Fall back to legacy (non-versioned) path if versioned binary doesn't exist
+        if (!fs.existsSync(versionedPath)) {
+            this.log(`Versioned bridge not found at ${versionedPath}, falling back to legacy path`);
+            return path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', platformFolder, fileName);
+        }
+
+        this.log(`Using ${this._targetVersion} bridge binary`);
+        return versionedPath;
     }
 
     /**

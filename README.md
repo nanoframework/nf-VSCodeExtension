@@ -213,6 +213,43 @@ Create a `.vscode/launch.json` file in your workspace with the following configu
 - Ensure no other application is using the COM port
 - Change the log level to see more errors
 
+## v2 Support (Generics)
+
+The extension supports nanoFramework v2, which adds **generics** to the .NET nanoFramework runtime. Both v1 (stable) and v2 (preview) projects can be debugged and tested side by side.
+
+### Automatic Detection
+
+The extension automatically detects whether your project targets v1 or v2 by checking the `nanoFramework.CoreLibrary` package version in your `.nfproj` file:
+
+- **CoreLibrary 1.x** → v1 (stable)
+- **CoreLibrary 2.x** → v2 (generics/preview)
+
+A status bar indicator shows the detected version when a nanoFramework workspace is open.
+
+### What You Need for v2
+
+1. **v2 firmware** on your device — flash with `nanoff --target <target> --preview`
+2. **v2 NuGet packages** in your project (CoreLibrary 2.x, etc.)
+3. For emulator tests: set `nanoFramework.test.usePreviewClr` to `true`
+
+### Manual Override
+
+Add `targetVersion` to your `launch.json` configuration:
+
+```json
+{
+    "name": "Debug v2 Project",
+    "type": "nanoframework",
+    "request": "launch",
+    "program": "${workspaceFolder}/bin/Debug",
+    "targetVersion": "v2"
+}
+```
+
+Or set `nanoFramework.targetVersion` to `"v1"` or `"v2"` in VS Code settings.
+
+For detailed information, see the [Debugging Guide](docs/debugging.md).
+
 ## Requirements
 
 You will need to make sure you'll have the following elements installed:

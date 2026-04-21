@@ -8,6 +8,7 @@ import { NanoBridge } from './bridge/nanoBridge';
 import { DebugProtocol } from '@vscode/debugprotocol';
 import * as os from 'os';
 import * as nodePath from 'path';
+import * as fs from 'fs';
 
 /**
  * Breakpoint interface for nanoFramework
@@ -118,6 +119,11 @@ export interface INanoFunctionBreakpoint {
 }
 
 /**
+ * nanoFramework target version: v1 (stable) or v2 (generics/preview)
+ */
+export type NanoTargetVersion = 'v1' | 'v2';
+
+/**
  * nanoFramework Runtime
  * 
  * This class manages communication with a nanoFramework device via the .NET bridge.
@@ -142,6 +148,9 @@ export class NanoRuntime extends EventEmitter {
     private _isPaused = false;
     private _verbose = false;
     private _verbosity = 'information';
+
+    // Detected nanoFramework target version
+    private _targetVersion: NanoTargetVersion = 'v1';
 
     /**
      * Normalize a file path for use as a breakpoint map key.
@@ -213,15 +222,24 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Start debugging - deploy and run
      */
-    public async start(program: string, device?: string, stopOnEntry?: boolean, verbose?: boolean, verbosity?: string): Promise<boolean> {
+    public async start(program: string, device?: string, stopOnEntry?: boolean, verbose?: boolean, verbosity?: string, targetVersion?: string): Promise<boolean> {
         this._verbose = verbose || false;
         this._verbosity = verbosity || (verbose ? 'debug' : 'information');
         
         this.log(`Starting debug session for ${program}`);
+
+        // Detect project version (v1 or v2) from the program path, unless overridden
+        if (targetVersion === 'v1' || targetVersion === 'v2') {
+            this._targetVersion = targetVersion;
+            this.log(`Using forced nanoFramework target version: ${this._targetVersion}`);
+        } else {
+            this._targetVersion = this.detectProjectVersion(program);
+            this.log(`Detected nanoFramework target version: ${this._targetVersion}`);
+        }
         
         try {
-            // Initialize the bridge
-            if (!await this._bridge.initialize(device, verbose, verbosity)) {
+            // Initialize the bridge with the detected target version
+            if (!await this._bridge.initialize(device, verbose, verbosity, this._targetVersion)) {
                 this.log('Failed to initialize bridge');
                 return false;
             }
@@ -281,15 +299,26 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Attach to a running device
      */
-    public async attach(device: string, program?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
+    public async attach(device: string, program?: string, verbose?: boolean, verbosity?: string, targetVersion?: string): Promise<boolean> {
         this._verbose = verbose || false;
         this._verbosity = verbosity || (verbose ? 'debug' : 'information');
         
         this.log(`Attaching to device: ${device}`);
+
+        // Detect project version, with optional override
+        if (targetVersion === 'v1' || targetVersion === 'v2') {
+            this._targetVersion = targetVersion;
+            this.log(`Using forced nanoFramework target version: ${this._targetVersion}`);
+        } else if (program) {
+            this._targetVersion = this.detectProjectVersion(program);
+            this.log(`Detected nanoFramework target version: ${this._targetVersion}`);
+        } else {
+            this.log(`No program path for version detection, defaulting to: ${this._targetVersion}`);
+        }
         
         try {
-            // Initialize the bridge
-            if (!await this._bridge.initialize(device, verbose, verbosity)) {
+            // Initialize the bridge with the detected target version
+            if (!await this._bridge.initialize(device, verbose, verbosity, this._targetVersion)) {
                 this.log('Failed to initialize bridge');
                 return false;
             }
@@ -595,6 +624,147 @@ export class NanoRuntime extends EventEmitter {
         this.log(`Disconnecting (terminate: ${terminateDebuggee})`);
         await this._bridge.disconnect(terminateDebuggee);
         this._isRunning = false;
+    }
+
+    /**
+     * Detect nanoFramework target version (v1 or v2) from the project path.
+     * 
+     * Searches for a `.nfproj` file and checks the `nanoFramework.CoreLibrary`
+     * PackageReference version: 1.x = v1 (stable), 2.x = v2 (generics/preview).
+     * Defaults to v1 if detection fails.
+     */
+    private detectProjectVersion(programPath: string): NanoTargetVersion {
+        try {
+            const nfprojPath = this.findNfprojFile(programPath);
+            if (!nfprojPath) {
+                this.log('No .nfproj file found, defaulting to v1');
+                return 'v1';
+            }
+
+            this.log(`Found .nfproj: ${nfprojPath}`);
+            const content = fs.readFileSync(nfprojPath, 'utf8');
+
+            // Match PackageReference for nanoFramework.CoreLibrary with its version
+            let coreLibMatch = content.match(
+                /<PackageReference\s+Include\s*=\s*"nanoFramework\.CoreLibrary"\s+Version\s*=\s*"([^"]+)"/i
+            );
+            if (!coreLibMatch) {
+                // Also try the alternate attribute order (Version before Include)
+                coreLibMatch = content.match(
+                    /<PackageReference\s+Version\s*=\s*"([^"]+)"\s+Include\s*=\s*"nanoFramework\.CoreLibrary"/i
+                );
+            }
+            if (coreLibMatch) {
+                return this.parseVersionToTarget(coreLibMatch[1]);
+            }
+            // Check old-style Reference+HintPath containing CoreLibrary version
+            const hintMatch = content.match(/nanoFramework\.CoreLibrary\.(\d+)\./i);
+            if (hintMatch) {
+                return this.parseVersionToTarget(hintMatch[1] + '.0.0');
+            }
+            this.log('nanoFramework.CoreLibrary reference not found in .nfproj, defaulting to v1');
+            return 'v1';
+        } catch (error) {
+            this.log(`Error detecting project version: ${error}`);
+            return 'v1';
+        }
+    }
+
+    /**
+     * Parse a NuGet version string to determine the target version.
+     * Versions 2.x+ = v2, everything else = v1.
+     */
+    private parseVersionToTarget(versionStr: string): NanoTargetVersion {
+        // Strip leading wildcard or preview suffixes for major version check
+        const majorMatch = versionStr.match(/^(\d+)/);
+        if (majorMatch) {
+            const major = parseInt(majorMatch[1], 10);
+            if (major >= 2) {
+                this.log(`CoreLibrary version ${versionStr} → v2 (generics)`);
+                return 'v2';
+            }
+        }
+        this.log(`CoreLibrary version ${versionStr} → v1 (stable)`);
+        return 'v1';
+    }
+
+    /**
+     * Find the .nfproj file from a program path.
+     * The program path can be:
+     * - A .nfproj file directly
+     * - A .sln/.slnx file (search same directory for .nfproj)
+     * - A .pe file or directory (walk up to find .nfproj)
+     */
+    private findNfprojFile(programPath: string): string | undefined {
+        // If it's already an .nfproj file, use it directly
+        if (programPath.endsWith('.nfproj') && fs.existsSync(programPath)) {
+            return programPath;
+        }
+
+        // If it's a .sln/.slnx, search in the same directory and subdirectories
+        if (programPath.endsWith('.sln') || programPath.endsWith('.slnx')) {
+            const dir = nodePath.dirname(programPath);
+            return this.findNfprojInDirectory(dir);
+        }
+
+        // If it's a file, start from its directory
+        let searchDir: string;
+        try {
+            const stat = fs.statSync(programPath);
+            searchDir = stat.isDirectory() ? programPath : nodePath.dirname(programPath);
+        } catch {
+            searchDir = nodePath.dirname(programPath);
+        }
+
+        // Walk up the directory tree looking for .nfproj files
+        let current = searchDir;
+        for (let i = 0; i < 10; i++) {
+            const found = this.findNfprojInDirectory(current);
+            if (found) {
+                return found;
+            }
+            const parent = nodePath.dirname(current);
+            if (parent === current) {
+                break; // reached root
+            }
+            current = parent;
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Find the first .nfproj file in a directory (non-recursive, one level of subdirs).
+     */
+    private findNfprojInDirectory(dir: string): string | undefined {
+        try {
+            // Check the directory itself
+            const entries = fs.readdirSync(dir);
+            for (const entry of entries) {
+                if (entry.endsWith('.nfproj')) {
+                    return nodePath.join(dir, entry);
+                }
+            }
+            // Check one level of subdirectories
+            for (const entry of entries) {
+                const fullPath = nodePath.join(dir, entry);
+                try {
+                    if (fs.statSync(fullPath).isDirectory()) {
+                        const subEntries = fs.readdirSync(fullPath);
+                        for (const subEntry of subEntries) {
+                            if (subEntry.endsWith('.nfproj')) {
+                                return nodePath.join(fullPath, subEntry);
+                            }
+                        }
+                    }
+                } catch {
+                    // Skip inaccessible directories
+                }
+            }
+        } catch {
+            // Directory not accessible
+        }
+        return undefined;
     }
 
     /**

@@ -16,9 +16,39 @@ import type { NanoBridge } from './debugger/bridge/nanoBridge';
  * Builds the NanoFrameworkProjectSystemPath from the extension utils folder.
  * Uses forward slashes so MSBuild property quoting works on Windows.
  */
-function nfProjectSystemPath(extensionPath: string): string {
-    const nfPath = path.join(extensionPath, 'nanoFramework', 'v1.0');
+function nfProjectSystemPath(extensionPath: string, version: string = 'v1.0'): string {
+    const nfPath = path.join(extensionPath, 'nanoFramework', version);
     return nfPath.replace(/\\/g, '/') + '/';
+}
+
+/**
+ * Detects if a project directory contains a v2 (generics) project.
+ * Returns 'v2.0' if CoreLibrary 2.x is found, otherwise 'v1.0'.
+ */
+function detectMdpVersionFromDir(projectDir: string): string {
+    try {
+        const entries = fs.readdirSync(projectDir);
+        const nfproj = entries.find(e => e.endsWith('.nfproj'));
+        if (nfproj) {
+            const content = fs.readFileSync(path.join(projectDir, nfproj), 'utf8');
+            // Check PackageReference style
+            const pkgRefMatch = content.match(
+                /<PackageReference\s+Include\s*=\s*"nanoFramework\.CoreLibrary"\s+Version\s*=\s*"([^"]+)"/i
+            );
+            if (pkgRefMatch) {
+                const majorMatch = pkgRefMatch[1].match(/^(\d+)/);
+                if (majorMatch && parseInt(majorMatch[1], 10) >= 2) {
+                    return 'v2.0';
+                }
+            }
+            // Check old-style Reference+HintPath containing CoreLibrary version
+            const hintMatch = content.match(/nanoFramework\.CoreLibrary\.(\d+)\./i);
+            if (hintMatch && parseInt(hintMatch[1], 10) >= 2) {
+                return 'v2.0';
+            }
+        }
+    } catch { /* default to v1 */ }
+    return 'v1.0';
 }
 
 /**
@@ -128,7 +158,8 @@ export async function buildTestProject(
 
     if (token?.isCancellationRequested) { return false; }
 
-    const nfProjSysPath = nfProjectSystemPath(extensionPath);
+    const mdpVersion = detectMdpVersionFromDir(path.dirname(projectPath));
+    const nfProjSysPath = nfProjectSystemPath(extensionPath, mdpVersion);
     const restore = resolveRestoreTarget(projectPath);
 
     // Locate MSBuild
@@ -389,6 +420,10 @@ export async function runTestsOnHardware(
     const logging = config.get<string>('logging', 'None');
     const verbosity = logging === 'Verbose' ? 'debug' : (logging === 'Normal' ? 'information' : 'none');
 
+    // Detect nanoFramework target version from project
+    const targetVersion = detectTargetVersionFromProject(projectDir);
+    channel.appendLine(`Target version: ${targetVersion}`);
+
     channel.appendLine(`Deploying tests to device: ${device}`);
     channel.appendLine(`Assemblies path: ${assembliesPath}`);
 
@@ -414,7 +449,7 @@ export async function runTestsOnHardware(
 
             // 1. Initialize
             channel.appendLine(`[Attempt ${attempt}/${maxRetries}] Initializing bridge...`);
-            const initOk = await bridge.initialize(device, false, verbosity);
+            const initOk = await bridge.initialize(device, false, verbosity, targetVersion);
             if (!initOk) {
                 lastError = 'Failed to initialize debug bridge';
                 channel.appendLine(lastError);
@@ -587,4 +622,40 @@ async function cleanupBridge(bridge: NanoBridge): Promise<void> {
 
 function delay(ms: number): Promise<void> {
     return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * Detect nanoFramework target version (v1 or v2) from a project directory.
+ * Searches for a `.nfproj` file and checks the `nanoFramework.CoreLibrary` version.
+ * Returns 'v1' if detection fails (safe default).
+ */
+function detectTargetVersionFromProject(projectDir: string): 'v1' | 'v2' {
+    try {
+        // Find .nfproj in the project directory
+        const entries = fs.readdirSync(projectDir);
+        const nfproj = entries.find(e => e.endsWith('.nfproj'));
+        if (!nfproj) {
+            return 'v1';
+        }
+
+        const content = fs.readFileSync(path.join(projectDir, nfproj), 'utf8');
+        // Check PackageReference style
+        const pkgRefMatch = content.match(
+            /<PackageReference\s+Include\s*=\s*"nanoFramework\.CoreLibrary"\s+Version\s*=\s*"([^"]+)"/i
+        );
+        if (pkgRefMatch) {
+            const majorMatch = pkgRefMatch[1].match(/^(\d+)/);
+            if (majorMatch && parseInt(majorMatch[1], 10) >= 2) {
+                return 'v2';
+            }
+        }
+        // Check old-style Reference+HintPath containing CoreLibrary version
+        const hintMatch = content.match(/nanoFramework\.CoreLibrary\.(\d+)\./i);
+        if (hintMatch && parseInt(hintMatch[1], 10) >= 2) {
+            return 'v2';
+        }
+    } catch {
+        // Ignore errors, default to v1
+    }
+    return 'v1';
 }

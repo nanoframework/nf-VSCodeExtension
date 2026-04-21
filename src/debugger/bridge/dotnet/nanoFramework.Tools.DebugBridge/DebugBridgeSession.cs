@@ -3359,6 +3359,26 @@ public class DebugBridgeSession : IDisposable
     /// </summary>
     private string GetTypeName(RuntimeValue runtimeValue)
     {
+#if NANOFRAMEWORK_V2
+        // v2: Check for generic instance types first — use TypeSpec (m_ts) for resolution
+        if (runtimeValue.IsGenericInst && _engine != null && runtimeValue.Type != 0)
+        {
+            try
+            {
+                var typeInfo = _engine.ResolveType(runtimeValue.Type);
+                if (typeInfo != null && !string.IsNullOrEmpty(typeInfo.m_name))
+                {
+                    LogDebug($"GetTypeName: Resolved generic type 0x{runtimeValue.Type:X8} to '{typeInfo.m_name}'");
+                    return typeInfo.m_name;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"GetTypeName: Exception resolving generic type 0x{runtimeValue.Type:X8}: {ex.Message}");
+            }
+        }
+#endif
+
         // First, try to resolve from the type descriptor
         if (_engine != null && runtimeValue.Type != 0)
         {
@@ -3409,6 +3429,11 @@ public class DebugBridgeSession : IDisposable
             nanoClrDataType.DATATYPE_CLASS => "Class",
             nanoClrDataType.DATATYPE_VALUETYPE => "ValueType",
             nanoClrDataType.DATATYPE_BYREF => "ByRef",
+#if NANOFRAMEWORK_V2
+            nanoClrDataType.DATATYPE_VAR => "T",
+            nanoClrDataType.DATATYPE_GENERICINST => "GenericInstance",
+            nanoClrDataType.DATATYPE_MVAR => "TMethod",
+#endif
             _ => $"Unknown({dataType})"
         };
         
@@ -3432,6 +3457,25 @@ public class DebugBridgeSession : IDisposable
         {
             value = runtimeValue.Value?.ToString() ?? "null";
         }
+#if NANOFRAMEWORK_V2
+        else if (runtimeValue.IsGenericInst)
+        {
+            // Generic instance type (e.g., List<int>, Dictionary<string, object>)
+            // Treat like a class/object — it has fields that can be expanded
+            value = $"{{{typeName}}}";
+            if (runtimeValue.NumOfFields > 0)
+            {
+                childRef = _nextVariablesReference++;
+                _variablesReferences[childRef] = new RuntimeValueReference { Value = runtimeValue };
+            }
+        }
+        else if (runtimeValue.DataType == nanoClrDataType.DATATYPE_VAR
+              || runtimeValue.DataType == nanoClrDataType.DATATYPE_MVAR)
+        {
+            // Generic type parameter (T) or generic method parameter (TMethod)
+            value = $"{{{typeName}}}";
+        }
+#endif
         else if (runtimeValue.IsValueType)
         {
             value = $"{{{typeName}}}";
@@ -4268,6 +4312,24 @@ public class DebugBridgeSession : IDisposable
                         
                         LogDebug($"  Assembly Idx=0x{rawIdx:X8} (index={idx}): {name} v{version}");
                         _assemblyManager.RegisterDeviceAssembly(name, version, 0, idx);
+
+                        // Detect device nanoFramework version from mscorlib
+                        if (name == "mscorlib")
+                        {
+                            var deviceVersion = version.Major >= 2 ? "v2" : "v1";
+                            LogDebug($"Device mscorlib v{version} → nanoFramework {deviceVersion}");
+#if NANOFRAMEWORK_V2
+                            var bridgeVersion = "v2";
+#else
+                            var bridgeVersion = "v1";
+#endif
+                            if (deviceVersion != bridgeVersion)
+                            {
+                                var msg = $"Version mismatch: this bridge is {bridgeVersion} but device has mscorlib {version} ({deviceVersion}). Debugging may not work correctly.";
+                                LogError(msg);
+                                RaiseEvent("output", new { output = $"[WARNING] {msg}\n", category = "stderr" });
+                            }
+                        }
                     }
                 }
             }

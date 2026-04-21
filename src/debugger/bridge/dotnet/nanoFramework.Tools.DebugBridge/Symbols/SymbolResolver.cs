@@ -69,16 +69,42 @@ public class SymbolResolver : IDisposable
 
         try
         {
-            var serializer = new XmlSerializer(typeof(PdbxFile));
-            using var reader = new StreamReader(pdbxPath);
-            var pdbxFile = (PdbxFile?)serializer.Deserialize(reader);
+            var content = File.ReadAllText(pdbxPath);
+            var trimmed = content.TrimStart();
+            
+            PdbxFile? pdbxFile;
+            
+            if (trimmed.StartsWith("{"))
+            {
+                // JSON format (current nanoFramework build system output)
+                Console.Error.WriteLine($"[DebugBridge] Loading JSON pdbx: {pdbxPath}");
+                var jsonRoot = JsonSerializer.Deserialize<PdbxJsonRoot>(content);
+                pdbxFile = jsonRoot?.ToPdbxFile();
+            }
+            else
+            {
+                // XML format (legacy)
+                Console.Error.WriteLine($"[DebugBridge] Loading XML pdbx: {pdbxPath}");
+                var serializer = new XmlSerializer(typeof(PdbxFile));
+                using var reader = new StringReader(content);
+                pdbxFile = (PdbxFile?)serializer.Deserialize(reader);
+                if (pdbxFile != null)
+                {
+                    pdbxFile.Initialize();
+                }
+            }
 
             if (pdbxFile?.Assembly != null)
             {
-                // Initialize cross-references
+                // Initialize cross-references (safe to call multiple times)
                 pdbxFile.Initialize();
                 var assemblyKey = pdbxFile.Assembly.FileName ?? pdbxPath;
                 _loadedSymbols[assemblyKey] = pdbxFile;
+                
+                // Log loaded methods for debugging
+                var classCount = pdbxFile.Assembly.Classes?.Length ?? 0;
+                var methodCount = pdbxFile.Assembly.Classes?.Sum(c => c.Methods?.Length ?? 0) ?? 0;
+                Console.Error.WriteLine($"[DebugBridge] Loaded pdbx: {assemblyKey} ({classCount} classes, {methodCount} methods)");
                 
                 // Try to load the corresponding PDB file (Portable or Windows)
                 var pdbReader = LoadPdb(pdbxPath);

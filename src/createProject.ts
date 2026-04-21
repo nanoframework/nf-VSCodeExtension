@@ -30,7 +30,7 @@ export class NfProject {
      * @param projectType The project type
      * @param toolPath The tool path
      */
-    public static async AddProject(fileUri: string, projectName: string, projectType: string, toolPath: string) {
+    public static async AddProject(fileUri: string, projectName: string, projectType: string, toolPath: string, targetVersion?: 'v1' | 'v2') {
         const solutionPath = path.dirname(fileUri);
 
         switch (projectType) {
@@ -38,7 +38,7 @@ export class NfProject {
             case "Blank Application":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.BlankApplication-vs2022', 'NFApp.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath, targetVersion, 'Blank Application').then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -70,7 +70,7 @@ export class NfProject {
             case "Class Library":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.ClassLibrary-vs2022', 'NFClassLibrary.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath, targetVersion, 'Class Library').then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -101,7 +101,7 @@ export class NfProject {
             case "Unit Test":
                 // First open the nfproj template file
                 var filePath = path.join(toolPath, 'CS.TestApplication-vs2022', 'NFUnitTest.nfproj');
-                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath).then(async function (err: any) {
+                await NfProject.CreateProject(solutionPath, filePath, projectName, toolPath, targetVersion, 'Unit Test').then(async function (err: any) {
                     if (err) {
                         return console.log(err);
                     }
@@ -132,7 +132,7 @@ export class NfProject {
         }
     }
 
-    private static async CreateProject(solutionPath: string, filePath: string, projectName: string, toolPath: string) {
+    private static async CreateProject(solutionPath: string, filePath: string, projectName: string, toolPath: string, targetVersion?: 'v1' | 'v2', projectType?: string) {
         await fs.readFile(filePath, 'utf8', async function (err: any, data: any) {
             if (err) {
                 return err;
@@ -157,7 +157,7 @@ export class NfProject {
                         return err;
                     }
 
-                    await NfProject.AddCoreLib(filePath, toolPath).then(function (err: any) {
+                    await NfProject.AddCoreLib(filePath, toolPath, targetVersion, projectType).then(function (err: any) {
                         if (err) {
                             return err;
                         }
@@ -229,11 +229,26 @@ export class NfProject {
         });
     }
 
-    private static async AddCoreLib(fileUri: string, toolPath: string) {
+    private static async AddCoreLib(fileUri: string, toolPath: string, targetVersion?: 'v1' | 'v2', projectType?: string) {
+        // v2 CoreLibrary NuGet uses lib\netnano1.0\ subfolder; v1 uses lib\ directly
+        const libSubPath = targetVersion === 'v2' ? 'lib\\netnano1.0' : 'lib';
+        const isTestProject = projectType === 'Unit Test';
         let reference = `    <Reference Include="mscorlib">
-        <HintPath>..\\packages\\nanoFramework.CoreLibrary.$version$\\lib\\mscorlib.dll</HintPath>
+        <HintPath>..\\packages\\nanoFramework.CoreLibrary.$version$\\${libSubPath}\\mscorlib.dll</HintPath>
     </Reference>
     <None Include="packages.config" />`;
+
+        // For Unit Test projects, also add the TestFramework references
+        let testReference = '';
+        if (isTestProject) {
+            testReference = `
+    <Reference Include="nanoFramework.TestFramework">
+        <HintPath>..\\packages\\nanoFramework.TestFramework.$testversion$\\${libSubPath}\\nanoFramework.TestFramework.dll</HintPath>
+    </Reference>
+    <Reference Include="nanoFramework.UnitTestLauncher">
+        <HintPath>..\\packages\\nanoFramework.TestFramework.$testversion$\\${libSubPath}\\nanoFramework.UnitTestLauncher.exe</HintPath>
+    </Reference>`;
+        }
 
         // Get the version of the core library from the template
         var filePath = path.join(toolPath, 'CS.BlankApplication-vs2022', 'CS.BlankApplication-vs2022.vstemplate');
@@ -249,6 +264,33 @@ export class NfProject {
                 return console.log(`Error: Unable to find the version of the core library in the template file ${filePath}`);
             }
 
+            // For v2 targets, use the v2 CoreLibrary version from settings or default
+            let coreLibVersion = version[2];
+            if (targetVersion === 'v2') {
+                const config = (await import('vscode')).workspace.getConfiguration('nanoFramework');
+                coreLibVersion = config.get<string>('v2CoreLibraryVersion', '2.0.0-preview.39');
+            }
+
+            // Get the TestFramework version for Unit Test projects
+            let testFrameworkVersion = '';
+            if (isTestProject) {
+                const testTemplatePath = path.join(toolPath, 'CS.TestApplication-vs2022', 'CS.TestApplication-vs2022.vstemplate');
+                try {
+                    const testTemplateData = await new Promise<string>((resolve, reject) => {
+                        fs.readFile(testTemplatePath, 'utf8', (err: any, data: any) => {
+                            if (err) { reject(err); } else { resolve(data); }
+                        });
+                    });
+                    const testRegExp = new RegExp('id=\"nanoFramework.TestFramework\" version=\"(.*)\"');
+                    const testVersion = testRegExp.exec(testTemplateData);
+                    if (testVersion) {
+                        testFrameworkVersion = testVersion[1];
+                    }
+                } catch (e) {
+                    console.log(`Warning: Could not read test template: ${e}`);
+                }
+            }
+
             filePath = path.join(fileUri);
             await fs.readFile(filePath, 'utf8', async function (err: any, data: any) {
                 if (err) {
@@ -256,10 +298,14 @@ export class NfProject {
                 }
 
                 // Replace the tokens
-                reference = reference.replace(/\$version\$/g, version![2]);
+                reference = reference.replace(/\$version\$/g, coreLibVersion);
+                if (isTestProject && testFrameworkVersion) {
+                    testReference = testReference.replace(/\$testversion\$/g, testFrameworkVersion);
+                    reference += testReference;
+                }
 
-                // Add the reference to the project
-                var result = data.replace(/<ItemGroup>/g, '<ItemGroup>\r\n' + reference);
+                // Add the reference to the first ItemGroup only (not all)
+                var result = data.replace(/<ItemGroup>/, '<ItemGroup>\r\n' + reference);
 
                 // Write back the nfproj file
                 await fs.writeFile(filePath, result, 'utf8', async function (err: any) {
@@ -273,7 +319,11 @@ export class NfProject {
                             return console.log(err);
                         }
 
-                        var result = data.replace(/\$version\$/g, version![2]);
+                        var result = data.replace(/\$version\$/g, coreLibVersion);
+                        // For Unit Test projects, add TestFramework to packages.config
+                        if (isTestProject && testFrameworkVersion) {
+                            result = result.replace('</packages>', `  <package id="nanoFramework.TestFramework" version="${testFrameworkVersion}" targetFramework="netnano1.0" />\n</packages>`);
+                        }
                         await fs.writeFile(path.join(path.dirname(fileUri), 'packages.config'), result, 'utf8', async function (err: any) {
                             if (err) {
                                 return console.log(err);

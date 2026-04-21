@@ -6,6 +6,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
 import { NfProject } from "./createProject";
@@ -247,7 +248,14 @@ export async function activate(context: vscode.ExtensionContext) {
         const projectName = await chooseName();
         const projectType = await chooseProjectType();
         if (projectName && projectType) {
-            NfProject.AddProject(filePath, projectName, projectType, nanoFrameworkExtensionPath);
+            const targetVersion = await vscode.window.showQuickPick(
+                [
+                    { label: 'v1 (Stable)', description: 'Standard nanoFramework', value: 'v1' },
+                    { label: 'v2 (Preview – Generics)', description: 'Requires v2 firmware', value: 'v2' }
+                ],
+                { placeHolder: 'Select nanoFramework target version' }
+            );
+            NfProject.AddProject(filePath, projectName, projectType, nanoFrameworkExtensionPath, targetVersion?.value as 'v1' | 'v2' | undefined);
         }
     }));
 
@@ -542,6 +550,43 @@ export async function activate(context: vscode.ExtensionContext) {
     } catch (error) {
         console.error('Error checking nanoff tool:', error);
     }
+
+    // Status bar: nanoFramework target version indicator
+    const versionStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
+    versionStatusBar.command = 'vscode-nanoframework.showTargetVersion';
+    context.subscriptions.push(versionStatusBar);
+
+    const updateVersionStatusBar = () => {
+        const version = detectWorkspaceTargetVersion();
+        if (version) {
+            versionStatusBar.text = `$(circuit-board) nF: ${version}`;
+            versionStatusBar.tooltip = version === 'v2'
+                ? 'nanoFramework v2 (generics support)'
+                : 'nanoFramework v1 (stable)';
+            versionStatusBar.show();
+        } else {
+            versionStatusBar.hide();
+        }
+    };
+
+    context.subscriptions.push(vscode.commands.registerCommand('vscode-nanoframework.showTargetVersion', () => {
+        const version = detectWorkspaceTargetVersion();
+        if (version) {
+            vscode.window.showInformationMessage(
+                version === 'v2'
+                    ? 'This workspace targets nanoFramework v2 (generics support). Using preview tooling.'
+                    : 'This workspace targets nanoFramework v1 (stable).'
+            );
+        }
+    }));
+
+    // Update on activation and when workspace files change
+    updateVersionStatusBar();
+    const nfprojWatcher = vscode.workspace.createFileSystemWatcher('**/*.nfproj');
+    nfprojWatcher.onDidChange(() => updateVersionStatusBar());
+    nfprojWatcher.onDidCreate(() => updateVersionStatusBar());
+    nfprojWatcher.onDidDelete(() => updateVersionStatusBar());
+    context.subscriptions.push(nfprojWatcher);
 }
 
 /**
@@ -619,6 +664,60 @@ function checkDotNetToolInstalled(toolName: string): Promise<void> {
             resolve();
         }
     });
+}
+
+/**
+ * Detects the nanoFramework target version from workspace `.nfproj` files.
+ * Returns 'v1', 'v2', or undefined if no `.nfproj` is found.
+ */
+function detectWorkspaceTargetVersion(): 'v1' | 'v2' | undefined {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders) { return undefined; }
+
+    for (const folder of folders) {
+        const version = scanDirectoryForNfproj(folder.uri.fsPath);
+        if (version) { return version; }
+    }
+    return undefined;
+}
+
+/**
+ * Recursively searches for `.nfproj` files (up to 3 levels deep) and
+ * returns the detected target version based on CoreLibrary package version.
+ */
+function scanDirectoryForNfproj(dir: string, depth = 0): 'v1' | 'v2' | undefined {
+    if (depth > 3) { return undefined; }
+    try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (entry.isFile() && entry.name.endsWith('.nfproj')) {
+                const content = fs.readFileSync(path.join(dir, entry.name), 'utf8');
+                // Check PackageReference style
+                const pkgRefMatch = content.match(
+                    /<PackageReference\s+Include\s*=\s*"nanoFramework\.CoreLibrary"\s+Version\s*=\s*"([^"]+)"/i
+                );
+                if (pkgRefMatch) {
+                    const majorMatch = pkgRefMatch[1].match(/^(\d+)/);
+                    return (majorMatch && parseInt(majorMatch[1], 10) >= 2) ? 'v2' : 'v1';
+                }
+                // Check old-style Reference+HintPath containing CoreLibrary version
+                const hintMatch = content.match(/nanoFramework\.CoreLibrary\.(\d+)\./i);
+                if (hintMatch && parseInt(hintMatch[1], 10) >= 2) {
+                    return 'v2';
+                }
+                return 'v1'; // .nfproj found but no CoreLibrary ref — assume v1
+            }
+        }
+        for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== 'bin' && entry.name !== 'obj' && entry.name !== 'packages') {
+                const result = scanDirectoryForNfproj(path.join(dir, entry.name), depth + 1);
+                if (result) { return result; }
+            }
+        }
+    } catch {
+        // Ignore errors (permission denied, etc.)
+    }
+    return undefined;
 }
 
 // this method is called when your extension is deactivated

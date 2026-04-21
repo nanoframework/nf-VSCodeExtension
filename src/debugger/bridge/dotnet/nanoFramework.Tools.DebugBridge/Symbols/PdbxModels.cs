@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Xml.Serialization;
 
 namespace nanoFramework.Tools.DebugBridge.Symbols;
@@ -376,5 +378,218 @@ public class PdbxIL
             s = s.Substring(2);
         }
         return uint.Parse(s, System.Globalization.NumberStyles.HexNumber);
+    }
+}
+
+// ============================================================================
+// JSON format models for .pdbx files
+// The nanoFramework build system generates .pdbx files in JSON format.
+// These models mirror the JSON structure and provide conversion to the
+// existing PdbxFile model used throughout the codebase.
+// ============================================================================
+
+/// <summary>
+/// JSON root element (mirrors PdbxFile for JSON format)
+/// </summary>
+public class PdbxJsonRoot
+{
+    [JsonPropertyName("Assembly")]
+    public PdbxJsonAssembly? Assembly { get; set; }
+
+    /// <summary>
+    /// Convert this JSON model to the standard PdbxFile model
+    /// </summary>
+    public PdbxFile? ToPdbxFile()
+    {
+        if (Assembly == null) return null;
+
+        var pdbxFile = new PdbxFile
+        {
+            Assembly = Assembly.ToPdbxAssembly()
+        };
+
+        pdbxFile.Initialize();
+        return pdbxFile;
+    }
+}
+
+public class PdbxJsonAssembly
+{
+    [JsonPropertyName("Token")]
+    public PdbxJsonToken? Token { get; set; }
+
+    [JsonPropertyName("FileName")]
+    public string? FileName { get; set; }
+
+    [JsonPropertyName("Version")]
+    public string? Version { get; set; }
+
+    [JsonPropertyName("Classes")]
+    public PdbxJsonClass[]? Classes { get; set; }
+
+    public PdbxAssembly ToPdbxAssembly()
+    {
+        return new PdbxAssembly
+        {
+            FileName = FileName,
+            Token = Token?.ToPdbxToken(),
+            Version = ParseVersion(Version),
+            Classes = Classes?.Select(c => c.ToPdbxClass()).ToArray()
+        };
+    }
+
+    private static PdbxVersion? ParseVersion(string? version)
+    {
+        if (string.IsNullOrEmpty(version)) return null;
+        var parts = version.Split('.');
+        return new PdbxVersion
+        {
+            Major = parts.Length > 0 && int.TryParse(parts[0], out var major) ? major : 0,
+            Minor = parts.Length > 1 && int.TryParse(parts[1], out var minor) ? minor : 0,
+            Build = parts.Length > 2 && int.TryParse(parts[2], out var build) ? build : 0,
+            Revision = parts.Length > 3 && int.TryParse(parts[3], out var revision) ? revision : 0
+        };
+    }
+}
+
+public class PdbxJsonToken
+{
+    [JsonPropertyName("CLR")]
+    public string? CLR { get; set; }
+
+    [JsonPropertyName("NanoCLR")]
+    public string? NanoCLR { get; set; }
+
+    public PdbxToken ToPdbxToken()
+    {
+        return new PdbxToken
+        {
+            CLR = ParseHex(CLR),
+            NanoCLR = ParseHex(NanoCLR)
+        };
+    }
+
+    private static uint ParseHex(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return 0;
+        s = s.Trim();
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            s = s.Substring(2);
+        }
+        return uint.Parse(s, System.Globalization.NumberStyles.HexNumber);
+    }
+}
+
+public class PdbxJsonClass
+{
+    [JsonPropertyName("Token")]
+    public PdbxJsonToken? Token { get; set; }
+
+    [JsonPropertyName("Name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("IsEnum")]
+    public bool IsEnum { get; set; }
+
+    [JsonPropertyName("NumGenericParams")]
+    public int NumGenericParams { get; set; }
+
+    [JsonPropertyName("IsGenericInstance")]
+    public bool IsGenericInstance { get; set; }
+
+    [JsonPropertyName("Methods")]
+    public PdbxJsonMethod[]? Methods { get; set; }
+
+    [JsonPropertyName("Fields")]
+    public PdbxJsonField[]? Fields { get; set; }
+
+    public PdbxClass ToPdbxClass()
+    {
+        return new PdbxClass
+        {
+            Name = Name,
+            Token = Token?.ToPdbxToken(),
+            Methods = Methods?.Select(m => m.ToPdbxMethod()).ToArray(),
+            Fields = Fields?.Select(f => f.ToPdbxField()).ToArray()
+        };
+    }
+}
+
+public class PdbxJsonMethod
+{
+    [JsonPropertyName("Token")]
+    public PdbxJsonToken? Token { get; set; }
+
+    [JsonPropertyName("Name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("NumParams")]
+    public int NumParams { get; set; }
+
+    [JsonPropertyName("NumLocals")]
+    public int NumLocals { get; set; }
+
+    [JsonPropertyName("NumGenericParams")]
+    public int NumGenericParams { get; set; }
+
+    [JsonPropertyName("IsGenericInstance")]
+    public bool IsGenericInstance { get; set; }
+
+    [JsonPropertyName("HasByteCode")]
+    public bool HasByteCode { get; set; } = true;
+
+    [JsonPropertyName("ILMap")]
+    public PdbxJsonILEntry[]? ILMap { get; set; }
+
+    public PdbxMethod ToPdbxMethod()
+    {
+        return new PdbxMethod
+        {
+            Name = Name,
+            Token = Token?.ToPdbxToken(),
+            HasByteCode = HasByteCode,
+            ILMap = ILMap?.Select(il => il.ToPdbxIL()).ToArray()
+        };
+    }
+}
+
+/// <summary>
+/// JSON IL map entry - in JSON format, each entry has a "Token" wrapper
+/// containing the CLR and NanoCLR IL offsets as hex strings.
+/// </summary>
+public class PdbxJsonILEntry
+{
+    [JsonPropertyName("Token")]
+    public PdbxJsonToken? Token { get; set; }
+
+    public PdbxIL ToPdbxIL()
+    {
+        var pdbxIL = new PdbxIL();
+        if (Token != null)
+        {
+            var token = Token.ToPdbxToken();
+            pdbxIL.CLR = token.CLR;
+            pdbxIL.NanoCLR = token.NanoCLR;
+        }
+        return pdbxIL;
+    }
+}
+
+public class PdbxJsonField
+{
+    [JsonPropertyName("Token")]
+    public PdbxJsonToken? Token { get; set; }
+
+    [JsonPropertyName("Name")]
+    public string? Name { get; set; }
+
+    public PdbxField ToPdbxField()
+    {
+        return new PdbxField
+        {
+            Name = Name,
+            Token = Token?.ToPdbxToken()
+        };
     }
 }

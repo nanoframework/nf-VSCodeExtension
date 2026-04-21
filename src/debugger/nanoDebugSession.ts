@@ -38,6 +38,8 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     verbosity?: string;
     /** Working directory */
     cwd?: string;
+    /** nanoFramework target version override: 'auto', 'v1', or 'v2' */
+    targetVersion?: string;
 }
 
 /**
@@ -52,6 +54,8 @@ interface IAttachRequestArguments extends DebugProtocol.AttachRequestArguments {
     verbose?: boolean;
     /** Verbosity level: 'none', 'information', or 'debug' */
     verbosity?: string;
+    /** nanoFramework target version override: 'auto', 'v1', or 'v2' */
+    targetVersion?: string;
 }
 
 /**
@@ -260,7 +264,8 @@ export class NanoDebugSession extends LoggingDebugSession {
                 args.device,
                 !!args.stopOnEntry,
                 args.verbose || false,
-                args.verbosity
+                args.verbosity,
+                args.targetVersion
             );
 
             if (!success) {
@@ -303,7 +308,8 @@ export class NanoDebugSession extends LoggingDebugSession {
                 args.device,
                 args.program,
                 args.verbose || false,
-                args.verbosity
+                args.verbosity,
+                args.targetVersion
             );
 
             if (!success) {

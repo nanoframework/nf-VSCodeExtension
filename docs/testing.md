@@ -16,6 +16,7 @@ This guide covers how to discover, run, and debug unit tests for .NET nanoFramew
 - [Tag Filtering](#tag-filtering)
 - [runsettings](#runsettings)
 - [Settings Reference](#settings-reference)
+- [v2 (Generics) Testing](#v2-generics-testing)
 - [Known Limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
 
@@ -171,6 +172,25 @@ All settings are under `nanoFramework.test.*`:
 | `hardwareRetries` | number | `3` | Number of connection retries for hardware test runs |
 | `runSettingsPath` | string | `""` | Path to a `nano.runsettings` file |
 | `watchMode` | boolean | `false` | Automatically re-run tests on file save |
+
+## v2 (Generics) Testing
+
+### Emulator Tests
+
+For v2 projects that use generics, enable the preview nanoCLR:
+
+1. Set `nanoFramework.test.usePreviewClr` to `true` in settings, **or**
+2. The extension will detect v2 projects automatically in a future update
+
+The preview nanoCLR includes the v2 runtime with generics support.
+
+### Hardware Tests
+
+When running tests on a physical device, the extension automatically detects the project's target version from the `.nfproj` file and selects the appropriate debug bridge binary (v1 or v2). Ensure your device is flashed with v2 firmware (use `nanoff --preview` or `nanoff --target <target> --preview`).
+
+### Version Mismatch Warnings
+
+If the detected project version does not match the device firmware version, the bridge will emit a warning in the test output channel. For example, deploying a v2 test assembly to a v1 device will likely fail at runtime.
 
 ## Known Limitations
 

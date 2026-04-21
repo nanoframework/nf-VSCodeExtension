@@ -19,55 +19,65 @@ gulp.task("build-debug-bridge", async (done) => {
         { rid: "osx-x64", folder: "darwin-x64" },
         { rid: "osx-arm64", folder: "darwin-arm64" }
     ];
+
+    // Bridge versions: v1 (stable debugger 2.x) and v2 (preview debugger 3.x with generics)
+    const bridgeVersions = [
+        { version: "v1", property: "-p:BridgeVersion=v1" },
+        { version: "v2", property: "-p:BridgeVersion=v2" }
+    ];
     
-    for (const platform of platforms) {
-        const outputDir = path.join(baseOutputDir, platform.folder);
-        console.log(`Building debug bridge for ${platform.rid}...`);
-        
-        try {
-            const { stdout, stderr } = await promiseExec(
-                `dotnet publish -c Release -r ${platform.rid} --self-contained true -o "${outputDir}"`,
-                { cwd: bridgeProjectDir }
-            );
-            if (stdout) console.log(stdout);
-            console.log(`Debug bridge built successfully for ${platform.rid}`);
-        } catch (err) {
-            console.error(`Error building debug bridge for ${platform.rid}:`, err.message);
-            done(err);
-            return;
+    for (const bridgeVer of bridgeVersions) {
+        for (const platform of platforms) {
+            const outputDir = path.join(baseOutputDir, bridgeVer.version, platform.folder);
+            console.log(`Building debug bridge ${bridgeVer.version} for ${platform.rid}...`);
+            
+            try {
+                const { stdout, stderr } = await promiseExec(
+                    `dotnet publish -c Release -r ${platform.rid} --self-contained true ${bridgeVer.property} -o "${outputDir}"`,
+                    { cwd: bridgeProjectDir }
+                );
+                if (stdout) console.log(stdout);
+                console.log(`Debug bridge ${bridgeVer.version} built successfully for ${platform.rid}`);
+            } catch (err) {
+                console.error(`Error building debug bridge ${bridgeVer.version} for ${platform.rid}:`, err.message);
+                done(err);
+                return;
+            }
         }
     }
     
-    // Set executable permissions on Unix binaries
+    // Set executable permissions on Unix binaries (both v1 and v2)
     // Use both chmod (when on Unix) and git update-index (for CI/CD on Windows)
     const unixPlatforms = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'];
     
-    for (const folder of unixPlatforms) {
-        const execPath = path.join(baseOutputDir, folder, 'nanoFramework.Tools.DebugBridge');
-        const relativePath = path.relative(process.cwd(), execPath).replace(/\\/g, '/');
-        
-        // Try chmod first (works on Unix systems)
-        if (process.platform !== 'win32') {
-            const { chmod } = require('fs').promises;
-            try {
-                await chmod(execPath, 0o755);
-                console.log(`Set executable permission on ${execPath}`);
-            } catch (e) {
-                console.log(`Note: Could not chmod ${execPath}: ${e.message}`);
+    for (const bridgeVer of bridgeVersions) {
+        for (const folder of unixPlatforms) {
+            const execPath = path.join(baseOutputDir, bridgeVer.version, folder, 'nanoFramework.Tools.DebugBridge');
+            const relativePath = path.relative(process.cwd(), execPath).replace(/\\/g, '/');
+            
+            // Try chmod first (works on Unix systems)
+            if (process.platform !== 'win32') {
+                const { chmod } = require('fs').promises;
+                try {
+                    await chmod(execPath, 0o755);
+                    console.log(`Set executable permission on ${execPath}`);
+                } catch (e) {
+                    console.log(`Note: Could not chmod ${execPath}: ${e.message}`);
+                }
             }
-        }
-        
-        // Use git update-index to mark as executable (works on any platform, persists in git)
-        try {
-            await promiseExec(`git update-index --chmod=+x "${relativePath}"`);
-            console.log(`Marked ${relativePath} as executable in git`);
-        } catch (e) {
-            // Not a git repo or git not available - that's fine
-            console.log(`Note: Could not update git index for ${relativePath} (${e.message})`);
+            
+            // Use git update-index to mark as executable (works on any platform, persists in git)
+            try {
+                await promiseExec(`git update-index --chmod=+x "${relativePath}"`);
+                console.log(`Marked ${relativePath} as executable in git`);
+            } catch (e) {
+                // Not a git repo or git not available - that's fine
+                console.log(`Note: Could not update git index for ${relativePath} (${e.message})`);
+            }
         }
     }
     
-    console.log("Debug bridge built for all platforms");
+    console.log("Debug bridge built for all platforms (v1 and v2)");
     done();
 });
 

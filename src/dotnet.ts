@@ -506,13 +506,76 @@ function resolveNugetRestoreTarget(filePath: string): { target: string; extraArg
 /**
  * Builds the nanoFramework project system path using proper path separators
  * @param toolPath The base tool path
+ * @param version The nanoFramework version folder to use ('v1.0' or 'v2.0')
  * @returns Properly formatted path for the current platform (with trailing separator)
  */
-function buildNanoFrameworkProjectSystemPath(toolPath: string): string {
+function buildNanoFrameworkProjectSystemPath(toolPath: string, version: string = 'v1.0'): string {
     // Use forward slashes to avoid escaping issues with trailing backslash in quoted paths
     // MSBuild accepts forward slashes on Windows
-    const nfPath = path.join(toolPath, 'nanoFramework', 'v1.0');
+    const nfPath = path.join(toolPath, 'nanoFramework', version);
     return nfPath.replace(/\\/g, '/') + '/';
+}
+
+/**
+ * Detects the nanoFramework target version from a solution or project file.
+ * Checks .nfproj files for CoreLibrary 2.x → returns 'v2.0', otherwise 'v1.0'.
+ */
+function detectMdpVersion(fileUri: string): string {
+    try {
+        let searchDir: string;
+        if (isSolutionFile(fileUri)) {
+            searchDir = path.dirname(fileUri);
+        } else if (fileUri.endsWith('.nfproj')) {
+            // Check this project file directly
+            const content = fs.readFileSync(fileUri, 'utf-8');
+            if (isV2Project(content)) { return 'v2.0'; }
+            return 'v1.0';
+        } else {
+            searchDir = path.dirname(fileUri);
+        }
+
+        // Scan subdirectories (1 level) for .nfproj files
+        const entries = fs.readdirSync(searchDir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'packages' || entry.name === 'bin' || entry.name === 'obj') {
+                continue;
+            }
+            const subDir = path.join(searchDir, entry.name);
+            try {
+                const files = fs.readdirSync(subDir).filter(f => f.endsWith('.nfproj'));
+                for (const f of files) {
+                    const content = fs.readFileSync(path.join(subDir, f), 'utf-8');
+                    if (isV2Project(content)) { return 'v2.0'; }
+                }
+            } catch { /* skip unreadable dirs */ }
+        }
+    } catch { /* default to v1 */ }
+    return 'v1.0';
+}
+
+/**
+ * Checks if a .nfproj file content indicates a v2 (generics) project.
+ * Supports both PackageReference style and old-style Reference+HintPath.
+ */
+function isV2Project(nfprojContent: string): boolean {
+    // Check PackageReference style: <PackageReference Include="nanoFramework.CoreLibrary" Version="2.x" />
+    const pkgRefMatch = nfprojContent.match(
+        /<PackageReference\s+Include\s*=\s*"nanoFramework\.CoreLibrary"\s+Version\s*=\s*"([^"]+)"/i
+    );
+    if (pkgRefMatch) {
+        const majorMatch = pkgRefMatch[1].match(/^(\d+)/);
+        if (majorMatch && parseInt(majorMatch[1], 10) >= 2) {
+            return true;
+        }
+    }
+    // Check old-style Reference+HintPath: <HintPath>...nanoFramework.CoreLibrary.2.x...mscorlib.dll</HintPath>
+    const hintMatch = nfprojContent.match(
+        /nanoFramework\.CoreLibrary\.(\d+)\./i
+    );
+    if (hintMatch && parseInt(hintMatch[1], 10) >= 2) {
+        return true;
+    }
+    return false;
 }
 
 export class Dotnet {
@@ -529,7 +592,8 @@ export class Dotnet {
             // Clean .bin files before building to avoid stale files
             cleanBinFiles(fileUri, configuration);
 
-            const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
+            const mdpVersion = detectMdpVersion(fileUri);
+            const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath, mdpVersion);
 
             // Determine the restore target: for .nfproj files use the packages.config
             // in the project directory (or the parent .sln if one exists).
@@ -640,7 +704,8 @@ export class Dotnet {
             cleanBinFiles(fileUri, configuration);
         }
 
-        const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
+        const mdpVersion = detectMdpVersion(fileUri);
+        const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath, mdpVersion);
         
         // Verify the nanoFramework project system path exists (check without trailing slash)
         const nfPathToCheck = nfProjectSystemPath.endsWith('/') ? nfProjectSystemPath.slice(0, -1) : nfProjectSystemPath;

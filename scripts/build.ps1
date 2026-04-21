@@ -96,6 +96,41 @@ try {
         Copy-Item $packagesConfig $utilsDir -Force
     }
 
+    ## Setup v2 MDP (generics support) from NuGet
+    Write-Host "Downloading v2 MDP (MetadataProcessor 4.0.0-preview) from NuGet..." -ForegroundColor Green
+    $mdpV2Version = "4.0.0-preview.73"
+    $mdpV2Package = "nanoframework.tools.metadataprocessor.msbuildtask"
+    $mdpV2Zip = "mdp-v2.zip"
+    $mdpV2ExtractDir = "mdp-v2"
+
+    $mdpV2Url = "https://api.nuget.org/v3-flatcontainer/$mdpV2Package/$mdpV2Version/$mdpV2Package.$mdpV2Version.nupkg"
+    Invoke-WebRequest -Uri $mdpV2Url -OutFile $mdpV2Zip
+
+    Write-Host "Extracting v2 MDP..." -ForegroundColor Cyan
+    if (Test-Path $mdpV2ExtractDir) { Remove-Item $mdpV2ExtractDir -Recurse -Force }
+    Expand-Archive $mdpV2Zip -DestinationPath $mdpV2ExtractDir -Force
+
+    # Create v2.0 directory by copying v1.0 structure (targets, props, Rules, BuildTasks)
+    $v1SdkPath = Join-Path "$outputDirectory/utils/nanoFramework" "v1.0"
+    $v2SdkPath = Join-Path "$outputDirectory/utils/nanoFramework" "v2.0"
+    if (Test-Path $v1SdkPath) {
+        Write-Host "Creating v2.0 SDK from v1.0 base + v2 MDP binaries..." -ForegroundColor Cyan
+        Copy-Item -Path $v1SdkPath -Destination $v2SdkPath -Recurse -Force
+
+        # Replace DLLs with v2 versions from NuGet package (net472 target)
+        $mdpV2LibDir = Join-Path $mdpV2ExtractDir "lib/net472"
+        if (Test-Path $mdpV2LibDir) {
+            Get-ChildItem -Path $mdpV2LibDir -Filter "*.dll" | ForEach-Object {
+                Copy-Item -Path $_.FullName -Destination $v2SdkPath -Force
+                Write-Host "  Replaced: $($_.Name)" -ForegroundColor DarkGray
+            }
+        }
+    }
+
+    # Clean up v2 MDP temp files
+    if (Test-Path $mdpV2Zip) { Remove-Item $mdpV2Zip -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $mdpV2ExtractDir) { Remove-Item $mdpV2ExtractDir -Recurse -Force -ErrorAction SilentlyContinue }
+
     Write-Host "Build completed successfully!" -ForegroundColor Green
 
 } catch {
