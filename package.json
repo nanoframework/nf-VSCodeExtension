@@ -371,7 +371,7 @@
     "nerdbank-gitversioning": "^3.9.50",
     "rimraf": "^6.1.3",
     "ts-loader": "^9.5.7",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.0",
     "webpack": "^5.106.2",
     "webpack-cli": "^7.0.2"
