@@ -362,7 +362,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.9.3",
     "@types/semver": "^7.7.1",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.125.0",
     "@vscode/test-electron": "^3.0.0",
     "eslint": "^10.5.0",
     "glob": "^13.0.6",
