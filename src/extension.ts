@@ -601,6 +601,13 @@ export async function activate(context: vscode.ExtensionContext) {
     } catch (error) {
         console.error('Error checking nanoff tool:', error);
     }
+
+    const nanoffMajorVersion = await Dotnet.initializeNanoffVersion();
+    if (nanoffMajorVersion === null) {
+        console.error('Could not detect the installed nanoff version.');
+    } else {
+        console.log(`Detected nanoff major version ${nanoffMajorVersion}.`);
+    }
 }
 
 /**

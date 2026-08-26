@@ -22,6 +22,7 @@ const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimi
 
 // Deploy operation tracking - used to cancel previous deploys when a new one starts
 let currentDeployId = 0;
+let nanoffMajorVersionPromise: Promise<number | null> | undefined;
 
 // Shared output channel for build logs
 let buildOutputChannel: vscode.OutputChannel | null = null;
@@ -49,15 +50,45 @@ async function checkDeploymentCompatibility(imagePaths: string[], serialPath: st
     }
 }
 
-function buildNanoffDeployCommands(imagePaths: string[], serialPath: string, fileDeploymentPath?: string | null): string[] {
-    const commands = imagePaths.map(imagePath =>
-        `nanoff deploy serialport "${serialPath}" image "${imagePath}"`);
+async function getNanoffMajorVersion(): Promise<number | null> {
+    if (!nanoffMajorVersionPromise) {
+        nanoffMajorVersionPromise = Executor.runHidden('nanoff --version').then(result => {
+            const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+            const match = output.match(/\bv?(\d+)\.\d+/i);
+            return result.success && match ? Number(match[1]) : null;
+        });
+    }
+
+    return nanoffMajorVersionPromise;
+}
+
+function buildNanoffDeployCommands(
+    imagePaths: string[],
+    serialPath: string,
+    nanoffMajorVersion: number,
+    fileDeploymentPath?: string | null
+): string[] {
+    const commands = imagePaths.map(imagePath => nanoffMajorVersion >= 3
+        ? `nanoff deploy --serialport "${serialPath}" --image "${imagePath}"`
+        : `nanoff --nanodevice --deploy --serialport "${serialPath}" --image "${imagePath}"`);
 
     if (fileDeploymentPath) {
-        commands.push(`nanoff deploy serialport "${serialPath}" file "${fileDeploymentPath}"`);
+        commands.push(nanoffMajorVersion >= 3
+            ? `nanoff deploy --serialport "${serialPath}" --file "${fileDeploymentPath}"`
+            : `nanoff --serialport "${serialPath}" --filedeployment "${fileDeploymentPath}"`);
     }
 
     return commands;
+}
+
+function buildNanoffFlashCommand(cliArguments: string, nanoffMajorVersion: number): string {
+    if (nanoffMajorVersion >= 3) {
+        return `nanoff flash ${cliArguments}`;
+    }
+
+    const backupFile = `nanoFramework-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.bin`;
+    const legacyArguments = cliArguments.replace(/(^|\s)--backup(?=\s|$)/, `$1--backupfile "${backupFile}"`);
+    return `nanoff --update ${legacyArguments}`;
 }
 
 /**
@@ -545,6 +576,10 @@ function buildNanoFrameworkProjectSystemPath(toolPath: string): string {
 }
 
 export class Dotnet {
+    static initializeNanoffVersion(): Promise<number | null> {
+        return getNanoffMajorVersion();
+    }
+
     /**
      * Builds the nanoFramework solution or project in a Terminal using MSBuild.exe (win32) or msbuild from mono (linux/macOS)
      * @param fileUri absolute path to *.sln or *.nfproj
@@ -795,8 +830,21 @@ export class Dotnet {
             // Deduplicate files (resolve to absolute paths to avoid duplicates)
             const uniqueBinFiles = Array.from(new Set(binFiles.map(f => path.resolve(f))));
             const compatibilityError = await checkDeploymentCompatibility(uniqueBinFiles, serialPath);
+            if (currentDeployId !== thisDeployId) {
+                console.log(`Deploy #${thisDeployId} cancelled during compatibility check`);
+                return;
+            }
             if (compatibilityError) {
                 vscode.window.showErrorMessage(compatibilityError);
+                return;
+            }
+            const nanoffMajorVersion = await getNanoffMajorVersion();
+            if (currentDeployId !== thisDeployId) {
+                console.log(`Deploy #${thisDeployId} cancelled during nanoff version detection`);
+                return;
+            }
+            if (nanoffMajorVersion === null) {
+                vscode.window.showErrorMessage('Could not detect the installed nanoff version. Run "nanoff --version" to verify the installation.');
                 return;
             }
             // Check for content files to deploy
@@ -804,18 +852,33 @@ export class Dotnet {
             if (fileDeploymentJsonPath) {
                 vscode.window.showInformationMessage(`File deployment enabled: deploying content files to device storage.`);
             }
-            const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, fileDeploymentJsonPath);
+            const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, nanoffMajorVersion, fileDeploymentJsonPath);
 
             console.log(`Deploy commands: ${deployCommands.join('\n')}`);
             
             // Wait a moment to ensure terminal is ready for the next command
             // This helps when the build just finished and the terminal needs to process
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // Send the deploy command to terminal
-            deployCommands.forEach(command => Executor.runInTerminal(command));
-            console.log('Deploy commands sent to terminal');
-            vscode.window.showInformationMessage(`Deploying ${binFiles.length} BIN file(s) to ${serialPath}...`);
+
+            for (const command of deployCommands) {
+                if (currentDeployId !== thisDeployId) {
+                    console.log(`Deploy #${thisDeployId} cancelled before command execution`);
+                    return;
+                }
+
+                const deployResult = await Executor.runInTerminalAndWait(command);
+                if (currentDeployId !== thisDeployId) {
+                    console.log(`Deploy #${thisDeployId} cancelled during command execution`);
+                    return;
+                }
+                if (!deployResult.success) {
+                    vscode.window.showErrorMessage(`Deploy failed with exit code ${deployResult.exitCode ?? 'unknown'}. See terminal output for details.`);
+                    return;
+                }
+            }
+
+            console.log('Deploy commands completed successfully');
+            vscode.window.showInformationMessage(`Successfully deployed ${binFiles.length} BIN file(s) to ${serialPath}`);
         } else {
             // Run build hidden with progress notification
             try {
@@ -954,11 +1017,29 @@ export class Dotnet {
                     const uniqueBinFiles = Array.from(new Set(binFiles.map(f => path.resolve(f))));
                     progress.report({ message: "Checking device library compatibility..." });
                     const compatibilityError = await checkDeploymentCompatibility(uniqueBinFiles, serialPath);
+                    if (currentDeployId !== thisDeployId) {
+                        console.log(`Deploy #${thisDeployId} cancelled during compatibility check`);
+                        outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                        return;
+                    }
                     if (compatibilityError) {
                         outChannel.appendLine('Deployment blocked:');
                         outChannel.appendLine(compatibilityError);
                         outChannel.show(true);
                         vscode.window.showErrorMessage(compatibilityError);
+                        return;
+                    }
+                    const nanoffMajorVersion = await getNanoffMajorVersion();
+                    if (currentDeployId !== thisDeployId) {
+                        console.log(`Deploy #${thisDeployId} cancelled during nanoff version detection`);
+                        outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                        return;
+                    }
+                    if (nanoffMajorVersion === null) {
+                        const error = 'Could not detect the installed nanoff version. Run "nanoff --version" to verify the installation.';
+                        outChannel.appendLine(error);
+                        outChannel.show(true);
+                        vscode.window.showErrorMessage(error);
                         return;
                     }
                     // Check for content files to deploy
@@ -974,7 +1055,7 @@ export class Dotnet {
                         }
                         outChannel.appendLine('');
                     }
-                    const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, fileDeploymentJsonPath);
+                    const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, nanoffMajorVersion, fileDeploymentJsonPath);
                     
                     console.log(`Deploy commands: ${deployCommands.join('\n')}`);
                     outChannel.appendLine('=== Deploy ===');
@@ -983,7 +1064,19 @@ export class Dotnet {
                     
                     let deploySucceeded = true;
                     for (const command of deployCommands) {
+                        if (currentDeployId !== thisDeployId) {
+                            console.log(`Deploy #${thisDeployId} cancelled before command execution`);
+                            outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                            return;
+                        }
+
                         const deployResult = await Executor.runHidden(command);
+
+                        if (currentDeployId !== thisDeployId) {
+                            console.log(`Deploy #${thisDeployId} cancelled during command execution`);
+                            outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                            return;
+                        }
 
                         if (deployResult.stdout) {
                             outChannel.appendLine('--- stdout ---');
@@ -1028,7 +1121,13 @@ export class Dotnet {
             return;
         }
 
-        const cmd = `nanoff flash ${cliArguments}`;
+        const nanoffMajorVersion = await getNanoffMajorVersion();
+        if (nanoffMajorVersion === null) {
+            vscode.window.showErrorMessage('Could not detect the installed nanoff version. Run "nanoff --version" to verify the installation.');
+            return;
+        }
+
+        const cmd = buildNanoffFlashCommand(cliArguments, nanoffMajorVersion);
 
         if (Executor.shouldShowTerminal()) {
             // Running in visible terminal — parsing not possible here

@@ -187,6 +187,64 @@ export class Executor {
     }
 
     /**
+     * Runs a command in a visible terminal and waits for its exit code.
+     */
+    public static async runInTerminalAndWait(command: string, terminal: string = "dotnet"): Promise<ExecutionResult> {
+        if (this.terminals[terminal] === undefined) {
+            this.terminals[terminal] = vscode.window.createTerminal(terminal);
+        }
+
+        const targetTerminal = this.terminals[terminal];
+        targetTerminal.show();
+
+        const shellIntegration = targetTerminal.shellIntegration || await new Promise<vscode.TerminalShellIntegration | undefined>((resolve) => {
+            const timeout = setTimeout(() => {
+                subscription.dispose();
+                resolve(undefined);
+            }, 3000);
+            const subscription = vscode.window.onDidChangeTerminalShellIntegration(event => {
+                if (event.terminal === targetTerminal) {
+                    clearTimeout(timeout);
+                    subscription.dispose();
+                    resolve(event.shellIntegration);
+                }
+            });
+        });
+
+        if (!shellIntegration) {
+            return this.runHidden(command);
+        }
+
+        let execution: vscode.TerminalShellExecution;
+        try {
+            execution = shellIntegration.executeCommand(command);
+        } catch {
+            return this.runHidden(command);
+        }
+
+        return new Promise((resolve) => {
+            const finish = (result: ExecutionResult) => {
+                executionSubscription.dispose();
+                closeSubscription.dispose();
+                resolve(result);
+            };
+            const executionSubscription = vscode.window.onDidEndTerminalShellExecution(event => {
+                if (event.execution === execution) {
+                    finish({
+                        success: event.exitCode === 0,
+                        exitCode: event.exitCode ?? null
+                    });
+                }
+            });
+            const closeSubscription = vscode.window.onDidCloseTerminal(closedTerminal => {
+                if (closedTerminal === targetTerminal) {
+                    finish({ success: false, exitCode: null });
+                }
+            });
+        });
+    }
+
+    /**
      * Removes the terminal window from memory when window is closed
      * @param closedTerminal 
      */

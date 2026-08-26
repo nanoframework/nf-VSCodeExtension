@@ -222,6 +222,8 @@ You will need to make sure you'll have the following elements installed:
 - **Windows only:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with ".NET desktop build tools" workload
 - **Linux/macOS only:** [mono-complete](https://www.mono-project.com/docs/getting-started/install/) with msbuild, and [nuget CLI](https://www.nuget.org/downloads)
 
+After checking for `nanoff` updates at startup, the extension detects and caches the installed major version for the lifetime of that extension session. It supports both the v2 option-based CLI and the v3-or-newer verb-based CLI. Restart VS Code after changing the installed `nanoff` version so the extension detects the new version.
+
 > **Note:** The `.slnx` solution format is fully supported on Windows. On Linux/macOS,  
 > `.slnx` requires a recent Mono installation with an updated MSBuild. If your Mono  
 > version does not support `.slnx`, use the classic `.sln` format instead.
