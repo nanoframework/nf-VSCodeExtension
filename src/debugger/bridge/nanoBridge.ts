@@ -48,7 +48,7 @@ export class NanoBridge extends EventEmitter {
     private _pendingRequests = new Map<number, { resolve: (value: any) => void; reject: (error: any) => void }>();
     private _requestId = 1;
     private _verbose = false;
-    private _verbosity = 'information';
+    private _verbosity = 'none';
     private _buffer = '';
     private _device?: string;
 
@@ -60,7 +60,7 @@ export class NanoBridge extends EventEmitter {
      */
     public async initialize(device?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
-        this._verbosity = verbosity || (verbose ? 'debug' : 'information');
+        this._verbosity = verbosity || (verbose ? 'debug' : 'none');
         this._device = device;
 
         try {
@@ -143,6 +143,14 @@ export class NanoBridge extends EventEmitter {
     public async deploy(assembliesPath: string): Promise<boolean> {
         const response = await this.sendCommand('deploy', { assembliesPath });
         return response?.success || false;
+    }
+
+    /**
+     * Check deployment images against native libraries installed on the device
+     */
+    public async checkDeploymentCompatibility(imagePaths: string[]): Promise<{ success: boolean; error?: string }> {
+        const response = await this.sendCommand('checkDeploymentCompatibility', { imagePaths });
+        return { success: response?.success || false, error: response?.error };
     }
 
     /**

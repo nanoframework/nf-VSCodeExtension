@@ -19,7 +19,7 @@
     }
   ],
   "engines": {
-    "vscode": "^1.109.0"
+    "vscode": "^1.134.0"
   },
   "repository": {
     "type": "git",
@@ -108,7 +108,7 @@
                   "information",
                   "debug"
                 ],
-                "default": "information"
+                "default": "none"
               }
             }
           },
@@ -145,7 +145,7 @@
                   "information",
                   "debug"
                 ],
-                "default": "information"
+                "default": "none"
               }
             }
           }
@@ -158,7 +158,8 @@
             "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
             "device": "",
             "stopOnEntry": true,
-            "deployAssemblies": true
+            "deployAssemblies": true,
+            "verbosity": "none"
           }
         ],
         "configurationSnippets": [
@@ -172,7 +173,8 @@
               "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
               "device": "",
               "stopOnEntry": true,
-              "deployAssemblies": true
+              "deployAssemblies": true,
+              "verbosity": "none"
             }
           },
           {
@@ -183,7 +185,8 @@
               "request": "attach",
               "name": "nanoFramework: Attach",
               "device": "",
-              "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
+              "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
+              "verbosity": "none"
             }
           }
         ]
@@ -342,7 +345,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "gulp build-debug-bridge && npm run compile",
     "build:prod": "npm run compile",
     "build:native": "pwsh scripts/build.ps1",
     "build:native:clean": "pwsh scripts/build.ps1 -Clean",
@@ -362,7 +365,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.2.0",
     "@types/semver": "^7.8.0",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.134.0",
     "@vscode/test-electron": "^3.1.0",
     "eslint": "^10.9.0",
     "glob": "^13.0.6",

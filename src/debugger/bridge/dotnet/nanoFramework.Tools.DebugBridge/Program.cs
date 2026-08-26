@@ -118,6 +118,9 @@ class Program
                 case "deploy":
                     response = await HandleDeploy(request);
                     break;
+                case "checkDeploymentCompatibility":
+                    response = HandleCheckDeploymentCompatibility(request);
+                    break;
                 case "startExecution":
                     response = await HandleStartExecution(request);
                     break;
@@ -160,6 +163,23 @@ class Program
 
     #region Command Handlers
 
+    private static BridgeResponse HandleCheckDeploymentCompatibility(BridgeRequest request)
+    {
+        if (_session == null)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "Session not initialized" };
+        }
+
+        var args = JsonSerializer.Deserialize<CheckDeploymentCompatibilityArgs>(request.Args?.ToString() ?? "{}", _jsonOptions);
+        if (args == null || args.ImagePaths.Length == 0)
+        {
+            return new BridgeResponse { Id = request.Id, Success = false, Error = "No deployment images supplied" };
+        }
+
+        var result = _session.CheckDeploymentCompatibility(args.ImagePaths);
+        return new BridgeResponse { Id = request.Id, Success = result.Success, Error = result.Error };
+    }
+
     private static async Task<BridgeResponse> HandleInitialize(BridgeRequest request)
     {
         // Initialize command - just acknowledge that the bridge is ready
@@ -181,8 +201,8 @@ class Program
             }
             else
             {
-                // Default to Information level
-                _session.SetVerbosity(VerbosityLevel.Information);
+                // Default to no bridge logging
+                _session.SetVerbosity(VerbosityLevel.None);
             }
         }
 

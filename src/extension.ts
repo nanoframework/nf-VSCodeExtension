@@ -6,6 +6,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
 import { NfProject } from "./createProject";
@@ -70,6 +71,7 @@ class NanoDebugConfigurationProvider implements vscode.DebugConfigurationProvide
                 config.request = 'launch';
                 config.program = '${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe';
                 config.stopOnEntry = true;
+                config.verbosity = 'none';
             }
         }
 
@@ -91,6 +93,61 @@ class NanoDebugConfigurationProvider implements vscode.DebugConfigurationProvide
             }
         }
 
+        return config;
+    }
+
+    async resolveDebugConfigurationWithSubstitutedVariables(
+        folder: vscode.WorkspaceFolder | undefined,
+        config: vscode.DebugConfiguration,
+        _token?: vscode.CancellationToken
+    ): Promise<vscode.DebugConfiguration | undefined> {
+        if (!folder || !config.program || fs.existsSync(config.program)) {
+            return config;
+        }
+
+        const configuredPath = config.program as string;
+        const configuredDirectory = path.extname(configuredPath)
+            ? path.dirname(configuredPath)
+            : configuredPath;
+        const configuration = path.basename(configuredDirectory);
+        const binDirectory = path.dirname(configuredDirectory);
+        const expectedProjectName = path.extname(configuredPath)
+            ? path.basename(configuredPath, path.extname(configuredPath))
+            : path.basename(path.dirname(binDirectory));
+        const projectFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(folder, '**/*.nfproj'),
+            '**/{bin,obj,packages}/**');
+        const outputDirectories = projectFiles
+            .map(projectFile => path.join(path.dirname(projectFile.fsPath), 'bin', configuration))
+            .filter(outputDirectory => fs.existsSync(outputDirectory) &&
+                fs.readdirSync(outputDirectory).some(file => file.endsWith('.pe')));
+
+        if (outputDirectories.length === 0) {
+            return config;
+        }
+
+        const matchingDirectory = outputDirectories.find(outputDirectory =>
+            path.basename(path.dirname(path.dirname(outputDirectory))).toLowerCase() === expectedProjectName.toLowerCase());
+        let selectedDirectory = matchingDirectory;
+
+        if (!selectedDirectory && outputDirectories.length === 1) {
+            selectedDirectory = outputDirectories[0];
+        } else if (!selectedDirectory) {
+            const selected = await vscode.window.showQuickPick(
+                outputDirectories.map(outputDirectory => ({
+                    label: path.basename(path.dirname(path.dirname(outputDirectory))),
+                    description: path.relative(folder.uri.fsPath, outputDirectory),
+                    outputDirectory
+                })),
+                { placeHolder: 'Select the nanoFramework project to debug' });
+            selectedDirectory = selected?.outputDirectory;
+        }
+
+        if (!selectedDirectory) {
+            return undefined;
+        }
+
+        config.program = selectedDirectory;
         return config;
     }
 
@@ -160,14 +217,16 @@ class NanoDebugConfigurationProvider implements vscode.DebugConfigurationProvide
                 program: '${workspaceFolder}/bin/Debug/${workspaceFolderBasename}.pe',
                 device: '',
                 stopOnEntry: true,
-                deployAssemblies: true
+                deployAssemblies: true,
+                verbosity: 'none'
             },
             {
                 type: 'nanoframework',
                 request: 'attach',
                 name: 'nanoFramework: Attach to Device',
                 device: '',
-                program: '${workspaceFolder}/bin/Debug'
+                program: '${workspaceFolder}/bin/Debug',
+                verbosity: 'none'
             }
         ];
     }

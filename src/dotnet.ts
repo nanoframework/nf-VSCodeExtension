@@ -16,6 +16,7 @@ import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
 import { isSolutionFile } from './utils';
+import { NanoBridge } from './debugger/bridge/nanoBridge';
 
 const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false -p:UseSharedCompilation=false';
 
@@ -29,6 +30,34 @@ function getBuildOutputChannel(): vscode.OutputChannel {
         buildOutputChannel = vscode.window.createOutputChannel('nanoFramework Build');
     }
     return buildOutputChannel;
+}
+
+async function checkDeploymentCompatibility(imagePaths: string[], serialPath: string): Promise<string | null> {
+    const bridge = new NanoBridge();
+    try {
+        if (!await bridge.initialize(serialPath, false, 'information')) {
+            return 'Could not start the nanoFramework debug bridge to verify device compatibility.';
+        }
+        if (!await bridge.connect()) {
+            return `Could not connect to ${serialPath} to verify device compatibility.`;
+        }
+
+        const result = await bridge.checkDeploymentCompatibility(imagePaths);
+        return result.success ? null : result.error || 'Device library compatibility check failed.';
+    } finally {
+        await bridge.terminate();
+    }
+}
+
+function buildNanoffDeployCommands(imagePaths: string[], serialPath: string, fileDeploymentPath?: string | null): string[] {
+    const commands = imagePaths.map(imagePath =>
+        `nanoff deploy serialport "${serialPath}" image "${imagePath}"`);
+
+    if (fileDeploymentPath) {
+        commands.push(`nanoff deploy serialport "${serialPath}" file "${fileDeploymentPath}"`);
+    }
+
+    return commands;
 }
 
 /**
@@ -765,25 +794,27 @@ export class Dotnet {
             // Build the deploy command with all BIN files (using full paths)
             // Deduplicate files (resolve to absolute paths to avoid duplicates)
             const uniqueBinFiles = Array.from(new Set(binFiles.map(f => path.resolve(f))));
-            const imageArgs = uniqueBinFiles.map(f => `--image "${f}"`).join(' ');
-            let cliDeployArguments = `nanoff --nanodevice --deploy --serialport "${serialPath}" ${imageArgs}`;
-
+            const compatibilityError = await checkDeploymentCompatibility(uniqueBinFiles, serialPath);
+            if (compatibilityError) {
+                vscode.window.showErrorMessage(compatibilityError);
+                return;
+            }
             // Check for content files to deploy
             const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
             if (fileDeploymentJsonPath) {
-                cliDeployArguments += ` --filedeployment "${fileDeploymentJsonPath}"`;
                 vscode.window.showInformationMessage(`File deployment enabled: deploying content files to device storage.`);
             }
+            const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, fileDeploymentJsonPath);
 
-            console.log(`Deploy command: ${cliDeployArguments}`);
+            console.log(`Deploy commands: ${deployCommands.join('\n')}`);
             
             // Wait a moment to ensure terminal is ready for the next command
             // This helps when the build just finished and the terminal needs to process
             await new Promise(resolve => setTimeout(resolve, 1000));
             
             // Send the deploy command to terminal
-            Executor.runInTerminal(cliDeployArguments);
-            console.log('Deploy command sent to terminal');
+            deployCommands.forEach(command => Executor.runInTerminal(command));
+            console.log('Deploy commands sent to terminal');
             vscode.window.showInformationMessage(`Deploying ${binFiles.length} BIN file(s) to ${serialPath}...`);
         } else {
             // Run build hidden with progress notification
@@ -921,13 +952,18 @@ export class Dotnet {
                     // Build the deploy command with all BIN files (using full paths)
                     // Deduplicate files (resolve to absolute paths to avoid duplicates)
                     const uniqueBinFiles = Array.from(new Set(binFiles.map(f => path.resolve(f))));
-                    const imageArgs = uniqueBinFiles.map(f => `--image "${f}"`).join(' ');
-                    let cliDeployArguments = `nanoff --nanodevice --deploy --serialport "${serialPath}" ${imageArgs}`;
-                    
+                    progress.report({ message: "Checking device library compatibility..." });
+                    const compatibilityError = await checkDeploymentCompatibility(uniqueBinFiles, serialPath);
+                    if (compatibilityError) {
+                        outChannel.appendLine('Deployment blocked:');
+                        outChannel.appendLine(compatibilityError);
+                        outChannel.show(true);
+                        vscode.window.showErrorMessage(compatibilityError);
+                        return;
+                    }
                     // Check for content files to deploy
                     const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
                     if (fileDeploymentJsonPath) {
-                        cliDeployArguments += ` --filedeployment "${fileDeploymentJsonPath}"`;
                         outChannel.appendLine('=== File Deployment ===');
                         outChannel.appendLine(`File deployment JSON: ${fileDeploymentJsonPath}`);
                         try {
@@ -938,37 +974,41 @@ export class Dotnet {
                         }
                         outChannel.appendLine('');
                     }
+                    const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, fileDeploymentJsonPath);
                     
-                    console.log(`Deploy command: ${cliDeployArguments}`);
+                    console.log(`Deploy commands: ${deployCommands.join('\n')}`);
                     outChannel.appendLine('=== Deploy ===');
-                    outChannel.appendLine(`Command: ${cliDeployArguments}`);
+                    deployCommands.forEach(command => outChannel.appendLine(`Command: ${command}`));
                     outChannel.appendLine('');
                     
-                    // Run deploy hidden as well
-                    const deployResult = await Executor.runHidden(cliDeployArguments);
-                    
-                    // Write deploy output to channel
-                    if (deployResult.stdout) {
-                        outChannel.appendLine('--- stdout ---');
-                        outChannel.appendLine(deployResult.stdout);
+                    let deploySucceeded = true;
+                    for (const command of deployCommands) {
+                        const deployResult = await Executor.runHidden(command);
+
+                        if (deployResult.stdout) {
+                            outChannel.appendLine('--- stdout ---');
+                            outChannel.appendLine(deployResult.stdout);
+                        }
+                        if (deployResult.stderr) {
+                            outChannel.appendLine('--- stderr ---');
+                            outChannel.appendLine(deployResult.stderr);
+                        }
+                        outChannel.appendLine('');
+
+                        if (!deployResult.success) {
+                            deploySucceeded = false;
+                            console.error(`Deploy failed. stdout: ${deployResult.stdout}, stderr: ${deployResult.stderr}`);
+                            break;
+                        }
                     }
-                    if (deployResult.stderr) {
-                        outChannel.appendLine('--- stderr ---');
-                        outChannel.appendLine(deployResult.stderr);
-                    }
-                    outChannel.appendLine('');
                     
-                    if (deployResult.success) {
+                    if (deploySucceeded) {
                         outChannel.appendLine(`Deploy succeeded. ${uniqueBinFiles.length} BIN file(s) deployed to ${serialPath}`);
                         outChannel.show(true);
                         vscode.window.showInformationMessage(`Successfully deployed ${uniqueBinFiles.length} BIN file(s) to ${serialPath}`);
                     } else {
                         outChannel.appendLine('Deploy FAILED');
                         outChannel.show(true);
-                        // Show detailed error information
-                         
-                        const errorDetails = deployResult.stdout || deployResult.stderr || 'Unknown error';
-                        console.error(`Deploy failed. stdout: ${deployResult.stdout}, stderr: ${deployResult.stderr}`);
                         vscode.window.showErrorMessage(`Deploy failed. See Output panel for details.`);
                     }
                 });
@@ -988,7 +1028,7 @@ export class Dotnet {
             return;
         }
 
-        const cmd = `nanoff --update ${cliArguments}`;
+        const cmd = `nanoff flash ${cliArguments}`;
 
         if (Executor.shouldShowTerminal()) {
             // Running in visible terminal — parsing not possible here

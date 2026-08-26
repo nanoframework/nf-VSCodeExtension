@@ -70,7 +70,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     private _configurationDone = new Subject();
     private _cancellationTokens = new Map<number, boolean>();
     private _isAttach = false;
-    private _verbosity: string = 'information';
+    private _verbosity: string = 'none';
 
     /**
      * Creates a new debug session
@@ -249,7 +249,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     protected async launchRequest(response: DebugProtocol.LaunchResponse, args: ILaunchRequestArguments) {
         try {
             this._isAttach = false;
-            this._verbosity = args.verbosity || (args.verbose ? 'debug' : 'information');
+            this._verbosity = args.verbosity || (args.verbose ? 'debug' : 'none');
 
             // Wait until configuration is done (breakpoints are set)
             await this._configurationDone.wait(3000);
@@ -288,7 +288,7 @@ export class NanoDebugSession extends LoggingDebugSession {
     protected async attachRequest(response: DebugProtocol.AttachResponse, args: IAttachRequestArguments) {
         try {
             this._isAttach = true;
-            this._verbosity = args.verbosity || (args.verbose ? 'debug' : 'information');
+            this._verbosity = args.verbosity || (args.verbose ? 'debug' : 'none');
 
             // Log the attach arguments for debugging (only in debug verbosity)
             if (this._verbosity === 'debug') {

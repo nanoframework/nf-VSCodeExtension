@@ -77,7 +77,7 @@ VS Code uses `launch.json` to configure debug sessions. Create this file in `.vs
 | `request` | string | required | `"launch"` or `"attach"` |
 | `program` | string | required | Path to .pe file or assembly directory |
 | `device` | string | `""` | Device connection (COM port or IP). Empty for auto-detect |
-| `verbosity` | string | `"information"` | Logging verbosity level. See [Verbosity Levels](#verbosity-levels) |
+| `verbosity` | string | `"none"` | Logging verbosity level. See [Verbosity Levels](#verbosity-levels) |
 | `verbose` | boolean | `false` | (Deprecated) Enable verbose debug output. Use `verbosity` instead |
 
 #### Verbosity Levels

@@ -402,11 +402,11 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 
 	// build the CLI arguments for the nanoFrameworkFlasher
 	// starts with the target name and version
-	cliArguments = `--target ${state.targetName} --fwversion ${state.imageVersion.label} `;
+	cliArguments = `target ${state.targetName} fwversion ${state.imageVersion.label}`;
 
-	// adds --preview for the nanoFrameworkFlasher when the imageVersion selected is in preview
+	// Select the preview repository for prerelease versions.
 	if (state.imageVersion.label && state.imageVersion.label.includes("preview")) {
-		cliArguments += " --preview";
+		cliArguments += " preview";
 	}
 
 	// different CLI arguments are given to the nanoFrameworkFlasher based on type of targetName selected
@@ -419,7 +419,7 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 		case 'WeA':
 		case 'ORG':
 		case 'Pyb':
-			cliArguments += ` ${state.dfuOrJtag.label === 'DFU mode' ? '--dfu' : '--jtag'}`;
+			cliArguments += ` ${state.dfuOrJtag.label === 'DFU mode' ? 'dfu' : 'jtag'}`;
 			break;
 
 		case 'TI_':
@@ -429,21 +429,21 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 
 		default:
 			// ESP32 devices
-			cliArguments += ` --serialport ${state.devicePath}`;
+			cliArguments += ` serialport "${state.devicePath}"`;
 			
 			// Only add baud rate if not using default (auto)
 			if (state.baudrate && !state.baudrate.startsWith('Default')) {
-				cliArguments += ` --baud ${state.baudrate}`;
+				cliArguments += ` baud ${state.baudrate}`;
 			}
 			
 			// Add backup flag if user requested it
 			if (state.backupDevice) {
-				cliArguments += ' --backup';
+				cliArguments += ' backup';
 			}
 			
 			// Add mass erase flag if user requested it
 			if (state.massErase) {
-				cliArguments += ' --masserase';
+				cliArguments += ' masserase';
 			}
 			break;
 	}

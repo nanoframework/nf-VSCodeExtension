@@ -179,7 +179,7 @@ Create a `.vscode/launch.json` file in your workspace with the following configu
 | `device` | string | COM port (e.g., `"COM3"`) or IP address. Leave empty for auto-detect |
 | `stopOnEntry` | boolean | Pause at program entry point (default: `true`) |
 | `deployAssemblies` | boolean | Deploy assemblies before debugging (launch only) |
-| `verbosity` | string | Logging verbosity: `"none"`, `"information"` (default), or `"debug"` |
+| `verbosity` | string | Logging verbosity: `"none"` (default), `"information"`, or `"debug"` |
 
 ### Device Selection
 
