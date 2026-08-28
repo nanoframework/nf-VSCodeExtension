@@ -87,7 +87,10 @@ function buildNanoffFlashCommand(cliArguments: string, nanoffMajorVersion: numbe
     }
 
     const backupFile = `nanoFramework-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.bin`;
-    const legacyArguments = cliArguments.replace(/(^|\s)--backup(?=\s|$)/, `$1--backupfile "${backupFile}"`);
+    const legacyArguments = cliArguments.replace(
+        /(^|\s)--backup(?=\s|$)/,
+        `$1--backuppath "${os.tmpdir()}" --backupfile "${backupFile}"`
+    );
     return `nanoff --update ${legacyArguments}`;
 }
 
@@ -869,6 +872,10 @@ export class Dotnet {
                 const deployResult = await Executor.runInTerminalAndWait(command);
                 if (currentDeployId !== thisDeployId) {
                     console.log(`Deploy #${thisDeployId} cancelled during command execution`);
+                    return;
+                }
+                if (deployResult.status === 'indeterminate') {
+                    vscode.window.showErrorMessage(`${deployResult.stderr} Deployment stopped because command success could not be verified.`);
                     return;
                 }
                 if (!deployResult.success) {

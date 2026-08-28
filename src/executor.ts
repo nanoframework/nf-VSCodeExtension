@@ -21,6 +21,10 @@ export interface ExecutionResult {
     exitCode?: number | null;
 }
 
+export interface TerminalExecutionResult extends ExecutionResult {
+    status: 'success' | 'failure' | 'indeterminate';
+}
+
 export class Executor {
     /**
      * Gets the current setting for showing terminal output
@@ -189,7 +193,7 @@ export class Executor {
     /**
      * Runs a command in a visible terminal and waits for its exit code.
      */
-    public static async runInTerminalAndWait(command: string, terminal: string = "dotnet"): Promise<ExecutionResult> {
+    public static async runInTerminalAndWait(command: string, terminal: string = "dotnet"): Promise<TerminalExecutionResult> {
         if (this.terminals[terminal] === undefined) {
             this.terminals[terminal] = vscode.window.createTerminal(terminal);
         }
@@ -212,35 +216,64 @@ export class Executor {
         });
 
         if (!shellIntegration) {
-            return this.runHidden(command);
+            const result = await this.runHidden(command);
+            return { ...result, status: result.success ? 'success' : 'failure' };
         }
 
         let execution: vscode.TerminalShellExecution;
         try {
             execution = shellIntegration.executeCommand(command);
         } catch {
-            return this.runHidden(command);
+            const result = await this.runHidden(command);
+            return { ...result, status: result.success ? 'success' : 'failure' };
         }
 
         return new Promise((resolve) => {
-            const finish = (result: ExecutionResult) => {
+            let finished = false;
+            const finish = (result: TerminalExecutionResult) => {
+                if (finished) {
+                    return;
+                }
+                finished = true;
                 executionSubscription.dispose();
                 closeSubscription.dispose();
+                clearTimeout(timeout);
                 resolve(result);
             };
             const executionSubscription = vscode.window.onDidEndTerminalShellExecution(event => {
                 if (event.execution === execution) {
+                    if (event.exitCode === undefined) {
+                        finish({
+                            success: false,
+                            status: 'indeterminate',
+                            stderr: 'VS Code could not determine the terminal command exit status.',
+                            exitCode: null
+                        });
+                        return;
+                    }
                     finish({
                         success: event.exitCode === 0,
-                        exitCode: event.exitCode ?? null
+                        status: event.exitCode === 0 ? 'success' : 'failure',
+                        exitCode: event.exitCode
                     });
                 }
             });
             const closeSubscription = vscode.window.onDidCloseTerminal(closedTerminal => {
                 if (closedTerminal === targetTerminal) {
-                    finish({ success: false, exitCode: null });
+                    finish({
+                        success: false,
+                        status: 'indeterminate',
+                        stderr: 'The terminal closed before the command status was reported.',
+                        exitCode: null
+                    });
                 }
             });
+            const timeout = setTimeout(() => finish({
+                success: false,
+                status: 'indeterminate',
+                stderr: 'Timed out waiting for the terminal command status.',
+                exitCode: null
+            }), 10 * 60 * 1000);
         });
     }
 
