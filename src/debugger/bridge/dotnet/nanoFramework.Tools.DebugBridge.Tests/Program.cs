@@ -8,7 +8,8 @@ var tests = new (string Name, Action Run)[]
     ("missing native assembly", MissingNativeAssembly),
     ("mismatched native checksum", MismatchedNativeChecksum),
     ("managed-only assembly", ManagedOnlyAssembly),
-    ("concatenated deployment image", ConcatenatedDeploymentImage)
+    ("concatenated deployment image", ConcatenatedDeploymentImage),
+    ("preview v2 assembly", PreviewV2Assembly)
 };
 
 foreach (var test in tests)
@@ -65,7 +66,27 @@ static void ConcatenatedDeploymentImage()
     Assert(assemblies[1].Name == "System.Device.Gpio", assemblies[1].Name);
 }
 
+static void PreviewV2Assembly()
+{
+    using var image = CreatePreviewImage(("System.Device.Gpio", new Version(2, 0, 0, 0), 0x12345678));
+    var assembly = DeploymentCompatibility.ReadAssemblies(image.Name).Single();
+
+    Assert(assembly.Name == "System.Device.Gpio", assembly.Name);
+    Assert(assembly.Version == new Version(2, 0, 0, 0), assembly.Version.ToString());
+    Assert(assembly.Checksum == 0x12345678, $"0x{assembly.Checksum:X8}");
+}
+
 static TemporaryImage CreateImage(params (string Name, Version Version, uint Checksum)[] assemblies)
+    => CreateImageFile("NFMRK1", 28, 36, assemblies);
+
+static TemporaryImage CreatePreviewImage(params (string Name, Version Version, uint Checksum)[] assemblies)
+    => CreateImageFile("NFMRK2", 24, 32, assemblies);
+
+static TemporaryImage CreateImageFile(
+    string marker,
+    int versionOffset,
+    int assemblyNameOffset,
+    params (string Name, Version Version, uint Checksum)[] assemblies)
 {
     var path = Path.Combine(Path.GetTempPath(), $"nf-deployment-{Guid.NewGuid():N}.bin");
     using var output = File.Create(path);
@@ -73,12 +94,13 @@ static TemporaryImage CreateImage(params (string Name, Version Version, uint Che
     foreach (var assembly in assemblies)
     {
         var data = new byte[160];
-        Encoding.ASCII.GetBytes("NFMRK1").CopyTo(data, 0);
+        Encoding.ASCII.GetBytes(marker).CopyTo(data, 0);
         BitConverter.GetBytes(assembly.Checksum).CopyTo(data, 20);
-        BitConverter.GetBytes((ushort)assembly.Version.Major).CopyTo(data, 28);
-        BitConverter.GetBytes((ushort)assembly.Version.Minor).CopyTo(data, 30);
-        BitConverter.GetBytes((ushort)assembly.Version.Build).CopyTo(data, 32);
-        BitConverter.GetBytes((ushort)assembly.Version.Revision).CopyTo(data, 34);
+        BitConverter.GetBytes((ushort)assembly.Version.Major).CopyTo(data, versionOffset);
+        BitConverter.GetBytes((ushort)assembly.Version.Minor).CopyTo(data, versionOffset + 2);
+        BitConverter.GetBytes((ushort)assembly.Version.Build).CopyTo(data, versionOffset + 4);
+        BitConverter.GetBytes((ushort)assembly.Version.Revision).CopyTo(data, versionOffset + 6);
+        BitConverter.GetBytes((ushort)0).CopyTo(data, assemblyNameOffset);
         BitConverter.GetBytes((uint)120).CopyTo(data, 40 + 11 * sizeof(uint));
         BitConverter.GetBytes((uint)data.Length).CopyTo(data, 40 + 15 * sizeof(uint));
         Encoding.UTF8.GetBytes(assembly.Name).CopyTo(data, 120);

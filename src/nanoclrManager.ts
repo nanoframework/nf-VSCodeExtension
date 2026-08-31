@@ -33,7 +33,7 @@ export class NanoCLRManager {
             return this._installed;
         }
 
-        const result = await Executor.runHidden('nanoclr --version');
+        const result = await Executor.runHidden('nanoclr --version', 'test');
         this._installed = result.success;
         return this._installed;
     }
@@ -70,7 +70,7 @@ export class NanoCLRManager {
         const channel = this.getOutputChannel();
 
         // Try update first (covers both install and update scenarios)
-        const result = await Executor.runHidden('dotnet tool update -g nanoclr');
+        const result = await Executor.runHidden('dotnet tool update -g nanoclr', 'test');
         if (result.success) {
             this._installed = true;
             const version = this.parseVersion(result.stdout || '');
@@ -106,7 +106,7 @@ export class NanoCLRManager {
         }
 
         channel.appendLine(`Updating nanoCLR instance: nanoclr ${args}`);
-        const result = await Executor.runHidden(`nanoclr ${args}`);
+        const result = await Executor.runHidden(`nanoclr ${args}`, 'test');
         if (result.success) {
             const version = this.parseInstanceVersion(result.stdout || '');
             channel.appendLine(`nanoCLR instance${version ? ` at v${version}` : ' updated'}`);

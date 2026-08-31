@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as cp from 'child_process';
+import { Executor } from './executor';
 
 export interface PrerequisiteCheckResult {
     allPassed: boolean;
@@ -22,13 +23,9 @@ export interface PrerequisiteCheckResult {
  * @returns true if the command exists, false otherwise
  */
 async function commandExists(command: string): Promise<boolean> {
-    return new Promise((resolve) => {
-        const checkCommand = os.platform() === 'win32' ? 'where' : 'which';
-        // Use execFile with command as argument to avoid shell injection
-        cp.execFile(checkCommand, [command], (error: Error | null) => {
-            resolve(!error);
-        });
-    });
+    const checkCommand = os.platform() === 'win32' && !Executor.shouldUseWsl() ? 'where' : 'which';
+    const result = await Executor.runExecFile(checkCommand, [command]);
+    return result.success;
 }
 
 /**
@@ -45,44 +42,13 @@ function fileExists(filePath: string): boolean {
 }
 
 /**
- * Finds msbuild on Unix systems
- * @returns The path to msbuild or null if not found
- */
-function findUnixMsBuild(): string | null {
-    const locations = [
-        '/usr/bin/msbuild',
-        '/usr/local/bin/msbuild',
-        '/Library/Frameworks/Mono.framework/Versions/Current/Commands/msbuild',
-        '/Library/Frameworks/Mono.framework/Commands/msbuild'
-    ];
-    
-    for (const loc of locations) {
-        if (fileExists(loc)) {
-            return loc;
-        }
-    }
-    
-    try {
-        const result = cp.execSync('which msbuild', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-        const msbuildPath = result.trim();
-        if (msbuildPath && fileExists(msbuildPath)) {
-            return msbuildPath;
-        }
-    } catch {
-        // which command failed
-    }
-    
-    return null;
-}
-
-/**
  * Validates all prerequisites for the extension to work properly
  * @returns PrerequisiteCheckResult with status and any issues found
  */
 export async function validatePrerequisites(): Promise<PrerequisiteCheckResult> {
     const issues: string[] = [];
     const warnings: string[] = [];
-    const platform = os.platform();
+    const platform = Executor.shouldUseWsl() ? 'linux' : os.platform();
     
     // Check .NET SDK
     if (!await commandExists('dotnet')) {
@@ -116,8 +82,7 @@ export async function validatePrerequisites(): Promise<PrerequisiteCheckResult> 
         }
         
         // Check msbuild
-        const msbuildPath = findUnixMsBuild();
-        if (!msbuildPath) {
+        if (!await commandExists('msbuild')) {
             issues.push('msbuild not found. Install mono-complete from Mono Project (NOT from your distribution\'s package manager).');
         }
         
@@ -132,7 +97,7 @@ export async function validatePrerequisites(): Promise<PrerequisiteCheckResult> 
         // Linux-specific: Check serial port permissions
         if (platform === 'linux') {
             try {
-                const groups = cp.execSync('groups', { encoding: 'utf-8' });
+                const groups = (await Executor.runExecFile('groups', [])).stdout || '';
                 if (!groups.includes('dialout')) {
                     warnings.push('User is not in the dialout group. Serial port access may fail. Run: sudo usermod -a -G dialout $USER (then log out and back in)');
                 }

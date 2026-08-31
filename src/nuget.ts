@@ -10,8 +10,12 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as https from 'https';
 import * as http from 'http';
+import extractZip = require('extract-zip');
+import { detectTemplateKind, getTemplateDirectory, getTemplatePackages, ProjectFamily } from './projectTemplates';
+import { ExecutionKind, Executor } from './executor';
 
 /**
  * Represents a NuGet package search result
@@ -33,12 +37,39 @@ interface NuGetPackageVersion {
     downloads: number;
 }
 
+interface NuGetEndpoints {
+    source: string;
+    search?: string;
+    packageBase?: string;
+}
+
+export function parseEnabledNugetSources(output: string): string[] {
+    return output
+        .split(/\r?\n/)
+        .map(line => /^\s*EM?\s+(.+?)\s*$/.exec(line)?.[1])
+        .filter((source): source is string => !!source);
+}
+
+export function selectNugetSources(output: string, defaultSource: string): string[] {
+    const enabledSources = parseEnabledNugetSources(output);
+    return enabledSources.length > 0 ? enabledSources : [defaultSource];
+}
+
+let nugetOutputChannel: vscode.OutputChannel | undefined;
+
+export function getNuGetOutputChannel(): vscode.OutputChannel {
+    if (!nugetOutputChannel) {
+        nugetOutputChannel = vscode.window.createOutputChannel('nanoFramework NuGet');
+    }
+    return nugetOutputChannel;
+}
+
 /**
  * NuGet service for searching and managing packages
  */
 export class NuGetService {
-    private static readonly NUGET_SEARCH_URL = 'https://api-v2v3search-0.nuget.org/query';
-    private static readonly NUGET_VERSIONS_URL = 'https://api.nuget.org/v3-flatcontainer';
+    private static readonly defaultSource = 'https://api.nuget.org/v3/index.json';
+    private static readonly sourceEndpointsPromises = new Map<string, Promise<NuGetEndpoints[]>>();
 
     /**
      * Search for NuGet packages
@@ -47,21 +78,51 @@ export class NuGetService {
      * @returns Array of matching packages
      */
     public static async searchPackages(query: string, take: number = 20): Promise<NuGetPackage[]> {
-        const url = `${this.NUGET_SEARCH_URL}?q=${encodeURIComponent(query)}&take=${take}&prerelease=false`;
-        
+        const output = getNuGetOutputChannel();
+        output.appendLine(`Searching enabled NuGet sources for "${query}"...`);
         try {
-            const response = await this.httpGet(url);
-            const data = JSON.parse(response);
-            
-            return data.data.map((pkg: any) => ({
-                id: pkg.id,
-                version: pkg.version,
-                description: pkg.description || '',
-                authors: pkg.authors || [],
-                totalDownloads: pkg.totalDownloads || 0
-            }));
+            const endpoints = await this.getSourceEndpoints();
+            const results = await Promise.allSettled(endpoints
+                .filter(endpoint => endpoint.search)
+                .map(async endpoint => {
+                    const url = new URL(endpoint.search!);
+                    url.searchParams.set('q', query);
+                    url.searchParams.set('take', String(take));
+                    url.searchParams.set('prerelease', 'false');
+                    const data = JSON.parse(await this.httpGet(url.toString()));
+                    return data.data as any[];
+                }));
+            const packages = new Map<string, NuGetPackage>();
+
+            for (const result of results) {
+                if (result.status !== 'fulfilled') {
+                    console.warn('NuGet source search failed:', result.reason);
+                    continue;
+                }
+                for (const pkg of result.value) {
+                    const key = pkg.id.toLowerCase();
+                    if (!packages.has(key)) {
+                        packages.set(key, {
+                            id: pkg.id,
+                            version: pkg.version,
+                            description: pkg.description || '',
+                            authors: pkg.authors || [],
+                            totalDownloads: pkg.totalDownloads || 0
+                        });
+                    }
+                }
+            }
+
+            if (results.length > 0 && results.every(result => result.status === 'rejected')) {
+                throw new Error('All enabled NuGet sources failed.');
+            }
+            const matches = Array.from(packages.values()).slice(0, take);
+            output.appendLine(`Found ${matches.length} package(s).`);
+            return matches;
         } catch (error) {
             console.error('Error searching NuGet packages:', error);
+            output.appendLine(`Search failed: ${error}`);
+            output.show(true);
             throw new Error(`Failed to search NuGet packages: ${error}`);
         }
     }
@@ -72,24 +133,185 @@ export class NuGetService {
      * @returns Array of available versions (newest first)
      */
     public static async getPackageVersions(packageId: string): Promise<string[]> {
-        const url = `${this.NUGET_VERSIONS_URL}/${packageId.toLowerCase()}/index.json`;
-        
+        const output = getNuGetOutputChannel();
+        output.appendLine(`Getting versions for ${packageId}...`);
         try {
-            const response = await this.httpGet(url);
-            const data = JSON.parse(response);
-            
-            // Return versions in reverse order (newest first)
-            return data.versions.reverse();
+            const endpoints = await this.getSourceEndpoints();
+            let lastError: unknown;
+            for (const endpoint of endpoints) {
+                if (!endpoint.packageBase) {
+                    continue;
+                }
+                const url = `${endpoint.packageBase.replace(/\/$/, '')}/${packageId.toLowerCase()}/index.json`;
+                try {
+                    const data = JSON.parse(await this.httpGet(url));
+                    if (Array.isArray(data.versions) && data.versions.length > 0) {
+                        output.appendLine(`Found ${data.versions.length} version(s) for ${packageId} from ${endpoint.source}.`);
+                        return data.versions.reverse();
+                    }
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            if (lastError) {
+                throw lastError;
+            }
+            return [];
         } catch (error) {
             console.error(`Error getting versions for ${packageId}:`, error);
             throw new Error(`Failed to get package versions: ${error}`);
         }
     }
 
+    public static async restorePackage(
+        packageId: string,
+        version: string,
+        packagesDirectory: string,
+        kind: ExecutionKind
+    ): Promise<void> {
+        const destination = path.join(packagesDirectory, `${packageId}.${version}`);
+        if (fs.existsSync(destination) && fs.readdirSync(destination).length > 0) {
+            return;
+        }
+
+        fs.mkdirSync(packagesDirectory, { recursive: true });
+        const archivePath = path.join(os.tmpdir(), `${packageId}.${version}.${Date.now()}.nupkg`);
+        const endpoints = await this.getSourceEndpoints(kind);
+        let lastError = '';
+
+        try {
+            for (const endpoint of endpoints) {
+                if (!endpoint.packageBase) {
+                    continue;
+                }
+                const base = endpoint.packageBase.replace(/\/$/, '');
+                const normalizedId = packageId.toLowerCase();
+                const normalizedVersion = version.toLowerCase();
+                const url = `${base}/${normalizedId}/${normalizedVersion}/${normalizedId}.${normalizedVersion}.nupkg`;
+                const result = await Executor.runExecFile(
+                    'curl',
+                    ['--fail', '--silent', '--show-error', '--location', '--output', archivePath, url],
+                    undefined,
+                    kind
+                );
+                if (!result.success) {
+                    lastError = result.stderr || `curl exited with code ${result.exitCode}`;
+                    continue;
+                }
+
+                fs.rmSync(destination, { recursive: true, force: true });
+                await extractZip(archivePath, { dir: destination });
+                return;
+            }
+        } finally {
+            fs.rmSync(archivePath, { force: true });
+        }
+
+        throw new Error(`Could not download ${packageId} ${version}: ${lastError || 'no package source provided a download endpoint'}`);
+    }
+
+    public static async restorePackagesConfigFiles(
+        packagesConfigPaths: string[],
+        packagesDirectory: string,
+        kind: ExecutionKind
+    ): Promise<void> {
+        const packages = new Map<string, { id: string; version: string }>();
+        for (const packagesConfigPath of packagesConfigPaths) {
+            const content = fs.readFileSync(packagesConfigPath, 'utf8');
+            const packagePattern = /<package\b[^>]*\bid="([^"]+)"[^>]*\bversion="([^"]+)"[^>]*\/?>/gi;
+            let match: RegExpExecArray | null;
+            while ((match = packagePattern.exec(content)) !== null) {
+                packages.set(`${match[1].toLowerCase()}@${match[2].toLowerCase()}`, {
+                    id: match[1],
+                    version: match[2]
+                });
+            }
+        }
+
+        const output = getNuGetOutputChannel();
+        output.appendLine(`Restoring ${packages.size} package(s) to ${packagesDirectory}...`);
+        for (const pkg of packages.values()) {
+            output.appendLine(`Restoring ${pkg.id} ${pkg.version}...`);
+            await this.restorePackage(pkg.id, pkg.version, packagesDirectory, kind);
+        }
+        output.appendLine('Package restore completed.');
+    }
+
+    private static async getSourceEndpoints(kind: ExecutionKind = 'tooling'): Promise<NuGetEndpoints[]> {
+        const environment = `${kind}:${Executor.shouldUseWsl(kind) ? 'wsl' : 'native'}`;
+        let promise = this.sourceEndpointsPromises.get(environment);
+        if (!promise) {
+            promise = this.loadSourceEndpoints(kind);
+            this.sourceEndpointsPromises.set(environment, promise);
+        }
+        try {
+            return await promise;
+        } catch (error) {
+            this.sourceEndpointsPromises.delete(environment);
+            throw error;
+        }
+    }
+
+    private static async loadSourceEndpoints(kind: ExecutionKind): Promise<NuGetEndpoints[]> {
+        const sourceResult = await Executor.runExecFile(
+            'dotnet',
+            ['nuget', 'list', 'source', '--format', 'Short'],
+            undefined,
+            kind
+        );
+        const sourceOutput = sourceResult.success ? sourceResult.stdout || '' : '';
+        const enabledSources = parseEnabledNugetSources(sourceOutput);
+        const sources = selectNugetSources(sourceOutput, this.defaultSource);
+
+        const output = getNuGetOutputChannel();
+        output.appendLine(enabledSources.length > 0
+            ? `Using ${enabledSources.length} enabled source(s) from dotnet NuGet configuration.`
+            : `No enabled dotnet NuGet sources were found; using ${this.defaultSource}.`);
+        sources.forEach(source => output.appendLine(`Source: ${source}`));
+
+        const endpoints: NuGetEndpoints[] = [];
+        for (const source of sources) {
+            try {
+                const serviceIndex = JSON.parse(await this.httpGet(source, kind));
+                const resources = Array.isArray(serviceIndex.resources) ? serviceIndex.resources : [];
+                const hasType = (resource: any, expected: string): boolean => {
+                    const types = Array.isArray(resource['@type']) ? resource['@type'] : [resource['@type']];
+                    return types.some((type: unknown) => typeof type === 'string' && type.startsWith(expected));
+                };
+                endpoints.push({
+                    source,
+                    search: resources.find((resource: any) => hasType(resource, 'SearchQueryService'))?.['@id'],
+                    packageBase: resources.find((resource: any) => hasType(resource, 'PackageBaseAddress'))?.['@id']
+                });
+            } catch (error) {
+                console.warn(`Could not load NuGet source ${source}:`, error);
+                output.appendLine(`Could not load source ${source}: ${error}`);
+            }
+        }
+
+        if (endpoints.length === 0) {
+            throw new Error('No enabled NuGet v3 source could be loaded.');
+        }
+        return endpoints;
+    }
+
     /**
      * HTTP GET helper
      */
-    private static httpGet(url: string): Promise<string> {
+    private static async httpGet(url: string, kind: ExecutionKind = 'tooling'): Promise<string> {
+        if (Executor.shouldUseWsl(kind)) {
+            const result = await Executor.runExecFile(
+                'curl',
+                ['--fail', '--silent', '--show-error', '--location', url],
+                undefined,
+                kind
+            );
+            if (!result.success) {
+                throw new Error(`WSL curl failed: ${result.stderr || `exit code ${result.exitCode}`}`);
+            }
+            return result.stdout || '';
+        }
+
         return new Promise((resolve, reject) => {
             const protocol = url.startsWith('https') ? https : http;
             
@@ -98,7 +320,7 @@ export class NuGetService {
                 if (response.statusCode === 301 || response.statusCode === 302) {
                     const redirectUrl = response.headers.location;
                     if (redirectUrl) {
-                        this.httpGet(redirectUrl).then(resolve).catch(reject);
+                        this.httpGet(redirectUrl, kind).then(resolve).catch(reject);
                         return;
                     }
                 }
@@ -121,6 +343,8 @@ export class NuGetService {
  * Manages NuGet packages in nanoFramework projects
  */
 export class NuGetManager {
+    private static readonly coreLibraryPackage = 'nanoFramework.CoreLibrary';
+
     /**
      * Add a NuGet package to a project
      * @param projectPath Path to the .nfproj file
@@ -221,14 +445,105 @@ export class NuGetManager {
         return packages;
     }
 
+    public static getProjectVersion(projectPath: string): 1 | 2 {
+        const coreLibrary = this.getInstalledPackages(projectPath)
+            .find(pkg => pkg.id.toLowerCase() === this.coreLibraryPackage.toLowerCase());
+        if (!coreLibrary) {
+            throw new Error(`${this.coreLibraryPackage} was not found in packages.config`);
+        }
+
+        if (coreLibrary.version.startsWith('1.')) {
+            return 1;
+        }
+        if (coreLibrary.version.startsWith('2.')) {
+            return 2;
+        }
+        throw new Error(`Unsupported ${this.coreLibraryPackage} version ${coreLibrary.version}.`);
+    }
+
+    public static async migrateProjectVersion(projectPath: string, targetVersion: ProjectFamily, toolPath: string): Promise<void> {
+        const packagesConfigPath = path.join(path.dirname(projectPath), 'packages.config');
+        if (!fs.existsSync(projectPath) || !fs.existsSync(packagesConfigPath)) {
+            throw new Error('The project and its packages.config file are required for migration.');
+        }
+
+        const projectContent = fs.readFileSync(projectPath, 'utf-8');
+        const sourceVersion = this.getProjectVersion(projectPath);
+        const templateKind = detectTemplateKind(projectContent);
+        const sourceTemplatePackages = getTemplatePackages(toolPath, sourceVersion, templateKind);
+        const targetTemplatePackages = getTemplatePackages(toolPath, targetVersion, templateKind);
+        const sourceTemplateIds = new Set(sourceTemplatePackages.map(pkg => pkg.id.toLowerCase()));
+        const targetTemplateIds = new Set(targetTemplatePackages.map(pkg => pkg.id.toLowerCase()));
+        const installedPackages = this.getInstalledPackages(projectPath);
+        const customPackages = installedPackages.filter(pkg => !sourceTemplateIds.has(pkg.id.toLowerCase()));
+        const resolvedCustomVersions = await Promise.all(customPackages.map(async pkg => {
+            const versions = await NuGetService.getPackageVersions(pkg.id);
+            const version = versions.find(candidate => targetVersion === 2
+                ? candidate.startsWith('2.') && candidate.includes('-')
+                : candidate.startsWith('1.') && !candidate.includes('-'));
+            if (!version) {
+                throw new Error(`No compatible ${targetVersion === 2 ? '2.x preview' : '1.x stable'} version of ${pkg.id} is available.`);
+            }
+            return { id: pkg.id, version };
+        }));
+        const resolvedVersions = [...targetTemplatePackages, ...resolvedCustomVersions];
+        const packagesToRemove = sourceTemplatePackages
+            .filter(pkg => !targetTemplateIds.has(pkg.id.toLowerCase()));
+
+        const originalProject = fs.readFileSync(projectPath, 'utf-8');
+        const originalPackages = fs.readFileSync(packagesConfigPath, 'utf-8');
+        const runSettingsPath = path.join(path.dirname(projectPath), 'nano.runsettings');
+        const hadRunSettings = fs.existsSync(runSettingsPath);
+        try {
+            for (const pkg of packagesToRemove) {
+                if (installedPackages.some(candidate => candidate.id.toLowerCase() === pkg.id.toLowerCase())) {
+                    await this.removePackage(projectPath, pkg.id);
+                }
+            }
+            for (const pkg of resolvedVersions) {
+                if (installedPackages.some(candidate => candidate.id.toLowerCase() === pkg.id.toLowerCase())) {
+                    await this.updatePackageVersion(projectPath, pkg.id, pkg.version);
+                } else {
+                    await this.addPackage(projectPath, pkg.id, pkg.version);
+                }
+            }
+
+            if (templateKind === 'unitTest' && !hadRunSettings) {
+                fs.copyFileSync(
+                    path.join(getTemplateDirectory(toolPath, targetVersion, templateKind), 'nano.runsettings'),
+                    runSettingsPath);
+            }
+
+            const migratedProject = fs.readFileSync(projectPath, 'utf-8');
+            const migratedPackages = this.getInstalledPackages(projectPath);
+            for (const pkg of resolvedVersions) {
+                const configVersion = migratedPackages.find(candidate => candidate.id.toLowerCase() === pkg.id.toLowerCase())?.version;
+                const escapedPackageId = pkg.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const escapedVersion = pkg.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const hintPath = new RegExp(`[/\\\\]packages[/\\\\]${escapedPackageId}\\.${escapedVersion}[/\\\\]lib[/\\\\]`, 'i');
+                if (configVersion !== pkg.version || !hintPath.test(migratedProject)) {
+                    throw new Error(`Could not update every ${pkg.id} reference to ${pkg.version}.`);
+                }
+            }
+        } catch (error) {
+            fs.writeFileSync(projectPath, originalProject, 'utf-8');
+            fs.writeFileSync(packagesConfigPath, originalPackages, 'utf-8');
+            if (!hadRunSettings) {
+                fs.rmSync(runSettingsPath, { force: true });
+            }
+            throw error;
+        }
+    }
+
     /**
      * Update version of a package in packages.config
      */
     private static async updateVersionInPackagesConfig(packagesConfigPath: string, packageId: string, newVersion: string): Promise<void> {
         let content = fs.readFileSync(packagesConfigPath, 'utf-8');
+        const escapedPackageId = packageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         const updateRegex = new RegExp(
-            `(<package\\s+id="${packageId}"\\s+version=")[^"]+(")`,
+            `(<package\\s+id="${escapedPackageId}"\\s+version=")[^"]+(")`,
             'i'
         );
 
@@ -252,26 +567,33 @@ export class NuGetManager {
         // Update version in HintPath: ...\packages\PackageId.OldVersion\lib\... -> ...\packages\PackageId.NewVersion\lib\...
         // Support both backslash and forward slash path separators
         const hintPathRegex = new RegExp(
-            `(<HintPath>[^<]*[/\\\\]packages[/\\\\]${escapedPackageId}\\.)([^/\\\\]+)([/\\\\]lib[/\\\\][^<]+</HintPath>)`,
+            `(<HintPath>[^<]*[/\\\\]packages[/\\\\]${escapedPackageId}\\.)([^/\\\\]+)([/\\\\]lib(?:[/\\\\]netnano1\\.0)?[/\\\\])([^<]+</HintPath>)`,
             'gi'
         );
 
-        content = content.replace(hintPathRegex, `$1${newVersion}$3`);
+        content = content.replace(hintPathRegex, (_match, prefix: string, _oldVersion: string, libraryPath: string, tail: string) => {
+            const separator = libraryPath[0];
+            const targetLibraryPath = newVersion.startsWith('2.')
+                ? `${separator}lib${separator}netnano1.0${separator}`
+                : `${separator}lib${separator}`;
+            return `${prefix}${newVersion}${targetLibraryPath}${tail}`;
+        });
 
         // Update version in Reference Include attribute when present (VS-created projects)
         // e.g. <Reference Include="AssemblyName, Version=1.2.3.0, Culture=neutral, ...">
         //        <HintPath>..\packages\PackageId.1.2.3\lib\AssemblyName.dll</HintPath>
         const refBlockRegex = /<Reference\s+Include="[^"]*"[^>]*>[\s\S]*?<\/Reference>/gi;
         const packageHintPathTest = new RegExp(
-            `[/\\\\]packages[/\\\\]${escapedPackageId}\\.[^/\\\\]+[/\\\\]lib[/\\\\]`,
+            `[/\\\\]packages[/\\\\]${escapedPackageId}\\.[^/\\\\]+[/\\\\]lib(?:[/\\\\]netnano1\\.0)?[/\\\\]`,
             'i'
         );
         content = content.replace(refBlockRegex, (match) => {
             if (packageHintPathTest.test(match)) {
                 // Update Version=X.Y.Z.0 in the Include attribute
+                const assemblyVersion = `${newVersion.split('-')[0]}.0`;
                 return match.replace(
                     /(<Reference\s+Include="[^"]*?,\s*Version=)[\d.]+/i,
-                    `$1${newVersion}.0`
+                    `$1${assemblyVersion}`
                 );
             }
             return match;
@@ -285,16 +607,17 @@ export class NuGetManager {
      */
     private static async addToPackagesConfig(packagesConfigPath: string, packageId: string, version: string): Promise<void> {
         let content: string;
+        const escapedPackageId = packageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         
         if (fs.existsSync(packagesConfigPath)) {
             content = fs.readFileSync(packagesConfigPath, 'utf-8');
             
             // Check if package already exists
-            const existingRegex = new RegExp(`<package\\s+id="${packageId}"`, 'i');
+            const existingRegex = new RegExp(`<package\\s+id="${escapedPackageId}"`, 'i');
             if (existingRegex.test(content)) {
                 // Update existing package version
                 const updateRegex = new RegExp(
-                    `(<package\\s+id="${packageId}"\\s+version=")[^"]+("\\s+targetFramework="[^"]*"\\s*/>)`,
+                    `(<package\\s+id="${escapedPackageId}"\\s+version=")[^"]+("\\s+targetFramework="[^"]*"\\s*/>)`,
                     'i'
                 );
                 content = content.replace(updateRegex, `$1${version}$2`);
@@ -323,10 +646,11 @@ export class NuGetManager {
         }
         
         let content = fs.readFileSync(packagesConfigPath, 'utf-8');
+        const escapedPackageId = packageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         
         // Remove the package line
         const removeRegex = new RegExp(
-            `\\s*<package\\s+id="${packageId}"[^/]*/>`,
+            `\\s*<package\\s+id="${escapedPackageId}"[^/]*/>`,
             'gi'
         );
         content = content.replace(removeRegex, '');
@@ -353,10 +677,16 @@ export class NuGetManager {
         if (existingRefRegex.test(content)) {
             // Update existing reference version in HintPath (support both / and \ separators)
             const updateRegex = new RegExp(
-                `(<HintPath>[^<]*[/\\\\]packages[/\\\\]${escapedPackageId}\\.)([^/\\\\]+)([/\\\\]lib[/\\\\][^<]+</HintPath>)`,
+                `(<HintPath>[^<]*[/\\\\]packages[/\\\\]${escapedPackageId}\\.)([^/\\\\]+)([/\\\\]lib(?:[/\\\\]netnano1\\.0)?[/\\\\])([^<]+</HintPath>)`,
                 'gi'
             );
-            content = content.replace(updateRegex, `$1${version}$3`);
+            content = content.replace(updateRegex, (_match, prefix: string, _oldVersion: string, libraryPath: string, tail: string) => {
+                const separator = libraryPath[0];
+                const targetLibraryPath = version.startsWith('2.')
+                    ? `${separator}lib${separator}netnano1.0${separator}`
+                    : `${separator}lib${separator}`;
+                return `${prefix}${version}${targetLibraryPath}${tail}`;
+            });
         } else {
             // Create the new reference
             const newReference = this.createReferenceElement(packageId, version, assemblyName);
@@ -438,6 +768,7 @@ export class NuGetManager {
         // Special mappings for common packages
         const mappings: { [key: string]: string } = {
             'nanoFramework.CoreLibrary': 'mscorlib',
+            'nanoFramework.TestFramework': 'nanoFramework.TestFramework',
             'nanoFramework.Runtime.Events': 'nanoFramework.Runtime.Events',
             'nanoFramework.System.Device.Gpio': 'System.Device.Gpio',
             'nanoFramework.System.Device.I2c': 'System.Device.I2c',
@@ -480,9 +811,12 @@ export class NuGetManager {
     private static createReferenceElement(packageId: string, version: string, assemblyName: string): string {
         // Determine the DLL name (usually matches assembly name)
         const dllName = assemblyName;
+                const libraryPath = version.startsWith('2.')
+                        ? 'lib\\netnano1.0'
+                        : 'lib';
         
         return `    <Reference Include="${assemblyName}">
-      <HintPath>..\\packages\\${packageId}.${version}\\lib\\${dllName}.dll</HintPath>
+            <HintPath>..\\packages\\${packageId}.${version}\\${libraryPath}\\${dllName}.dll</HintPath>
       <Private>True</Private>
     </Reference>\n`;
     }
@@ -493,6 +827,9 @@ export class NuGetManager {
  * @returns Selected package info or undefined if cancelled
  */
 export async function showNuGetPackagePicker(): Promise<{ packageId: string; version: string } | undefined> {
+    const output = getNuGetOutputChannel();
+    output.clear();
+    output.appendLine('Add NuGet Package started.');
     // Step 1: Search for packages
     const searchQuery = await vscode.window.showInputBox({
         prompt: 'Search for nanoFramework NuGet packages',
@@ -506,6 +843,7 @@ export async function showNuGetPackagePicker(): Promise<{ packageId: string; ver
     });
 
     if (!searchQuery) {
+        output.appendLine('Package search cancelled.');
         return undefined;
     }
 
@@ -522,7 +860,14 @@ export async function showNuGetPackagePicker(): Promise<{ packageId: string; ver
     );
 
     if (packages.length === 0) {
-        vscode.window.showWarningMessage(`No nanoFramework packages found for "${searchQuery}"`);
+        output.appendLine(`No packages found for "${searchQuery}".`);
+        const selection = await vscode.window.showWarningMessage(
+            `No nanoFramework packages found for "${searchQuery}".`,
+            'Show NuGet Output'
+        );
+        if (selection === 'Show NuGet Output') {
+            output.show(true);
+        }
         return undefined;
     }
 
@@ -541,6 +886,7 @@ export async function showNuGetPackagePicker(): Promise<{ packageId: string; ver
     });
 
     if (!selectedPackage) {
+        output.appendLine('Package selection cancelled.');
         return undefined;
     }
 
@@ -556,21 +902,42 @@ export async function showNuGetPackagePicker(): Promise<{ packageId: string; ver
         }
     );
 
-    // Take only the latest 10 versions for simplicity
-    const recentVersions = versions.slice(0, 10);
-    
-    const versionItems = recentVersions.map((ver, index) => ({
-        label: ver,
-        description: index === 0 ? '(latest)' : ''
-    }));
+    if (versions.length === 0) {
+        output.appendLine(`No versions found for ${selectedPackage.package.id}.`);
+        vscode.window.showWarningMessage(`No versions found for ${selectedPackage.package.id}.`);
+        return undefined;
+    }
+
+    const stableVersions = versions.filter(version => !version.includes('-')).slice(0, 10);
+    const previewVersions = versions.filter(version => version.includes('-')).slice(0, 10);
+    const versionItems: vscode.QuickPickItem[] = [];
+
+    if (stableVersions.length > 0) {
+        versionItems.push({ label: 'Stable Versions', kind: vscode.QuickPickItemKind.Separator });
+        stableVersions.forEach((version, index) => versionItems.push({
+            label: version,
+            description: index === 0 ? '(latest stable)' : ''
+        }));
+    }
+
+    if (previewVersions.length > 0) {
+        versionItems.push({ label: 'Preview Versions', kind: vscode.QuickPickItemKind.Separator });
+        previewVersions.forEach((version, index) => versionItems.push({
+            label: version,
+            description: index === 0 ? '(latest preview)' : ''
+        }));
+    }
 
     const selectedVersion = await vscode.window.showQuickPick(versionItems, {
-        placeHolder: 'Select a version'
+        placeHolder: 'Select a stable or preview version'
     });
 
     if (!selectedVersion) {
+        output.appendLine('Version selection cancelled.');
         return undefined;
     }
+
+    output.appendLine(`Selected ${selectedPackage.package.id} ${selectedVersion.label}.`);
 
     return {
         packageId: selectedPackage.package.id,

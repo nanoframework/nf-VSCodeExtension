@@ -186,3 +186,13 @@ export async function chooseProjectType() {
 	});
 	return result || '';
 }
+
+export async function chooseProjectFlavor(): Promise<'stable' | 'preview' | undefined> {
+	const result = await vscode.window.showQuickPick([
+		{ label: 'Normal (stable)', description: 'Use stable 1.x nanoFramework libraries', flavor: 'stable' as const },
+		{ label: 'Preview (v2)', description: 'Use 2.x preview libraries with generics support', flavor: 'preview' as const }
+	], {
+		placeHolder: 'Is this a normal or preview project?',
+	});
+	return result?.flavor;
+}

@@ -10,16 +10,14 @@ import * as fs from 'fs';
 import { Dotnet } from "./dotnet";
 import { Executor } from "./executor";
 import { NfProject } from "./createProject";
-import { NuGetManager, showNuGetPackagePicker, showInstalledPackagePicker, showUpdatePackagePicker, showProjectPicker, findProjectFiles } from "./nuget";
+import { getNuGetOutputChannel, NuGetManager, NuGetService, showNuGetPackagePicker, showInstalledPackagePicker, showUpdatePackagePicker, showProjectPicker, findProjectFiles } from "./nuget";
 
 import { multiStepInput } from './multiStepInput';
 import {
     getDocumentWorkspaceFolder, isSolutionFile, solvePath, chooseSerialPort, chooseSolutionWorkspace,
-    chooseName, chooseProjectType
+    chooseName, chooseProjectType, chooseProjectFlavor
 } from './utils';
 import { SerialPortCtrl } from './serialportctrl';
-import * as cp from 'child_process';
-import { HttpClient } from 'typed-rest-client/HttpClient';
 import * as semver from 'semver';
 import { validatePrerequisites, showPrerequisiteStatus, getPlatformInfo } from './prerequisites';
 import { SerialMonitor, chooseBaudRate } from './serialMonitor';
@@ -278,7 +276,11 @@ export async function activate(context: vscode.ExtensionContext) {
         const serialPath = await chooseSerialPort();
         if (serialPath) {
             const configuration = await vscode.window.showQuickPick(['Debug', 'Release'], { placeHolder: 'Select build configuration', canPickMany: false }) || 'Debug';
-            Dotnet.deploy(filePath, serialPath, nanoFrameworkExtensionPath, configuration);
+            try {
+                await Dotnet.deploy(filePath, serialPath, nanoFrameworkExtensionPath, configuration);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to deploy nanoFramework project: ${error}`);
+            }
         }
     }));
 
@@ -304,14 +306,56 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfadd", async (fileUri: vscode.Uri,) => {
         const filePath = await solvePath(fileUri, workspaceFolder);
         const projectName = await chooseName();
+        if (!projectName) {
+            return;
+        }
         const projectType = await chooseProjectType();
-        if (projectName && projectType) {
-            NfProject.AddProject(filePath, projectName, projectType, nanoFrameworkExtensionPath);
+        if (!projectType) {
+            return;
+        }
+        const projectFlavor = await chooseProjectFlavor();
+        if (!projectFlavor) {
+            return;
+        }
+        await NfProject.AddProject(filePath, projectName, projectType, nanoFrameworkExtensionPath, projectFlavor);
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfmigrateproject", async (fileUri: vscode.Uri) => {
+        if (!fileUri?.fsPath.endsWith('.nfproj')) {
+            return;
+        }
+
+        const projectPath = fileUri.fsPath;
+        try {
+            const currentVersion = NuGetManager.getProjectVersion(projectPath);
+            const targetVersion = currentVersion === 1 ? 2 : 1;
+            const targetLabel = targetVersion === 2 ? 'Preview (v2)' : 'Normal (v1)';
+            const confirmation = await vscode.window.showWarningMessage(
+                `Convert ${path.basename(projectPath)} to ${targetLabel}? All nanoFramework runtime packages will be changed to compatible versions.`,
+                { modal: true },
+                'Convert'
+            );
+            if (confirmation !== 'Convert') {
+                return;
+            }
+
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Converting project to ${targetLabel}...`,
+                    cancellable: false
+                },
+                () => NuGetManager.migrateProjectVersion(projectPath, targetVersion, nanoFrameworkExtensionPath)
+            );
+            vscode.window.showInformationMessage(`Converted ${path.basename(projectPath)} to ${targetLabel}. Restore packages and rebuild the project.`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to convert nanoFramework project: ${error}`);
         }
     }));
 
     // Register command to add NuGet packages
     context.subscriptions.push(vscode.commands.registerCommand("vscode-nanoframework.nfaddnuget", async (fileUri: vscode.Uri) => {
+        const output = getNuGetOutputChannel();
         try {
             let projectPath: string | undefined;
             
@@ -369,8 +413,15 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage(
                 `Successfully added ${packageInfo.packageId} v${packageInfo.version} to the project. Run 'nuget restore' or build to download the package.`
             );
+            output.appendLine(`Added ${packageInfo.packageId} ${packageInfo.version} to ${projectPath}.`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to add NuGet package: ${error}`);
+            output.appendLine(`Add package failed: ${error}`);
+            output.show(true);
+            vscode.window.showErrorMessage(`Failed to add NuGet package: ${error}`, 'Show NuGet Output').then(selection => {
+                if (selection === 'Show NuGet Output') {
+                    output.show(true);
+                }
+            });
         }
     }));
 
@@ -580,15 +631,15 @@ export async function activate(context: vscode.ExtensionContext) {
     // Log that all commands are registered
     console.log('All nanoFramework commands registered successfully');
 
-    // Now run async initialization tasks (these won't block command registration)
-    // Validate prerequisites on activation
+    void initializeExtensionInBackground();
+}
+
+async function initializeExtensionInBackground(): Promise<void> {
     try {
         const prereqResult = await validatePrerequisites();
         if (!prereqResult.allPassed) {
-            // Show issues but don't block activation
             await showPrerequisiteStatus(prereqResult, false);
         } else if (prereqResult.warnings.length > 0) {
-            // Show warnings silently (only if there are any)
             await showPrerequisiteStatus(prereqResult, true);
         }
     } catch (error) {
@@ -617,21 +668,14 @@ export async function activate(context: vscode.ExtensionContext) {
  * @returns A promise that resolves when the installation is complete.
  */
 async function installDotNetTool(toolName: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        // Use execFile with separate arguments array to avoid shell injection
-        const args = ['tool', 'install', '-g', toolName];
-
-        cp.execFile('dotnet', args, (error, stdout, stderr) => {
-            if (error) {
-                console.error(`Error installing ${toolName}: ${error}`);
-                vscode.window.showErrorMessage(`Error installing ${toolName}: ${stderr}`);
-                reject(error);
-            } else {
-                vscode.window.showInformationMessage(`${toolName} has been successfully installed/updated.`);
-                resolve();
-            }
-        });
-    });
+    const result = await Executor.runExecFile('dotnet', ['tool', 'install', '-g', toolName]);
+    if (!result.success) {
+        const error = result.stderr || `dotnet exited with code ${result.exitCode}`;
+        console.error(`Error installing ${toolName}: ${error}`);
+        vscode.window.showErrorMessage(`Error installing ${toolName}: ${error}`);
+        throw new Error(error);
+    }
+    vscode.window.showInformationMessage(`${toolName} has been successfully installed/updated.`);
 }
 
 /**
@@ -641,11 +685,10 @@ async function installDotNetTool(toolName: string): Promise<void> {
  * @returns A promise that resolves to `true` if the tool is installed, otherwise `false`.
  */
 function checkDotNetToolInstalled(toolName: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
         try {
-            // Use execFile with separate arguments array to avoid shell injection
-            cp.execFile(toolName, ['--help'], async (error, _stdout, stderr) => {
-                if (error) {
+            Executor.runExecFile(toolName, ['--help']).then(async result => {
+                if (!result.success) {
                     // Tool not installed or not accessible - silently skip update check
                     console.log(`${toolName} not found, skipping version check`);
                     resolve();
@@ -653,21 +696,17 @@ function checkDotNetToolInstalled(toolName: string): Promise<void> {
                 }
 
                 // Use regex to extract the version number from the CLI output
-                const regexResult = stderr.match(/(\d+\.\d+\.\d+)/);
+                const regexResult = (result.stderr || '').match(/(\d+\.\d+\.\d+)/);
 
                 if (regexResult && regexResult.length > 0) {
                     const installedVersion = regexResult[0];
 
                     try {
-                        // Check the latest version from the NuGet API with a timeout
-                        const httpClient = new HttpClient('vsts');
-                        const response = await httpClient.get('https://api.nuget.org/v3-flatcontainer/nanoff/index.json');
-                        const responseBody = await response.readBody();
-                        const packageInfo = JSON.parse(responseBody);
-                        const latestVersion = packageInfo.versions[packageInfo.versions.length - 1];
+                        const versions = await NuGetService.getPackageVersions('nanoff');
+                        const latestVersion = versions[0];
 
                         // Compare installed version with the latest version
-                        if (semver.gt(latestVersion, installedVersion)) {
+                        if (latestVersion && semver.gt(latestVersion, installedVersion)) {
                             vscode.window.showInformationMessage('A new version of nanoff is available. Updating.');
                             await installDotNetTool('nanoff');
                         }

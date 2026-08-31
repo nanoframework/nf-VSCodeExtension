@@ -4,9 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { EventEmitter } from 'events';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { ExecutionKind, Executor } from '../../executor';
 import {
     INanoThread,
     INanoStackTrace,
@@ -51,6 +52,12 @@ export class NanoBridge extends EventEmitter {
     private _verbosity = 'none';
     private _buffer = '';
     private _device?: string;
+    private readonly _executionKind: ExecutionKind;
+
+    constructor(executionKind: ExecutionKind = 'debug') {
+        super();
+        this._executionKind = executionKind;
+    }
 
     /**
      * Initialize the bridge
@@ -78,7 +85,7 @@ export class NanoBridge extends EventEmitter {
 
             // Ensure executable permissions on macOS/Linux
             // This is needed because VSIX packaging may not preserve Unix permissions
-            if (process.platform !== 'win32') {
+            if (process.platform !== 'win32' && !Executor.shouldUseWsl(this._executionKind)) {
                 try {
                     fs.chmodSync(bridgePath, 0o755);
                 } catch (e) {
@@ -88,9 +95,9 @@ export class NanoBridge extends EventEmitter {
 
             // Start the bridge process
             // Self-contained executable - run directly on all platforms
-            this._process = spawn(bridgePath, [], {
+            this._process = Executor.spawnProcess(bridgePath, [], {
                 stdio: ['pipe', 'pipe', 'pipe']
-            });
+            }, this._executionKind);
             
             // Handle spawn error (e.g., permission denied)
             this._process.on('error', (err) => {
@@ -141,8 +148,12 @@ export class NanoBridge extends EventEmitter {
      * Deploy application
      */
     public async deploy(assembliesPath: string): Promise<boolean> {
+        return (await this.deployWithResult(assembliesPath)).success;
+    }
+
+    public async deployWithResult(assembliesPath: string): Promise<{ success: boolean; error?: string }> {
         const response = await this.sendCommand('deploy', { assembliesPath });
-        return response?.success || false;
+        return { success: response?.success || false, error: response?.error };
     }
 
     /**
@@ -354,7 +365,7 @@ export class NanoBridge extends EventEmitter {
     private getBridgePath(): string {
         // The bridge is expected to be in the extension's bin directory
         // Platform-specific self-contained executables
-        const platform = process.platform;
+        const platform = Executor.shouldUseWsl(this._executionKind) ? 'linux' : process.platform;
         const arch = process.arch;
         
         let platformFolder: string;

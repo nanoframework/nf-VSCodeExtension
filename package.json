@@ -214,6 +214,10 @@
         "title": "nanoFramework: Add a Project to existing Solution"
       },
       {
+        "command": "vscode-nanoframework.nfmigrateproject",
+        "title": "nanoFramework: Switch Project Between v1 and Preview v2"
+      },
+      {
         "command": "vscode-nanoframework.selectDebugDevice",
         "title": "nanoFramework: Select Debug Device"
       },
@@ -269,6 +273,11 @@
           "group": "navigation@1"
         },
         {
+          "when": "resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfmigrateproject",
+          "group": "navigation@2"
+        },
+        {
           "when": "resourceExtname == .sln || resourceExtname == .slnx || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfaddnuget",
           "group": "navigation@2"
@@ -292,6 +301,31 @@
           "type": "boolean",
           "default": true,
           "description": "Show command output in the terminal. When disabled, commands run in the background and key elements are displayed in the Output window."
+        },
+        "nanoFramework.wsl.build": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run build and package restore commands in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.deployment": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run deployment and firmware flashing commands in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.test": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run test builds, nanoCLR, and hardware test commands in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the nanoFramework debug bridge in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.tooling": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run project creation, prerequisite checks, tool installation, and NuGet metadata requests in WSL. Only enabled sources from dotnet nuget list source are used; NuGet.org is the fallback when none are found. Requires curl in WSL."
         },
         "nanoFramework.test.sessionTimeout": {
           "type": "number",

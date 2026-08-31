@@ -8,8 +8,10 @@ internal sealed record ManagedAssemblyNativeInfo(string Name, Version Version, u
 internal static class DeploymentCompatibility
 {
     private const int NativeChecksumOffset = 20;
-    private const int VersionOffset = 28;
-    private const int AssemblyNameOffset = 36;
+    private const int Version1Offset = 28;
+    private const int Version2Offset = 24;
+    private const int AssemblyName1Offset = 36;
+    private const int AssemblyName2Offset = 32;
     private const int TablesOffset = 40;
     private const int StringsTableIndex = 11;
     private const int EndOfAssemblyTableIndex = 15;
@@ -52,6 +54,7 @@ internal static class DeploymentCompatibility
 
         while (offset + MinimumHeaderSize <= data.Length && HasAssemblyMarker(data, offset))
         {
+            var isVersion2 = data.AsSpan(offset, 6).SequenceEqual("NFMRK2"u8);
             var totalSize = checked((int)BitConverter.ToUInt32(data, offset + TablesOffset + EndOfAssemblyTableIndex * sizeof(uint)));
             if (totalSize < MinimumHeaderSize || offset + totalSize > data.Length)
             {
@@ -59,12 +62,14 @@ internal static class DeploymentCompatibility
             }
 
             var checksum = BitConverter.ToUInt32(data, offset + NativeChecksumOffset);
+            var versionOffset = isVersion2 ? Version2Offset : Version1Offset;
             var version = new Version(
-                BitConverter.ToUInt16(data, offset + VersionOffset),
-                BitConverter.ToUInt16(data, offset + VersionOffset + 2),
-                BitConverter.ToUInt16(data, offset + VersionOffset + 4),
-                BitConverter.ToUInt16(data, offset + VersionOffset + 6));
-            var nameToken = BitConverter.ToUInt16(data, offset + AssemblyNameOffset);
+                BitConverter.ToUInt16(data, offset + versionOffset),
+                BitConverter.ToUInt16(data, offset + versionOffset + 2),
+                BitConverter.ToUInt16(data, offset + versionOffset + 4),
+                BitConverter.ToUInt16(data, offset + versionOffset + 6));
+            var nameOffset = isVersion2 ? AssemblyName2Offset : AssemblyName1Offset;
+            var nameToken = BitConverter.ToUInt16(data, offset + nameOffset);
             var name = ReadAssemblyName(data, offset, totalSize, nameToken, imagePath);
 
             yield return new ManagedAssemblyNativeInfo(name, version, checksum);
@@ -78,7 +83,8 @@ internal static class DeploymentCompatibility
     }
 
     private static bool HasAssemblyMarker(byte[] data, int offset) =>
-        data.AsSpan(offset, 6).SequenceEqual("NFMRK1"u8);
+        data.AsSpan(offset, 6).SequenceEqual("NFMRK1"u8)
+        || data.AsSpan(offset, 6).SequenceEqual("NFMRK2"u8);
 
     private static string ReadAssemblyName(byte[] data, int assemblyOffset, int totalSize, ushort nameToken, string imagePath)
     {
