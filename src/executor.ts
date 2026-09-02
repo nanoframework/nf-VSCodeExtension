@@ -302,7 +302,11 @@ export class Executor {
      * @param closedTerminal 
      */
     public static onDidCloseTerminal(closedTerminal: vscode.Terminal): void {
-        delete this.terminals[closedTerminal.name];
+        for (const [terminalId, cachedTerminal] of Object.entries(this.terminals)) {
+            if (cachedTerminal === closedTerminal) {
+                delete this.terminals[terminalId];
+            }
+        }
     }
 
     /**

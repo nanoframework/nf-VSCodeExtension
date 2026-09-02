@@ -8,6 +8,7 @@ import { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionKind, Executor } from '../../executor';
+import { fromWslPathArgument, toWslPathArgument } from '../../wsl';
 import {
     INanoThread,
     INanoStackTrace,
@@ -34,6 +35,14 @@ interface BridgeResponse {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data?: any;
     error?: string;
+}
+
+export function toBridgePath(value: string, useWsl: boolean): string {
+    return useWsl ? toWslPathArgument(value) : value;
+}
+
+export function fromBridgePath(value: string, hostPlatform: NodeJS.Platform = process.platform): string {
+    return hostPlatform === 'win32' ? fromWslPathArgument(value) : value;
 }
 
 /**
@@ -152,7 +161,7 @@ export class NanoBridge extends EventEmitter {
     }
 
     public async deployWithResult(assembliesPath: string): Promise<{ success: boolean; error?: string }> {
-        const response = await this.sendCommand('deploy', { assembliesPath });
+        const response = await this.sendCommand('deploy', { assembliesPath: this.toBridgePath(assembliesPath) });
         return { success: response?.success || false, error: response?.error };
     }
 
@@ -160,7 +169,9 @@ export class NanoBridge extends EventEmitter {
      * Check deployment images against native libraries installed on the device
      */
     public async checkDeploymentCompatibility(imagePaths: string[]): Promise<{ success: boolean; error?: string }> {
-        const response = await this.sendCommand('checkDeploymentCompatibility', { imagePaths });
+        const response = await this.sendCommand('checkDeploymentCompatibility', {
+            imagePaths: imagePaths.map(imagePath => this.toBridgePath(imagePath))
+        });
         return { success: response?.success || false, error: response?.error };
     }
 
@@ -193,7 +204,7 @@ export class NanoBridge extends EventEmitter {
      * Set a breakpoint
      */
     public async setBreakpoint(path: string, line: number, id: number): Promise<boolean> {
-        const response = await this.sendCommand('setBreakpoint', { file: path, line, id });
+        const response = await this.sendCommand('setBreakpoint', { file: this.toBridgePath(path), line, id });
         return response?.data?.verified || false;
     }
 
@@ -267,7 +278,16 @@ export class NanoBridge extends EventEmitter {
      */
     public async getStackTrace(threadId: number, startFrame: number, maxLevels: number): Promise<INanoStackTrace> {
         const response = await this.sendCommand('getStackTrace', { threadId, startFrame, levels: maxLevels });
-        return response?.data || { frames: [], totalFrames: 0 };
+        const stackTrace = response?.data || { frames: [], totalFrames: 0 };
+        for (const frame of stackTrace.frames || []) {
+            if (frame.file) {
+                frame.file = this.fromBridgePath(frame.file);
+            }
+            if (frame.source?.path) {
+                frame.source.path = this.fromBridgePath(frame.source.path);
+            }
+        }
+        return stackTrace;
     }
 
     /**
@@ -319,7 +339,13 @@ export class NanoBridge extends EventEmitter {
      */
     public async getModules(): Promise<INanoModule[]> {
         const response = await this.sendCommand('getModules', {});
-        return response?.data?.modules || [];
+        const modules = response?.data?.modules || [];
+        for (const module of modules) {
+            if (module.path) {
+                module.path = this.fromBridgePath(module.path);
+            }
+        }
+        return modules;
     }
 
     /**
@@ -329,8 +355,20 @@ export class NanoBridge extends EventEmitter {
      * @param mainAssembly Optional: name of the main assembly (e.g., "Meteostanice.pe") for entry point resolution
      */
     public async loadSymbols(symbolPath: string, recursive: boolean = true, mainAssembly?: string): Promise<number> {
-        const response = await this.sendCommand('loadSymbols', { path: symbolPath, recursive, mainAssembly });
+        const response = await this.sendCommand('loadSymbols', {
+            path: this.toBridgePath(symbolPath),
+            recursive,
+            mainAssembly
+        });
         return response?.data?.symbolsLoaded || 0;
+    }
+
+    private toBridgePath(value: string): string {
+        return toBridgePath(value, Executor.shouldUseWsl(this._executionKind));
+    }
+
+    private fromBridgePath(value: string): string {
+        return fromBridgePath(value);
     }
 
     /**

@@ -80,6 +80,7 @@ class Program
                     response = await HandleSetBreakpoint(request);
                     break;
                 case "removeBreakpoint":
+                case "clearBreakpoint":
                     response = await HandleRemoveBreakpoint(request);
                     break;
                 case "continue":

@@ -1,6 +1,7 @@
 using System.Text;
 using nanoFramework.Tools.Debugger;
 using nanoFramework.Tools.DebugBridge;
+using nanoFramework.Tools.DebugBridge.Symbols;
 
 var tests = new (string Name, Action Run)[]
 {
@@ -9,13 +10,23 @@ var tests = new (string Name, Action Run)[]
     ("mismatched native checksum", MismatchedNativeChecksum),
     ("managed-only assembly", ManagedOnlyAssembly),
     ("concatenated deployment image", ConcatenatedDeploymentImage),
-    ("preview v2 assembly", PreviewV2Assembly)
+    ("preview v2 assembly", PreviewV2Assembly),
+    ("preview v2 JSON symbols", PreviewV2JsonSymbols)
 };
 
 foreach (var test in tests)
 {
     test.Run();
     Console.WriteLine($"PASS: {test.Name}");
+}
+
+if (args.Length > 0)
+{
+    var resolver = new SymbolResolver();
+    Assert(resolver.LoadSymbols(args[0]), $"Could not load symbols from {args[0]}.");
+    var sourcePath = args.Length > 1 ? args[1] : "Program.cs";
+    Assert(resolver.GetBreakpointLocation(sourcePath, 84) != null, $"No sequence point found for {sourcePath}.");
+    Console.WriteLine("PASS: supplied symbol file");
 }
 
 static void CompatibleNativeAssembly()
@@ -74,6 +85,41 @@ static void PreviewV2Assembly()
     Assert(assembly.Name == "System.Device.Gpio", assembly.Name);
     Assert(assembly.Version == new Version(2, 0, 0, 0), assembly.Version.ToString());
     Assert(assembly.Checksum == 0x12345678, $"0x{assembly.Checksum:X8}");
+}
+
+static void PreviewV2JsonSymbols()
+{
+        const string json = """
+                {
+                    "Assembly": {
+                        "Token": { "CLR": "20000001", "NanoCLR": "00000000" },
+                        "FileName": "Blinky.exe",
+                        "Version": "1.0.0.0",
+                        "Classes": [{
+                            "Token": { "CLR": "02000004", "NanoCLR": "04000000" },
+                            "Name": "Blinky.Program",
+                            "Methods": [{
+                                "Token": { "CLR": "06000003", "NanoCLR": "06000001" },
+                                "Name": "Main",
+                                "HasByteCode": true,
+                                "ILMap": [{ "Token": { "CLR": "00000006", "NanoCLR": "00000004" } }]
+                            }]
+                        }]
+                    }
+                }
+                """;
+
+        var symbols = SymbolResolver.DeserializePdbx(json);
+        var method = symbols?.Assembly?.Classes?.Single().Methods?.Single();
+        Assert(symbols?.Assembly?.FileName == "Blinky.exe", symbols?.Assembly?.FileName);
+        Assert(method?.Token?.CLR == 0x06000003, $"0x{method?.Token?.CLR:X8}");
+        Assert(method?.Token?.NanoCLR == 0x06000001, $"0x{method?.Token?.NanoCLR:X8}");
+        Assert(method?.ILMap?.Single().CLR == 6, method?.ILMap?.Single().CLR.ToString());
+        Assert(method?.ILMap?.Single().NanoCLR == 4, method?.ILMap?.Single().NanoCLR.ToString());
+        Assert(
+            SymbolResolver.NormalizeSourcePath(@"C:\Repos\App\Program.cs") ==
+            SymbolResolver.NormalizeSourcePath("/mnt/c/Repos/App/Program.cs"),
+            "Windows and WSL source paths should match.");
 }
 
 static TemporaryImage CreateImage(params (string Name, Version Version, uint Checksum)[] assemblies)

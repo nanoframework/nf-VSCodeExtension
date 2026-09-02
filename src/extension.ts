@@ -682,48 +682,40 @@ async function installDotNetTool(toolName: string): Promise<void> {
  * Checks if a .NET tool is installed by running `<toolName> --help` and checking the result.
  * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param toolName The name of the .NET tool to check.
- * @returns A promise that resolves to `true` if the tool is installed, otherwise `false`.
+ * @returns A promise that resolves when the tool and update checks are complete.
  */
-function checkDotNetToolInstalled(toolName: string): Promise<void> {
-    return new Promise<void>((resolve) => {
-        try {
-            Executor.runExecFile(toolName, ['--help']).then(async result => {
-                if (!result.success) {
-                    // Tool not installed or not accessible - silently skip update check
-                    console.log(`${toolName} not found, skipping version check`);
-                    resolve();
-                    return;
-                }
-
-                // Use regex to extract the version number from the CLI output
-                const regexResult = (result.stderr || '').match(/(\d+\.\d+\.\d+)/);
-
-                if (regexResult && regexResult.length > 0) {
-                    const installedVersion = regexResult[0];
-
-                    try {
-                        const versions = await NuGetService.getPackageVersions('nanoff');
-                        const latestVersion = versions[0];
-
-                        // Compare installed version with the latest version
-                        if (latestVersion && semver.gt(latestVersion, installedVersion)) {
-                            vscode.window.showInformationMessage('A new version of nanoff is available. Updating.');
-                            await installDotNetTool('nanoff');
-                        }
-                    } catch (networkError) {
-                        // Network error (timeout, no internet, etc.) - silently skip update check
-                        console.log(`Could not check for ${toolName} updates: ${networkError}`);
-                    }
-                }
-
-                resolve();
-            });
-        } catch (e) {
-            // Unexpected error - log and continue
-            console.log(`Error checking ${toolName} version:`, e);
-            resolve();
+async function checkDotNetToolInstalled(toolName: string): Promise<void> {
+    try {
+        const result = await Executor.runExecFile(toolName, ['--help']);
+        if (!result.success) {
+            // Tool not installed or not accessible - silently skip update check
+            console.log(`${toolName} not found, skipping version check`);
+            return;
         }
-    });
+
+        // Use regex to extract the version number from the CLI output
+        const regexResult = (result.stderr || '').match(/(\d+\.\d+\.\d+)/);
+
+        if (regexResult && regexResult.length > 0) {
+            const installedVersion = regexResult[0];
+
+            try {
+                const versions = await NuGetService.getPackageVersions('nanoff');
+                const latestVersion = versions[0];
+
+                // Compare installed version with the latest version
+                if (latestVersion && semver.gt(latestVersion, installedVersion)) {
+                    vscode.window.showInformationMessage('A new version of nanoff is available. Updating.');
+                    await installDotNetTool('nanoff');
+                }
+            } catch (updateError) {
+                console.log(`Could not check for or install ${toolName} updates: ${updateError}`);
+            }
+        }
+    } catch (e) {
+        // Unexpected error - log and continue
+        console.log(`Error checking ${toolName} version:`, e);
+    }
 }
 
 // this method is called when your extension is deactivated

@@ -78,11 +78,15 @@ export function getTemplatePackages(toolPath: string, family: ProjectFamily, kin
         `${definition.directory}.vstemplate`);
     const content = fs.readFileSync(templatePath, 'utf8');
     const packages: TemplatePackage[] = [];
-    const packageRegex = /<package\s+id="([^"]+)"\s+version="([^"]+)"\s*\/>/gi;
+    const packageRegex = /<package\b([^>]*)\/>/gi;
     let match: RegExpExecArray | null;
 
     while ((match = packageRegex.exec(content)) !== null) {
-        packages.push({ id: match[1], version: match[2] });
+        const id = /\bid\s*=\s*"([^"]+)"/i.exec(match[1])?.[1];
+        const version = /\bversion\s*=\s*"([^"]+)"/i.exec(match[1])?.[1];
+        if (id && version) {
+            packages.push({ id, version });
+        }
     }
 
     if (packages.length === 0) {

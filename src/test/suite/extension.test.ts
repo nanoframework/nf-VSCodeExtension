@@ -10,10 +10,14 @@ import * as path from 'path';
 // You can import and use all API from the 'vscode' module
 // as well as import your extension to test it
 import * as vscode from 'vscode';
+import { NfProject } from '../../createProject';
+import { fromBridgePath, toBridgePath } from '../../debugger/bridge/nanoBridge';
 import { getProjectFamily } from '../../dotnet';
+import { ExecutionKind, Executor } from '../../executor';
 import { NuGetManager, NuGetService, selectNugetSources } from '../../nuget';
+import { validatePrerequisites } from '../../prerequisites';
 import { getTemplatePackages } from '../../projectTemplates';
-import { convertWindowsPathsInCommand, toWslPathArgument } from '../../wsl';
+import { convertWindowsPathsInCommand, fromWslPathArgument, toWslPathArgument } from '../../wsl';
 // import * as myExtension from '../../extension';
 
 suite('Extension Test Suite', () => {
@@ -37,15 +41,48 @@ suite('Extension Test Suite', () => {
 		assert.strictEqual(properties['nanoFramework.runCommandsInWsl'], undefined);
 	});
 
+	test('Checks WSL build prerequisites independently from native tooling', async () => {
+		const originalShouldUseWsl = Executor.shouldUseWsl;
+		const originalRunExecFile = Executor.runExecFile;
+		const calls: Array<{ command: string; tool: string; kind: ExecutionKind }> = [];
+		Executor.shouldUseWsl = kind => kind === 'build';
+		Executor.runExecFile = async (command, args, _options, kind = 'tooling') => {
+			calls.push({ command, tool: args[0], kind });
+			return { success: !(kind === 'build' && args[0] === 'msbuild'), exitCode: 0 };
+		};
+
+		try {
+			const result = await validatePrerequisites();
+			assert.ok(result.issues.some(issue => issue.includes('WSL build context')));
+			assert.ok(calls.some(call => call.command === 'which' && call.tool === 'msbuild' && call.kind === 'build'));
+			assert.ok(calls.some(call => call.tool === 'dotnet' && call.kind === 'tooling'));
+		} finally {
+			Executor.shouldUseWsl = originalShouldUseWsl;
+			Executor.runExecFile = originalRunExecFile;
+		}
+	});
+
 	test('Converts Windows paths without corrupting URLs', () => {
 		const url = 'https://api.nuget.org/v3/index.json';
 		assert.strictEqual(toWslPathArgument(url), url);
 		assert.strictEqual(toWslPathArgument('C:\\Repos\\nanoFramework\\App.nfproj'), '/mnt/c/Repos/nanoFramework/App.nfproj');
+		assert.strictEqual(fromWslPathArgument('/mnt/c/Repos/nanoFramework/App.nfproj'), 'C:\\Repos\\nanoFramework\\App.nfproj');
+		assert.strictEqual(fromWslPathArgument(url), url);
 		assert.strictEqual(convertWindowsPathsInCommand(`curl '${url}'`), `curl '${url}'`);
 		assert.strictEqual(
 			convertWindowsPathsInCommand('msbuild "C:\\Repos\\nanoFramework\\App.nfproj" output=C:\\Temp\\build'),
 			'msbuild "/mnt/c/Repos/nanoFramework/App.nfproj" output=/mnt/c/Temp/build'
 		);
+	});
+
+	test('Converts paths across the WSL debug bridge boundary', () => {
+		const windowsPath = 'C:\\Repos\\nanoFramework\\Blinky\\Program.cs';
+		const wslPath = '/mnt/c/Repos/nanoFramework/Blinky/Program.cs';
+		assert.strictEqual(toBridgePath(windowsPath, true), wslPath);
+		assert.strictEqual(toBridgePath(windowsPath, false), windowsPath);
+		assert.strictEqual(fromBridgePath(wslPath, 'win32'), windowsPath);
+		assert.strictEqual(fromBridgePath(windowsPath, 'win32'), windowsPath);
+		assert.strictEqual(fromBridgePath(wslPath, 'linux'), wslPath);
 	});
 
 	test('Uses only enabled dotnet NuGet sources with a default fallback', () => {
@@ -81,17 +118,85 @@ suite('Extension Test Suite', () => {
 		]);
 	});
 
+	test('Parses template packages with reordered and extra attributes', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-template-packages-'));
+		const templateDirectory = path.join(
+			directory,
+			'projectTemplates',
+			'v2',
+			'CS.TestApplication-vs2022'
+		);
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.writeFileSync(
+			path.join(templateDirectory, 'CS.TestApplication-vs2022.vstemplate'),
+			'<package version="4.0.0-preview.45" source="extension" id="nanoFramework.TestFramework" />',
+			'utf8'
+		);
+
+		try {
+			assert.deepStrictEqual(getTemplatePackages(directory, 2, 'unitTest'), [
+				{ id: 'nanoFramework.TestFramework', version: '4.0.0-preview.45' }
+			]);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Rejects a project template without the CSharp targets import', () => {
+		const addTemplatePackages = Reflect.get(NfProject, 'AddTemplatePackages') as (
+			project: string,
+			packages: { id: string; version: string }[],
+			family: 1 | 2
+		) => string;
+		const packages = [{ id: 'nanoFramework.CoreLibrary', version: '1.17.11' }];
+
+		assert.throws(
+			() => addTemplatePackages('<Project />', packages, 1),
+			/NFProjectSystem\.CSharp\.targets import/
+		);
+
+		const project = addTemplatePackages(
+			'<Project>\r\n  <Import Project="$(NanoFrameworkProjectSystemPath)NFProjectSystem.CSharp.targets" />\r\n</Project>',
+			packages,
+			1
+		);
+		assert.match(project, /nanoFramework\.CoreLibrary\.1\.17\.11\\lib\\mscorlib\.dll/);
+		assert.match(project, /<None Include="packages\.config" \/>/);
+	});
+
 	test('Resolves the selected project family in a mixed-family solution', () => {
 		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-mixed-family-'));
 		const solutionPath = path.join(directory, 'Mixed.sln');
 		const stableProject = createFamilyProject(directory, 'StableApp', '1.17.11');
-		const previewProject = createFamilyProject(directory, 'PreviewApp', '2.0.0-preview.30');
-		fs.writeFileSync(solutionPath, '', 'utf8');
+		const previewProject = createFamilyProject(path.join(directory, 'src'), 'PreviewApp', '2.0.0-preview.30');
+		fs.writeFileSync(solutionPath, [
+			`Project("{11A8DD76-328B-46DF-9F39-F559912D0360}") = "StableApp", "${path.relative(directory, stableProject)}", "{00000000-0000-0000-0000-000000000001}"`,
+			'EndProject',
+			`Project("{11A8DD76-328B-46DF-9F39-F559912D0360}") = "PreviewApp", "${path.relative(directory, previewProject)}", "{00000000-0000-0000-0000-000000000002}"`,
+			'EndProject'
+		].join('\r\n'), 'utf8');
 
 		try {
 			assert.strictEqual(getProjectFamily(stableProject), 1);
 			assert.strictEqual(getProjectFamily(previewProject), 2);
 			assert.throws(() => getProjectFamily(solutionPath), /cannot mix nanoFramework v1 and v2/i);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Resolves a nested Preview project from solution entries', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-nested-family-'));
+		const solutionPath = path.join(directory, 'Preview.sln');
+		const previewProject = createFamilyProject(path.join(directory, 'src', 'apps'), 'PreviewApp', '2.0.0-preview.30');
+		fs.writeFileSync(
+			solutionPath,
+			`Project("{11A8DD76-328B-46DF-9F39-F559912D0360}") = "PreviewApp", "${path.relative(directory, previewProject)}", "{00000000-0000-0000-0000-000000000003}"\r\nEndProject`,
+			'utf8'
+		);
+
+		try {
+			assert.strictEqual(getProjectFamily(solutionPath), 2);
 		} finally {
 			fs.rmSync(directory, { recursive: true, force: true });
 		}
@@ -113,7 +218,8 @@ suite('Extension Test Suite', () => {
 			assert.match(project, /System\.Text\.2\.0\.0-preview\.4\\lib\\netnano1\.0/);
 			assert.match(project, /mscorlib, Version=2\.0\.0\.0/);
 			assert.doesNotMatch(project, /Version=2\.0\.0-preview/);
-			assert.match(project, /TestFramework\.4\.0\.0-preview\.45/);
+			assert.match(project, /TestFramework\.4\.0\.0-preview\.45\\lib\\nanoFramework\.TestFramework\.dll/);
+			assert.doesNotMatch(project, /TestFramework\.4\.0\.0-preview\.45\\lib\\netnano1\.0/);
 			assert.match(packages, /TestFramework" version="4\.0\.0-preview\.45"/);
 
 			await NuGetManager.migrateProjectVersion(fixture.projectPath, 1, templateRoot);
@@ -213,7 +319,7 @@ function createMigrationFixture(includeSystemTextReference: boolean) {
 function createFamilyProject(root: string, name: string, coreLibraryVersion: string): string {
 	const projectDirectory = path.join(root, name);
 	const projectPath = path.join(projectDirectory, `${name}.nfproj`);
-	fs.mkdirSync(projectDirectory);
+	fs.mkdirSync(projectDirectory, { recursive: true });
 	fs.writeFileSync(projectPath, '<Project />', 'utf8');
 	fs.writeFileSync(
 		path.join(projectDirectory, 'packages.config'),

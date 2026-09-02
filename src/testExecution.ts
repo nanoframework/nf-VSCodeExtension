@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { parseTestOutput, TestRunResult } from './testResultParser';
 import type { NanoBridge } from './debugger/bridge/nanoBridge';
+import { getProjectFamily } from './dotnet';
 import { Executor } from './executor';
 import { NuGetService } from './nuget';
 
@@ -18,9 +19,7 @@ import { NuGetService } from './nuget';
  * Uses forward slashes so MSBuild property quoting works on Windows.
  */
 function nfProjectSystemPath(extensionPath: string, projectPath: string): string {
-    const packagesConfig = path.join(path.dirname(projectPath), 'packages.config');
-    const packages = fs.existsSync(packagesConfig) ? fs.readFileSync(packagesConfig, 'utf8') : '';
-    const family = /<package\s+id="nanoFramework\.CoreLibrary"\s+version="2\./i.test(packages) ? 2 : 1;
+    const family = getProjectFamily(projectPath);
     const nfPath = path.join(extensionPath, 'nanoFramework', `v${family}.0`);
     return nfPath.replace(/\\/g, '/') + '/';
 }
@@ -189,7 +188,7 @@ export async function buildTestProject(
         `-p:Configuration=${configuration}`,
         `-p:NanoFrameworkProjectSystemPath=${nfProjSysPath}`,
         ...(previewWslBuild
-            ? [`-p:NF_MDP_MSBUILDTASK_PATH=${path.join(nfProjSysPath, 'mdp', 'net8.0')}`]
+            ? [`-p:NF_MDP_MSBUILDTASK_PATH=${path.join(nfProjSysPath, 'mdp', 'net8.0').replace(/\\/g, '/')}`]
             : Executor.shouldUseWsl('test') ? ['-p:LangVersion=latest'] : []),
         '-p:NFMDP_PE_Verbose=false',
         '-p:UseSharedCompilation=false',

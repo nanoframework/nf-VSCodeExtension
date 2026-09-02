@@ -12,7 +12,7 @@ import * as path from "path";
 import * as os from 'os';
 import * as fs from 'fs';
 import * as https from 'https';
-import { Executor, toWslPathArgument } from "./executor";
+import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
 import { isSolutionFile } from './utils';
@@ -95,10 +95,7 @@ async function deployPreviewAssemblies(assembliesPath: string, serialPath: strin
             return `Could not connect to ${serialPath} for deployment.`;
         }
 
-        const bridgeAssembliesPath = Executor.shouldUseWsl('deployment')
-            ? toWslPathArgument(assembliesPath)
-            : assembliesPath;
-        const result = await bridge.deployWithResult(bridgeAssembliesPath);
+        const result = await bridge.deployWithResult(assembliesPath);
         return result.success ? null : result.error || 'Deployment failed.';
     } finally {
         await bridge.terminate();
@@ -107,11 +104,24 @@ async function deployPreviewAssemblies(assembliesPath: string, serialPath: strin
 
 async function getNanoffMajorVersion(): Promise<number | null> {
     if (!nanoffMajorVersionPromise) {
-        nanoffMajorVersionPromise = Executor.runHidden('nanoff --version', 'deployment').then(result => {
+        const detection = Executor.runHidden('nanoff --version', 'deployment').then(result => {
             const output = `${result.stdout || ''}\n${result.stderr || ''}`;
             const match = output.match(/\bv?(\d+)\.\d+/i);
             return result.success && match ? Number(match[1]) : null;
         });
+        nanoffMajorVersionPromise = detection;
+        void detection.then(
+            version => {
+                if (version === null && nanoffMajorVersionPromise === detection) {
+                    nanoffMajorVersionPromise = undefined;
+                }
+            },
+            () => {
+                if (nanoffMajorVersionPromise === detection) {
+                    nanoffMajorVersionPromise = undefined;
+                }
+            }
+        );
     }
 
     return nanoffMajorVersionPromise;
@@ -702,20 +712,7 @@ async function restoreWslBuildPackages(filePath: string): Promise<void> {
  * @returns Properly formatted path for the current platform (with trailing separator)
  */
 export function getProjectFamily(fileUri: string): 1 | 2 {
-    const packageConfigs: string[] = [];
-    if (fileUri.endsWith('.nfproj')) {
-        packageConfigs.push(path.join(path.dirname(fileUri), 'packages.config'));
-    } else {
-        const root = path.dirname(fileUri);
-        for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-            if (entry.isDirectory() && !['bin', 'obj', 'packages'].includes(entry.name)) {
-                const packagesConfig = path.join(root, entry.name, 'packages.config');
-                if (fs.existsSync(packagesConfig)) {
-                    packageConfigs.push(packagesConfig);
-                }
-            }
-        }
-    }
+    const packageConfigs = getPackagesConfigPaths(fileUri);
 
     const families = new Set(packageConfigs.flatMap(packagesConfig => {
         if (!fs.existsSync(packagesConfig)) {

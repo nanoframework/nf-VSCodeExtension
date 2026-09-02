@@ -12,8 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as https from 'https';
-import * as http from 'http';
-import extractZip = require('extract-zip');
+import extractZip from 'extract-zip';
 import { detectTemplateKind, getTemplateDirectory, getTemplatePackages, ProjectFamily } from './projectTemplates';
 import { ExecutionKind, Executor } from './executor';
 
@@ -88,8 +87,11 @@ export class NuGetService {
                     const url = new URL(endpoint.search!);
                     url.searchParams.set('q', query);
                     url.searchParams.set('take', String(take));
-                    url.searchParams.set('prerelease', 'false');
+                    url.searchParams.set('prerelease', 'true');
                     const data = JSON.parse(await this.httpGet(url.toString()));
+                    if (!Array.isArray(data.data)) {
+                        throw new Error(`NuGet search response from ${endpoint.source} did not contain a data array.`);
+                    }
                     return data.data as any[];
                 }));
             const packages = new Map<string, NuGetPackage>();
@@ -123,7 +125,7 @@ export class NuGetService {
             console.error('Error searching NuGet packages:', error);
             output.appendLine(`Search failed: ${error}`);
             output.show(true);
-            throw new Error(`Failed to search NuGet packages: ${error}`);
+            throw new Error(`Failed to search NuGet packages: ${error}`, { cause: error });
         }
     }
 
@@ -159,7 +161,7 @@ export class NuGetService {
             return [];
         } catch (error) {
             console.error(`Error getting versions for ${packageId}:`, error);
-            throw new Error(`Failed to get package versions: ${error}`);
+            throw new Error(`Failed to get package versions: ${error}`, { cause: error });
         }
     }
 
@@ -188,9 +190,10 @@ export class NuGetService {
                 const normalizedId = packageId.toLowerCase();
                 const normalizedVersion = version.toLowerCase();
                 const url = `${base}/${normalizedId}/${normalizedVersion}/${normalizedId}.${normalizedVersion}.nupkg`;
+                this.requireHttpsUrl(url);
                 const result = await Executor.runExecFile(
                     'curl',
-                    ['--fail', '--silent', '--show-error', '--location', '--output', archivePath, url],
+                    ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--output', archivePath, url],
                     undefined,
                     kind
                 );
@@ -199,9 +202,28 @@ export class NuGetService {
                     continue;
                 }
 
-                fs.rmSync(destination, { recursive: true, force: true });
-                await extractZip(archivePath, { dir: destination });
-                return;
+                const verification = await Executor.runExecFile(
+                    'dotnet',
+                    ['nuget', 'verify', archivePath, '--all'],
+                    undefined,
+                    kind
+                );
+                if (!verification.success) {
+                    lastError = verification.stderr || verification.stdout || `dotnet nuget verify exited with code ${verification.exitCode}`;
+                    continue;
+                }
+
+                const stagingDirectory = fs.mkdtempSync(path.join(packagesDirectory, `.${packageId}.${version}.`));
+                try {
+                    await extractZip(archivePath, { dir: stagingDirectory });
+                    fs.rmSync(destination, { recursive: true, force: true });
+                    fs.renameSync(stagingDirectory, destination);
+                    return;
+                } catch (error) {
+                    lastError = `Could not extract ${packageId} ${version}: ${error}`;
+                } finally {
+                    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+                }
             }
         } finally {
             fs.rmSync(archivePath, { force: true });
@@ -278,11 +300,15 @@ export class NuGetService {
                     const types = Array.isArray(resource['@type']) ? resource['@type'] : [resource['@type']];
                     return types.some((type: unknown) => typeof type === 'string' && type.startsWith(expected));
                 };
-                endpoints.push({
+                const endpoint: NuGetEndpoints = {
                     source,
                     search: resources.find((resource: any) => hasType(resource, 'SearchQueryService'))?.['@id'],
                     packageBase: resources.find((resource: any) => hasType(resource, 'PackageBaseAddress'))?.['@id']
-                });
+                };
+                if (!endpoint.search && !endpoint.packageBase) {
+                    throw new Error('The service index exposes no supported NuGet v3 resources.');
+                }
+                endpoints.push(endpoint);
             } catch (error) {
                 console.warn(`Could not load NuGet source ${source}:`, error);
                 output.appendLine(`Could not load source ${source}: ${error}`);
@@ -299,10 +325,11 @@ export class NuGetService {
      * HTTP GET helper
      */
     private static async httpGet(url: string, kind: ExecutionKind = 'tooling'): Promise<string> {
+        const secureUrl = this.requireHttpsUrl(url);
         if (Executor.shouldUseWsl(kind)) {
             const result = await Executor.runExecFile(
                 'curl',
-                ['--fail', '--silent', '--show-error', '--location', url],
+                ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', secureUrl.toString()],
                 undefined,
                 kind
             );
@@ -313,14 +340,13 @@ export class NuGetService {
         }
 
         return new Promise((resolve, reject) => {
-            const protocol = url.startsWith('https') ? https : http;
-            
-            protocol.get(url, (response) => {
+            https.get(secureUrl, (response) => {
                 // Handle redirects
-                if (response.statusCode === 301 || response.statusCode === 302) {
+                if ([301, 302, 303, 307, 308].includes(response.statusCode || 0)) {
                     const redirectUrl = response.headers.location;
                     if (redirectUrl) {
-                        this.httpGet(redirectUrl, kind).then(resolve).catch(reject);
+                        response.resume();
+                        this.httpGet(new URL(redirectUrl, secureUrl).toString(), kind).then(resolve).catch(reject);
                         return;
                     }
                 }
@@ -336,6 +362,14 @@ export class NuGetService {
                 response.on('error', reject);
             }).on('error', reject);
         });
+    }
+
+    private static requireHttpsUrl(url: string): URL {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.protocol !== 'https:') {
+            throw new Error(`NuGet URL must use HTTPS: ${url}`);
+        }
+        return parsedUrl;
     }
 }
 
@@ -560,6 +594,7 @@ export class NuGetManager {
      */
     private static async updateVersionInNfproj(projectPath: string, packageId: string, newVersion: string): Promise<void> {
         let content = fs.readFileSync(projectPath, 'utf-8');
+        const targetLibraryPath = this.getLibraryPath(packageId, this.getProjectVersion(projectPath));
 
         // Escape package ID for safe use in regex (dots in names like nanoFramework.System.Net must not match arbitrary characters)
         const escapedPackageId = packageId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -573,10 +608,8 @@ export class NuGetManager {
 
         content = content.replace(hintPathRegex, (_match, prefix: string, _oldVersion: string, libraryPath: string, tail: string) => {
             const separator = libraryPath[0];
-            const targetLibraryPath = newVersion.startsWith('2.')
-                ? `${separator}lib${separator}netnano1.0${separator}`
-                : `${separator}lib${separator}`;
-            return `${prefix}${newVersion}${targetLibraryPath}${tail}`;
+            const formattedLibraryPath = `${separator}${targetLibraryPath.replace(/\\/g, separator)}${separator}`;
+            return `${prefix}${newVersion}${formattedLibraryPath}${tail}`;
         });
 
         // Update version in Reference Include attribute when present (VS-created projects)
@@ -664,6 +697,7 @@ export class NuGetManager {
      */
     private static async addToNfproj(projectPath: string, packageId: string, version: string): Promise<void> {
         let content = fs.readFileSync(projectPath, 'utf-8');
+        const projectFamily = this.getProjectVersion(projectPath);
         
         // Determine the assembly name (usually the package ID without 'nanoFramework.' prefix, or the full name)
         const assemblyName = this.getAssemblyName(packageId);
@@ -682,14 +716,12 @@ export class NuGetManager {
             );
             content = content.replace(updateRegex, (_match, prefix: string, _oldVersion: string, libraryPath: string, tail: string) => {
                 const separator = libraryPath[0];
-                const targetLibraryPath = version.startsWith('2.')
-                    ? `${separator}lib${separator}netnano1.0${separator}`
-                    : `${separator}lib${separator}`;
-                return `${prefix}${version}${targetLibraryPath}${tail}`;
+                const targetLibraryPath = this.getLibraryPath(packageId, projectFamily).replace(/\\/g, separator);
+                return `${prefix}${version}${separator}${targetLibraryPath}${separator}${tail}`;
             });
         } else {
             // Create the new reference
-            const newReference = this.createReferenceElement(packageId, version, assemblyName);
+            const newReference = this.createReferenceElement(packageId, version, assemblyName, projectFamily);
             
             // Find the ItemGroup that contains mscorlib by finding all ItemGroups and checking each one
             const itemGroupToUse = this.findMscorlibItemGroup(content);
@@ -808,17 +840,22 @@ export class NuGetManager {
     /**
      * Create a Reference XML element for the .nfproj file
      */
-    private static createReferenceElement(packageId: string, version: string, assemblyName: string): string {
+    private static createReferenceElement(packageId: string, version: string, assemblyName: string, projectFamily: ProjectFamily): string {
         // Determine the DLL name (usually matches assembly name)
         const dllName = assemblyName;
-                const libraryPath = version.startsWith('2.')
-                        ? 'lib\\netnano1.0'
-                        : 'lib';
+        const libraryPath = this.getLibraryPath(packageId, projectFamily);
         
         return `    <Reference Include="${assemblyName}">
             <HintPath>..\\packages\\${packageId}.${version}\\${libraryPath}\\${dllName}.dll</HintPath>
       <Private>True</Private>
     </Reference>\n`;
+    }
+
+    private static getLibraryPath(packageId: string, projectFamily: ProjectFamily): string {
+        if (packageId.toLowerCase() === 'nanoframework.testframework') {
+            return 'lib';
+        }
+        return projectFamily === 2 ? 'lib\\netnano1.0' : 'lib';
     }
 }
 

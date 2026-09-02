@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as cp from 'child_process';
-import { Executor } from './executor';
+import { ExecutionKind, Executor } from './executor';
 
 export interface PrerequisiteCheckResult {
     allPassed: boolean;
@@ -20,12 +20,21 @@ export interface PrerequisiteCheckResult {
  * Checks if a command exists in the system PATH.
  * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
  * @param command The command to check
+ * @param kind The execution context in which the command is required
  * @returns true if the command exists, false otherwise
  */
-async function commandExists(command: string): Promise<boolean> {
-    const checkCommand = os.platform() === 'win32' && !Executor.shouldUseWsl() ? 'where' : 'which';
-    const result = await Executor.runExecFile(checkCommand, [command]);
+async function commandExists(command: string, kind: ExecutionKind): Promise<boolean> {
+    const checkCommand = os.platform() === 'win32' && !Executor.shouldUseWsl(kind) ? 'where' : 'which';
+    const result = await Executor.runExecFile(checkCommand, [command], undefined, kind);
     return result.success;
+}
+
+function getExecutionPlatform(kind: ExecutionKind): NodeJS.Platform {
+    return Executor.shouldUseWsl(kind) ? 'linux' : os.platform();
+}
+
+function getContextLabel(kind: ExecutionKind): string {
+    return Executor.shouldUseWsl(kind) ? `WSL ${kind}` : `native ${kind}`;
 }
 
 /**
@@ -46,84 +55,94 @@ function fileExists(filePath: string): boolean {
  * @returns PrerequisiteCheckResult with status and any issues found
  */
 export async function validatePrerequisites(): Promise<PrerequisiteCheckResult> {
-    const issues: string[] = [];
-    const warnings: string[] = [];
-    const platform = Executor.shouldUseWsl() ? 'linux' : os.platform();
+    const issues = new Set<string>();
+    const warnings = new Set<string>();
+    const toolingPlatform = getExecutionPlatform('tooling');
     
-    // Check .NET SDK
-    if (!await commandExists('dotnet')) {
-        issues.push('.NET SDK is not installed. Download from: https://dotnet.microsoft.com/download');
+    if (!await commandExists('dotnet', 'tooling')) {
+        issues.add(`.NET SDK is not installed in the ${getContextLabel('tooling')} context. Download from: https://dotnet.microsoft.com/download`);
     }
     
-    // Check nanoff tool
-    if (!await commandExists('nanoff')) {
-        issues.push('nanoff tool is not installed. Run: dotnet tool install -g nanoff');
+    if (!await commandExists('nanoff', 'tooling')) {
+        issues.add(`nanoff tool is not installed in the ${getContextLabel('tooling')} context. Run: dotnet tool install -g nanoff`);
         
-        if (platform !== 'win32') {
-            warnings.push('After installing nanoff, add ~/.dotnet/tools to your PATH');
+        if (toolingPlatform !== 'win32') {
+            warnings.add('After installing nanoff, add ~/.dotnet/tools to your PATH');
         }
     }
-    
-    // Platform-specific checks
-    if (platform === 'win32') {
-        // Check for Visual Studio Build Tools or Visual Studio
-        const vsWherePath = `${process.env['ProgramFiles(x86)']}\\Microsoft Visual Studio\\Installer\\vswhere.exe`;
-        if (!fileExists(vsWherePath)) {
-            issues.push('Visual Studio or Visual Studio Build Tools not found. Download from: https://visualstudio.microsoft.com/downloads/');
+
+    if (Executor.shouldUseWsl('tooling') && !await commandExists('curl', 'tooling')) {
+        issues.add('curl is not installed in the WSL tooling context. Install curl in WSL.');
+    }
+
+    if (Executor.shouldUseWsl('deployment') !== Executor.shouldUseWsl('tooling') &&
+        !await commandExists('nanoff', 'deployment')) {
+        issues.add(`nanoff tool is not installed in the ${getContextLabel('deployment')} context. Run: dotnet tool install -g nanoff`);
+    }
+
+    for (const kind of ['build', 'test'] as const) {
+        const platform = getExecutionPlatform(kind);
+        const context = getContextLabel(kind);
+
+        if (platform === 'win32') {
+            const vsWherePath = `${process.env['ProgramFiles(x86)']}\\Microsoft Visual Studio\\Installer\\vswhere.exe`;
+            if (!fileExists(vsWherePath)) {
+                issues.add('Visual Studio or Visual Studio Build Tools not found. Download from: https://visualstudio.microsoft.com/downloads/');
+            }
+            continue;
         }
-        
-        // Note: nuget.exe is automatically downloaded by the extension when needed on Windows
-    } else {
-        // macOS and Linux checks
-        
-        // Check mono
-        if (!await commandExists('mono')) {
-            issues.push('Mono is not installed. Install mono-complete from: https://www.mono-project.com/download/stable/');
+
+        if (Executor.shouldUseWsl(kind)) {
+            if (!await commandExists('dotnet', kind)) {
+                issues.add(`.NET SDK is not installed in the ${context} context. Download from: https://dotnet.microsoft.com/download`);
+            }
+            if (!await commandExists('curl', kind)) {
+                issues.add(`curl is not installed in the ${context} context. Install curl in WSL.`);
+            }
         }
-        
-        // Check msbuild
-        if (!await commandExists('msbuild')) {
-            issues.push('msbuild not found. Install mono-complete from Mono Project (NOT from your distribution\'s package manager).');
+
+        if (!await commandExists('mono', kind)) {
+            issues.add(`Mono is not installed in the ${context} context. Install mono-complete from: https://www.mono-project.com/download/stable/`);
         }
-        
-        // Check nuget
-        if (!await commandExists('nuget')) {
-            const nugetInstallHint = platform === 'darwin' 
+
+        if (!await commandExists('msbuild', kind)) {
+            issues.add(`msbuild was not found in the ${context} context. Install mono-complete from the Mono Project (not from your distribution's package manager).`);
+        }
+
+        if (!Executor.shouldUseWsl(kind) && !await commandExists('nuget', kind)) {
+            const nugetInstallHint = platform === 'darwin'
                 ? 'Install with: brew install nuget'
                 : 'Install with: sudo apt install nuget (or equivalent for your distribution)';
-            issues.push(`nuget CLI not found. ${nugetInstallHint}`);
+            issues.add(`nuget CLI was not found in the ${context} context. ${nugetInstallHint}`);
         }
-        
-        // Linux-specific: Check serial port permissions
-        if (platform === 'linux') {
-            try {
-                const groups = (await Executor.runExecFile('groups', [])).stdout || '';
-                if (!groups.includes('dialout')) {
-                    warnings.push('User is not in the dialout group. Serial port access may fail. Run: sudo usermod -a -G dialout $USER (then log out and back in)');
-                }
-            } catch {
-                // Could not check groups
+    }
+
+    if (toolingPlatform === 'linux') {
+        try {
+            const groups = (await Executor.runExecFile('groups', [], undefined, 'tooling')).stdout || '';
+            if (!groups.includes('dialout')) {
+                warnings.add('User is not in the dialout group. Serial port access may fail. Run: sudo usermod -a -G dialout $USER (then log out and back in)');
             }
+        } catch {
+            // Could not check groups
         }
-        
-        // macOS-specific: Check for Apple Silicon considerations
-        if (platform === 'darwin') {
-            try {
-                const arch = cp.execSync('uname -m', { encoding: 'utf-8' }).trim();
-                if (arch === 'arm64') {
-                    // Running on Apple Silicon
-                    // This is informational, serialport should work on both architectures
-                }
-            } catch {
-                // Could not determine architecture
+    }
+
+    if (toolingPlatform === 'darwin') {
+        try {
+            const arch = cp.execSync('uname -m', { encoding: 'utf-8' }).trim();
+            if (arch === 'arm64') {
+                // Running on Apple Silicon
             }
+        } catch {
+            // Could not determine architecture
         }
     }
     
     return {
-        allPassed: issues.length === 0,
-        issues,
-        warnings
+        allPassed: issues.size === 0,
+        issues: Array.from(issues),
+        warnings: Array.from(warnings)
     };
 }
 

@@ -118,6 +118,11 @@ export class NfProject {
     }
 
     private static AddTemplatePackages(project: string, packages: TemplatePackage[], family: ProjectFamily): string {
+        const targetsImport = /(\s*<Import Project="\$\(NanoFrameworkProjectSystemPath\)NFProjectSystem\.CSharp\.targets")/;
+        if (!targetsImport.test(project)) {
+            throw new Error('The project template is missing the required NFProjectSystem.CSharp.targets import.');
+        }
+
         const references = packages.map(pkg => {
             if (pkg.id === 'nanoFramework.CoreLibrary') {
                 const frameworkDirectory = family === 2 ? 'lib\\netnano1.0' : 'lib';
@@ -133,7 +138,7 @@ export class NfProject {
             contentItems.push('    <None Include="nano.runsettings" />');
         }
         const itemGroup = `  <ItemGroup>\r\n${references.concat(contentItems).join('\r\n')}\r\n  </ItemGroup>\r\n`;
-        return project.replace(/(\s*<Import Project="\$\(NanoFrameworkProjectSystemPath\)NFProjectSystem\.CSharp\.targets")/, `\r\n${itemGroup}$1`);
+        return project.replace(targetsImport, `\r\n${itemGroup}$1`);
     }
 
     private static CreatePackagesConfig(packages: TemplatePackage[]): string {

@@ -69,9 +69,8 @@ public class SymbolResolver : IDisposable
 
         try
         {
-            var serializer = new XmlSerializer(typeof(PdbxFile));
-            using var reader = new StreamReader(pdbxPath);
-            var pdbxFile = (PdbxFile?)serializer.Deserialize(reader);
+            var content = File.ReadAllText(pdbxPath);
+            var pdbxFile = DeserializePdbx(content);
 
             if (pdbxFile?.Assembly != null)
             {
@@ -104,6 +103,95 @@ public class SymbolResolver : IDisposable
         }
 
         return false;
+    }
+
+    internal static PdbxFile? DeserializePdbx(string content)
+    {
+        if (!content.TrimStart().StartsWith('{'))
+        {
+            var serializer = new XmlSerializer(typeof(PdbxFile));
+            using var reader = new StringReader(content);
+            return (PdbxFile?)serializer.Deserialize(reader);
+        }
+
+        using var document = JsonDocument.Parse(content);
+        if (!document.RootElement.TryGetProperty("Assembly", out var assemblyElement))
+        {
+            return null;
+        }
+
+        var assembly = new PdbxAssembly
+        {
+            FileName = GetString(assemblyElement, "FileName"),
+            Token = GetToken(assemblyElement),
+            Version = ParseVersion(GetString(assemblyElement, "Version")),
+            Classes = GetArray(assemblyElement, "Classes")
+                .Select(classElement => new PdbxClass
+                {
+                    Name = GetString(classElement, "Name"),
+                    Token = GetToken(classElement),
+                    Fields = GetArray(classElement, "Fields")
+                        .Select(fieldElement => new PdbxField
+                        {
+                            Name = GetString(fieldElement, "Name"),
+                            Token = GetToken(fieldElement)
+                        }).ToArray(),
+                    Methods = GetArray(classElement, "Methods")
+                        .Select(methodElement => new PdbxMethod
+                        {
+                            Name = GetString(methodElement, "Name"),
+                            Token = GetToken(methodElement),
+                            HasByteCode = !methodElement.TryGetProperty("HasByteCode", out var hasByteCode) || hasByteCode.GetBoolean(),
+                            ILMap = GetArray(methodElement, "ILMap")
+                                .Select(ilElement =>
+                                {
+                                    var token = GetToken(ilElement);
+                                    return new PdbxIL { CLR = token?.CLR ?? 0, NanoCLR = token?.NanoCLR ?? 0 };
+                                }).ToArray()
+                        }).ToArray()
+                }).ToArray()
+        };
+
+        return new PdbxFile { Assembly = assembly };
+    }
+
+    private static IEnumerable<JsonElement> GetArray(JsonElement element, string propertyName)
+        => element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray()
+            : [];
+
+    private static string? GetString(JsonElement element, string propertyName)
+        => element.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+
+    private static PdbxToken? GetToken(JsonElement element)
+    {
+        if (!element.TryGetProperty("Token", out var token))
+        {
+            return null;
+        }
+        return new PdbxToken
+        {
+            CLR = ParseHex(GetString(token, "CLR")),
+            NanoCLR = ParseHex(GetString(token, "NanoCLR"))
+        };
+    }
+
+    private static uint ParseHex(string? value)
+        => uint.TryParse(value, System.Globalization.NumberStyles.HexNumber, null, out var result) ? result : 0;
+
+    private static PdbxVersion? ParseVersion(string? value)
+    {
+        if (!Version.TryParse(value, out var version))
+        {
+            return null;
+        }
+        return new PdbxVersion
+        {
+            Major = version.Major,
+            Minor = version.Minor,
+            Build = version.Build,
+            Revision = version.Revision
+        };
     }
 
     /// <summary>
@@ -213,8 +301,7 @@ public class SymbolResolver : IDisposable
     /// <returns>Breakpoint location info, or null if not found</returns>
     public BreakpointLocation? GetBreakpointLocation(string sourceFile, int line)
     {
-        // Normalize the source file path
-        var normalizedPath = Path.GetFullPath(sourceFile).ToLowerInvariant();
+        var normalizedPath = NormalizeSourcePath(sourceFile);
         
         // Collect all sequence points for this file from all methods
         var candidatePoints = new List<SequencePoint>();
@@ -223,8 +310,7 @@ public class SymbolResolver : IDisposable
         {
             foreach (var sp in kvp.Value)
             {
-                if (sp.SourceFile != null && 
-                    Path.GetFullPath(sp.SourceFile).ToLowerInvariant() == normalizedPath)
+                if (sp.SourceFile != null && NormalizeSourcePath(sp.SourceFile) == normalizedPath)
                 {
                     candidatePoints.Add(sp);
                 }
@@ -307,8 +393,7 @@ public class SymbolResolver : IDisposable
     /// <returns>Location of next line, or null if not found</returns>
     public BreakpointLocation? GetNextLineBreakpointLocation(string sourceFile, int currentLine, int currentMethodToken)
     {
-        // Normalize the source file path
-        var normalizedPath = Path.GetFullPath(sourceFile).ToLowerInvariant();
+        var normalizedPath = NormalizeSourcePath(sourceFile);
         
         // Collect all sequence points for this file from all methods
         var candidatePoints = new List<SequencePoint>();
@@ -317,8 +402,7 @@ public class SymbolResolver : IDisposable
         {
             foreach (var sp in kvp.Value)
             {
-                if (sp.SourceFile != null && 
-                    Path.GetFullPath(sp.SourceFile).ToLowerInvariant() == normalizedPath)
+                if (sp.SourceFile != null && NormalizeSourcePath(sp.SourceFile) == normalizedPath)
                 {
                     candidatePoints.Add(sp);
                 }
@@ -387,6 +471,17 @@ public class SymbolResolver : IDisposable
         
         Console.Error.WriteLine($"[DebugBridge] GetNextLineBreakpointLocation: No next line found after line {currentLine} in {Path.GetFileName(sourceFile)}");
         return null;
+    }
+
+    internal static string NormalizeSourcePath(string sourceFile)
+    {
+        var normalized = sourceFile.Replace('\\', '/');
+        if (normalized.StartsWith("/mnt/", StringComparison.OrdinalIgnoreCase) &&
+            normalized.Length > 7 && normalized[6] == '/')
+        {
+            normalized = $"{normalized[5]}:{normalized[6..]}";
+        }
+        return normalized.TrimEnd('/').ToLowerInvariant();
     }
 
     /// <summary>
