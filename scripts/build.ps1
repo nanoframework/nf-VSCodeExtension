@@ -76,9 +76,9 @@ $vsExtensions = @(
     },
     @{
         Family = "v2"
-        Version = "v2022.14.2.28"
-        Url = "https://www.vsixgallery.com/extensions/bf694e17-fa5f-4877-9317-6d3664b2689a/.NET%20nanoFramework%20Extension%20v2022.14.2.28.vsix"
-        Sha256 = "62B4F49FF7AB5C85ECBC6C3AD0E835B540C48D3415F835B054B7019B0CCBE190"
+        Version = "v2022.14.2.29"
+        Url = "https://www.vsixgallery.com/extensions/bf694e17-fa5f-4877-9317-6d3664b2689a/.NET%20nanoFramework%20Extension%20v2022.14.2.29.vsix"
+        Sha256 = "B27755A5C9311EE54CB145C54A84ED299AD80BD29EFB3C7858054B5687068EF1"
         SdkVersion = "v2.0"
     }
 )
