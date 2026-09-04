@@ -16,11 +16,18 @@ import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
 import { isSolutionFile } from './utils';
+import { NanoBridge } from './debugger/bridge/nanoBridge';
+import { NuGetService } from './nuget';
 
 const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false -p:UseSharedCompilation=false';
 
 // Deploy operation tracking - used to cancel previous deploys when a new one starts
 let currentDeployId = 0;
+let nanoffMajorVersionPromise: Promise<number | null> | undefined;
+
+function isNativeWindowsBuild(): boolean {
+    return os.platform() === 'win32' && !Executor.shouldUseWsl('build');
+}
 
 // Shared output channel for build logs
 let buildOutputChannel: vscode.OutputChannel | null = null;
@@ -29,6 +36,162 @@ function getBuildOutputChannel(): vscode.OutputChannel {
         buildOutputChannel = vscode.window.createOutputChannel('nanoFramework Build');
     }
     return buildOutputChannel;
+}
+
+async function checkDeploymentCompatibility(imagePaths: string[], serialPath: string): Promise<string | null> {
+    const bridge = new NanoBridge('deployment');
+    try {
+        if (!await bridge.initialize(serialPath, false, 'information')) {
+            return 'Could not start the nanoFramework debug bridge to verify device compatibility.';
+        }
+        if (!await bridge.connect()) {
+            return `Could not connect to ${serialPath} to verify device compatibility.`;
+        }
+
+        const result = await bridge.checkDeploymentCompatibility(imagePaths);
+        return result.success ? null : result.error || 'Device library compatibility check failed.';
+    } finally {
+        await bridge.terminate();
+    }
+}
+
+function getAssembliesPath(buildTarget: string, configuration: string, deployProjectDir?: string): string {
+    const projectDir = deployProjectDir || path.dirname(buildTarget);
+    return path.join(projectDir, 'bin', configuration);
+}
+
+function hasPeAssemblies(assembliesPath: string): boolean {
+    return fs.existsSync(assembliesPath)
+        && fs.readdirSync(assembliesPath).some(file => file.toLowerCase().endsWith('.pe'));
+}
+
+async function waitForPeAssemblies(
+    assembliesPath: string,
+    deployId: number,
+    timeoutMs = 120000,
+    intervalMs = 2000
+): Promise<boolean | null> {
+    const end = Date.now() + timeoutMs;
+    while (Date.now() < end) {
+        if (currentDeployId !== deployId) {
+            return null;
+        }
+        if (hasPeAssemblies(assembliesPath)) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            return currentDeployId === deployId && hasPeAssemblies(assembliesPath) ? true : null;
+        }
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    return false;
+}
+
+async function deployPreviewAssemblies(assembliesPath: string, serialPath: string): Promise<string | null> {
+    const bridge = new NanoBridge('deployment');
+    try {
+        if (!await bridge.initialize(serialPath, false, 'information')) {
+            return 'Could not start the nanoFramework debug bridge for deployment.';
+        }
+        if (!await bridge.connect()) {
+            return `Could not connect to ${serialPath} for deployment.`;
+        }
+
+        const result = await bridge.deployWithResult(assembliesPath);
+        return result.success ? null : result.error || 'Deployment failed.';
+    } finally {
+        await bridge.terminate();
+    }
+}
+
+async function getNanoffMajorVersion(): Promise<number | null> {
+    if (!nanoffMajorVersionPromise) {
+        const detection = Executor.runHidden('nanoff --version', 'deployment').then(result => {
+            const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+            const match = output.match(/\bv?(\d+)\.\d+/i);
+            return result.success && match ? Number(match[1]) : null;
+        });
+        nanoffMajorVersionPromise = detection;
+        void detection.then(
+            version => {
+                if (version === null && nanoffMajorVersionPromise === detection) {
+                    nanoffMajorVersionPromise = undefined;
+                }
+            },
+            () => {
+                if (nanoffMajorVersionPromise === detection) {
+                    nanoffMajorVersionPromise = undefined;
+                }
+            }
+        );
+    }
+
+    return nanoffMajorVersionPromise;
+}
+
+function buildNanoffDeployCommands(
+    imagePaths: string[],
+    serialPath: string,
+    nanoffMajorVersion: number,
+    fileDeploymentPath?: string | null
+): string[] {
+    const commands = imagePaths.map(imagePath => nanoffMajorVersion >= 3
+        ? `nanoff deploy --serialport "${serialPath}" --image "${imagePath}"`
+        : `nanoff --nanodevice --deploy --serialport "${serialPath}" --image "${imagePath}"`);
+
+    if (fileDeploymentPath) {
+        commands.push(nanoffMajorVersion >= 3
+            ? `nanoff deploy --serialport "${serialPath}" --file "${fileDeploymentPath}"`
+            : `nanoff --serialport "${serialPath}" --filedeployment "${fileDeploymentPath}"`);
+    }
+
+    return commands;
+}
+
+async function deployContentFiles(
+    fileUri: string,
+    configuration: string,
+    serialPath: string,
+    deployProjectDir: string | undefined,
+    visible: boolean,
+    output?: vscode.OutputChannel
+): Promise<string | null> {
+    const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
+    if (!fileDeploymentJsonPath) {
+        return null;
+    }
+
+    const nanoffMajorVersion = await getNanoffMajorVersion();
+    if (nanoffMajorVersion === null) {
+        return 'Could not detect the installed nanoff version for content-file deployment.';
+    }
+
+    const command = buildNanoffDeployCommands([], serialPath, nanoffMajorVersion, fileDeploymentJsonPath)[0];
+    output?.appendLine(`Content deployment command: ${command}`);
+    if (visible) {
+        const result = await Executor.runInTerminalAndWait(command, 'dotnet', 'deployment');
+        return result.success ? null : result.stderr || `Content deployment failed with exit code ${result.exitCode ?? 'unknown'}.`;
+    }
+
+    const result = await Executor.runHidden(command, 'deployment');
+    if (result.stdout) {
+        output?.appendLine(result.stdout);
+    }
+    if (result.stderr) {
+        output?.appendLine(result.stderr);
+    }
+    return result.success ? null : result.stderr || `Content deployment failed with exit code ${result.exitCode ?? 'unknown'}.`;
+}
+
+function buildNanoffFlashCommand(cliArguments: string, nanoffMajorVersion: number): string {
+    if (nanoffMajorVersion >= 3) {
+        return `nanoff flash ${cliArguments}`;
+    }
+
+    const backupFile = `nanoFramework-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.bin`;
+    const legacyArguments = cliArguments.replace(
+        /(^|\s)--backup(?=\s|$)/,
+        `$1--backuppath "${os.tmpdir()}" --backupfile "${backupFile}"`
+    );
+    return `nanoff --update ${legacyArguments}`;
 }
 
 /**
@@ -313,6 +476,10 @@ function createFileDeploymentJson(solutionPath: string, configuration: string, d
  * @returns The path to msbuild or null if not found
  */
 function findUnixMsBuild(): string | null {
+    if (Executor.shouldUseWsl('build')) {
+        return 'msbuild';
+    }
+
     // Common locations for msbuild on Unix systems
     const locations = [
         '/usr/bin/msbuild',
@@ -347,6 +514,10 @@ function findUnixMsBuild(): string | null {
  * @returns The path to nuget or null if not found
  */
 function findUnixNuget(): string | null {
+    if (Executor.shouldUseWsl('build')) {
+        return 'nuget';
+    }
+
     // Common locations for nuget on Unix systems
     const locations = [
         '/usr/bin/nuget',
@@ -503,19 +674,79 @@ function resolveNugetRestoreTarget(filePath: string): { target: string; extraArg
     return { target: filePath, extraArgs: '' };
 }
 
+function getPackagesConfigPaths(filePath: string): string[] {
+    if (!isSolutionFile(filePath)) {
+        const packagesConfig = path.join(path.dirname(filePath), 'packages.config');
+        return fs.existsSync(packagesConfig) ? [packagesConfig] : [];
+    }
+
+    const solutionDir = path.dirname(filePath);
+    const solution = fs.readFileSync(filePath, 'utf8');
+    const projectPattern = /^Project\([^\r\n]+\)\s*=\s*[^,]+,\s*"([^"]+\.(?:nfproj|csproj))"/gmi;
+    const packageConfigs: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = projectPattern.exec(solution)) !== null) {
+        const projectPath = path.resolve(solutionDir, match[1].replace(/[\\/]/g, path.sep));
+        const packagesConfig = path.join(path.dirname(projectPath), 'packages.config');
+        if (fs.existsSync(packagesConfig)) {
+            packageConfigs.push(packagesConfig);
+        }
+    }
+    return packageConfigs;
+}
+
+async function restoreWslBuildPackages(filePath: string): Promise<void> {
+    const packagesConfigPaths = getPackagesConfigPaths(filePath);
+    if (packagesConfigPaths.length === 0) {
+        return;
+    }
+    const packagesDirectory = isSolutionFile(filePath)
+        ? path.join(path.dirname(filePath), 'packages')
+        : path.join(path.dirname(path.dirname(filePath)), 'packages');
+    await NuGetService.restorePackagesConfigFiles(packagesConfigPaths, packagesDirectory, 'build');
+}
+
 /**
  * Builds the nanoFramework project system path using proper path separators
  * @param toolPath The base tool path
  * @returns Properly formatted path for the current platform (with trailing separator)
  */
-function buildNanoFrameworkProjectSystemPath(toolPath: string): string {
+export function getProjectFamily(fileUri: string): 1 | 2 {
+    const packageConfigs = getPackagesConfigPaths(fileUri);
+
+    const families = new Set(packageConfigs.flatMap(packagesConfig => {
+        if (!fs.existsSync(packagesConfig)) {
+            return [];
+        }
+        const match = fs.readFileSync(packagesConfig, 'utf8')
+            .match(/<package\s+id="nanoFramework\.CoreLibrary"\s+version="([12])\./i);
+        return match ? [Number(match[1]) as 1 | 2] : [];
+    }));
+    if (families.size > 1) {
+        throw new Error('A solution cannot mix nanoFramework v1 and v2 projects in one build.');
+    }
+    return families.values().next().value ?? 1;
+}
+
+function buildNanoFrameworkProjectSystemPath(toolPath: string, fileUri: string): string {
     // Use forward slashes to avoid escaping issues with trailing backslash in quoted paths
     // MSBuild accepts forward slashes on Windows
-    const nfPath = path.join(toolPath, 'nanoFramework', 'v1.0');
+    const nfPath = path.join(toolPath, 'nanoFramework', `v${getProjectFamily(fileUri)}.0`);
     return nfPath.replace(/\\/g, '/') + '/';
 }
 
+function getPreviewWslMetadataTaskPath(fileUri: string, nfProjectSystemPath: string): string | undefined {
+    if (!Executor.shouldUseWsl('build') || getProjectFamily(fileUri) !== 2) {
+        return undefined;
+    }
+    return path.join(nfProjectSystemPath, 'mdp', 'net8.0').replace(/\\/g, '/');
+}
+
 export class Dotnet {
+    static initializeNanoffVersion(): Promise<number | null> {
+        return getNanoffMajorVersion();
+    }
+
     /**
      * Builds the nanoFramework solution or project in a Terminal using MSBuild.exe (win32) or msbuild from mono (linux/macOS)
      * @param fileUri absolute path to *.sln or *.nfproj
@@ -529,7 +760,7 @@ export class Dotnet {
             // Clean .bin files before building to avoid stale files
             cleanBinFiles(fileUri, configuration);
 
-            const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
+            const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath, fileUri);
 
             // Determine the restore target: for .nfproj files use the packages.config
             // in the project directory (or the parent .sln if one exists).
@@ -537,7 +768,7 @@ export class Dotnet {
             const restoreTarget = resolveNugetRestoreTarget(fileUri);
             
             // Using dynamically-solved MSBuild.exe when run from win32
-            if (os.platform() === "win32") {
+            if (isNativeWindowsBuild()) {
                 const nugetPath = await findOrDownloadWindowsNuget(toolPath);
                 
                 if (!nugetPath) {
@@ -557,14 +788,16 @@ export class Dotnet {
                     'if (-not $path) { $path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1 }; ' +
                     'if (-not $path) { Write-Error "MSBuild not found. Please install Visual Studio with the .NET desktop development workload."; exit 1 }; ' +
                     '& "' + nugetPath + '" restore "' + restoreTarget.target + '" ' + restoreTarget.extraArgs + ' -MSBuildPath (Split-Path $path); ' +
-                    '& $path "' + fileUri + '" -p:platform="Any CPU" -p:Configuration="' + configuration + '" "-p:NanoFrameworkProjectSystemPath=' + nfProjectSystemPath + '" ' + mdpBuildProperties + ' -verbosity:minimal');
+                    '& $path "' + fileUri + '" -p:platform="Any CPU" -p:Configuration="' + configuration + '" "-p:NanoFrameworkProjectSystemPath=' + nfProjectSystemPath + '" ' + mdpBuildProperties + ' -verbosity:minimal',
+                    'dotnet', 'build');
             }
             // Using msbuild (comes with mono-complete) on Unix 
             else {
                 const msbuildPath = findUnixMsBuild();
                 const nugetPath = findUnixNuget();
+                const metadataTaskPath = getPreviewWslMetadataTaskPath(fileUri, nfProjectSystemPath);
                 
-                if (!msbuildPath) {
+                if (!metadataTaskPath && !msbuildPath) {
                     vscode.window.showErrorMessage(
                         'msbuild not found. Please install mono-complete from the Mono Project (not from your distribution\'s package manager). ' +
                         'Visit: https://www.mono-project.com/download/stable/',
@@ -577,7 +810,7 @@ export class Dotnet {
                     return;
                 }
                 
-                if (!nugetPath) {
+                if (!nugetPath && !Executor.shouldUseWsl('build')) {
                     vscode.window.showErrorMessage(
                         'nuget not found. Please install nuget CLI. ' +
                         'On macOS: brew install nuget | On Linux: sudo apt install nuget',
@@ -590,9 +823,18 @@ export class Dotnet {
                     return;
                 }
                 
-                // Use the found paths with proper quoting for paths with spaces
-                const buildCommand = `"${nugetPath}" restore "${restoreTarget.target}" ${restoreTarget.extraArgs} && "${msbuildPath}" "${fileUri}" -p:platform="Any CPU" -p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjectSystemPath}" ${mdpBuildProperties} -verbosity:minimal`;
-                Executor.runCommand(buildCommand);
+                if (Executor.shouldUseWsl('build')) {
+                    await restoreWslBuildPackages(fileUri);
+                }
+                const restoreCommand = Executor.shouldUseWsl('build')
+                    ? ''
+                    : `"${nugetPath}" restore "${restoreTarget.target}" ${restoreTarget.extraArgs} && `;
+                const buildTool = metadataTaskPath ? 'dotnet msbuild' : `"${msbuildPath}"`;
+                const hostProperties = metadataTaskPath
+                    ? ` "-p:NF_MDP_MSBUILDTASK_PATH=${metadataTaskPath}"`
+                    : Executor.shouldUseWsl('build') ? ' -p:LangVersion=latest' : '';
+                const buildCommand = `${restoreCommand}${buildTool} "${fileUri}" -p:platform="Any CPU" -p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjectSystemPath}"${hostProperties} ${mdpBuildProperties} -verbosity:minimal`;
+                Executor.runCommand(buildCommand, 'dotnet', 'build');
             }
         }
     }
@@ -627,20 +869,20 @@ export class Dotnet {
             // User cancelled the picker
             return;
         }
+        const deployProject = deployProjectDir
+            ? exeProjects.find(project => path.resolve(project.projectDir) === path.resolve(deployProjectDir))
+            : undefined;
+        const buildTarget = deployProject?.projectPath ?? fileUri;
 
         // Clean only the deploy target project (not the whole solution)
-        if (deployProjectDir) {
-            // Find the .nfproj in the selected project directory
-            const nfprojFiles = fs.readdirSync(deployProjectDir).filter(f => f.endsWith('.nfproj'));
-            if (nfprojFiles.length > 0) {
-                cleanBinFiles(path.join(deployProjectDir, nfprojFiles[0]), configuration);
-            }
+        if (deployProject) {
+            cleanBinFiles(deployProject.projectPath, configuration);
         } else {
             // Fallback: clean everything (no specific project selected)
             cleanBinFiles(fileUri, configuration);
         }
 
-        const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath);
+        const nfProjectSystemPath = buildNanoFrameworkProjectSystemPath(toolPath, buildTarget);
         
         // Verify the nanoFramework project system path exists (check without trailing slash)
         const nfPathToCheck = nfProjectSystemPath.endsWith('/') ? nfProjectSystemPath.slice(0, -1) : nfProjectSystemPath;
@@ -653,14 +895,16 @@ export class Dotnet {
         }
 
         // Use the same build arguments as the regular build command (no custom OutDir)
-        const cliBuildArguments = `-p:platform="Any CPU" -p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjectSystemPath}" ${mdpBuildProperties} -verbosity:minimal`;
+        const metadataTaskPath = getPreviewWslMetadataTaskPath(buildTarget, nfProjectSystemPath);
+        const metadataTaskArgument = metadataTaskPath ? ` "-p:NF_MDP_MSBUILDTASK_PATH=${metadataTaskPath}"` : '';
+        const cliBuildArguments = `-p:platform="Any CPU" -p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjectSystemPath}"${metadataTaskArgument} ${mdpBuildProperties} -verbosity:minimal`;
 
         // Check if we should show terminal output
         const showTerminal = Executor.shouldShowTerminal();
 
         if (showTerminal) {
             // Run build in terminal (visible to user), then prompt for deploy
-            if (os.platform() === "win32") {
+            if (isNativeWindowsBuild()) {
                 const nugetPath = await findOrDownloadWindowsNuget(toolPath);
                 
                 if (!nugetPath) {
@@ -676,19 +920,19 @@ export class Dotnet {
                 }
                 
                 // Build command for terminal - same as regular build
-                const restoreTarget = resolveNugetRestoreTarget(fileUri);
+                const restoreTarget = resolveNugetRestoreTarget(buildTarget);
                 const buildCommand = '$path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\amd64\\MSBuild.exe | select-object -first 1; ' +
                     'if (-not $path) { $path = & "${env:ProgramFiles(x86)}\\microsoft visual studio\\installer\\vswhere.exe" -products * -all -prerelease -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe | select-object -first 1 }; ' +
                     'if (-not $path) { Write-Error "MSBuild not found. Please install Visual Studio with the .NET desktop development workload."; exit 1 }; ' +
                     '& "' + nugetPath + '" restore "' + restoreTarget.target + '" ' + restoreTarget.extraArgs + ' -MSBuildPath (Split-Path $path); ' +
-                    '& $path "' + fileUri + '" ' + cliBuildArguments;
+                    '& $path "' + buildTarget + '" ' + cliBuildArguments;
                 
-                Executor.runInTerminal(buildCommand);
+                Executor.runInTerminal(buildCommand, 'dotnet', 'build');
             } else {
                 const msbuildPath = findUnixMsBuild();
                 const nugetPath = findUnixNuget();
                 
-                if (!msbuildPath || !nugetPath) {
+                if ((!metadataTaskPath && !msbuildPath) || (!nugetPath && !Executor.shouldUseWsl('build'))) {
                     vscode.window.showErrorMessage(
                         'msbuild or nuget not found. Please install mono-complete from the Mono Project and nuget CLI.',
                         'View Installation Guide'
@@ -700,9 +944,18 @@ export class Dotnet {
                     return;
                 }
                 
-                // Build command - same as regular build
-                const buildCommand = `"${nugetPath}" restore "${fileUri}" && "${msbuildPath}" "${fileUri}" ${cliBuildArguments}`;
-                Executor.runInTerminal(buildCommand);
+                const restoreTarget = resolveNugetRestoreTarget(buildTarget);
+                const restoreArguments = restoreTarget.extraArgs ? ` ${restoreTarget.extraArgs}` : '';
+                if (Executor.shouldUseWsl('build')) {
+                    await restoreWslBuildPackages(buildTarget);
+                }
+                const restoreCommand = Executor.shouldUseWsl('build')
+                    ? ''
+                    : `"${nugetPath}" restore "${restoreTarget.target}"${restoreArguments} && `;
+                const buildTool = metadataTaskPath ? 'dotnet msbuild' : `"${msbuildPath || 'msbuild'}"`;
+                const languageVersion = Executor.shouldUseWsl('build') && !metadataTaskPath ? ' -p:LangVersion=latest' : '';
+                const buildCommand = `${restoreCommand}${buildTool} "${buildTarget}" ${cliBuildArguments}${languageVersion}`;
+                Executor.runInTerminal(buildCommand, 'dotnet', 'build');
             }
 
             // Automatically wait for build to finish by polling for .bin files, then deploy
@@ -743,6 +996,28 @@ export class Dotnet {
 
             vscode.window.showInformationMessage('Build started in terminal. Waiting for build to finish...');
 
+            if (getProjectFamily(buildTarget) === 2) {
+                const assembliesPath = getAssembliesPath(buildTarget, configuration, deployProjectDir);
+                const assembliesReady = await waitForPeAssemblies(assembliesPath, thisDeployId);
+                if (assembliesReady === null) {
+                    return;
+                }
+                if (!assembliesReady) {
+                    vscode.window.showErrorMessage('No .pe assemblies found after the Preview build finished. Make sure the build completed successfully.');
+                    return;
+                }
+
+                const deploymentError = await deployPreviewAssemblies(assembliesPath, serialPath)
+                    || await deployContentFiles(fileUri, configuration, serialPath, deployProjectDir, true);
+                if (deploymentError) {
+                    vscode.window.showErrorMessage(deploymentError);
+                    return;
+                }
+
+                vscode.window.showInformationMessage(`Successfully deployed Preview assemblies to ${serialPath}`);
+                return;
+            }
+
             const binFiles = await pollForBinFiles(fileUri, thisDeployId, 120000, 2000, configuration);
 
             // Check if deploy was cancelled
@@ -765,26 +1040,60 @@ export class Dotnet {
             // Build the deploy command with all BIN files (using full paths)
             // Deduplicate files (resolve to absolute paths to avoid duplicates)
             const uniqueBinFiles = Array.from(new Set(binFiles.map(f => path.resolve(f))));
-            const imageArgs = uniqueBinFiles.map(f => `--image "${f}"`).join(' ');
-            let cliDeployArguments = `nanoff --nanodevice --deploy --serialport "${serialPath}" ${imageArgs}`;
-
+            const compatibilityError = await checkDeploymentCompatibility(uniqueBinFiles, serialPath);
+            if (currentDeployId !== thisDeployId) {
+                console.log(`Deploy #${thisDeployId} cancelled during compatibility check`);
+                return;
+            }
+            if (compatibilityError) {
+                vscode.window.showErrorMessage(compatibilityError);
+                return;
+            }
+            const nanoffMajorVersion = await getNanoffMajorVersion();
+            if (currentDeployId !== thisDeployId) {
+                console.log(`Deploy #${thisDeployId} cancelled during nanoff version detection`);
+                return;
+            }
+            if (nanoffMajorVersion === null) {
+                vscode.window.showErrorMessage('Could not detect the installed nanoff version. Run "nanoff --version" to verify the installation.');
+                return;
+            }
             // Check for content files to deploy
             const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
             if (fileDeploymentJsonPath) {
-                cliDeployArguments += ` --filedeployment "${fileDeploymentJsonPath}"`;
                 vscode.window.showInformationMessage(`File deployment enabled: deploying content files to device storage.`);
             }
+            const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, nanoffMajorVersion, fileDeploymentJsonPath);
 
-            console.log(`Deploy command: ${cliDeployArguments}`);
+            console.log(`Deploy commands: ${deployCommands.join('\n')}`);
             
             // Wait a moment to ensure terminal is ready for the next command
             // This helps when the build just finished and the terminal needs to process
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // Send the deploy command to terminal
-            Executor.runInTerminal(cliDeployArguments);
-            console.log('Deploy command sent to terminal');
-            vscode.window.showInformationMessage(`Deploying ${binFiles.length} BIN file(s) to ${serialPath}...`);
+
+            for (const command of deployCommands) {
+                if (currentDeployId !== thisDeployId) {
+                    console.log(`Deploy #${thisDeployId} cancelled before command execution`);
+                    return;
+                }
+
+                const deployResult = await Executor.runInTerminalAndWait(command, 'dotnet', 'deployment');
+                if (currentDeployId !== thisDeployId) {
+                    console.log(`Deploy #${thisDeployId} cancelled during command execution`);
+                    return;
+                }
+                if (deployResult.status === 'indeterminate') {
+                    vscode.window.showErrorMessage(`${deployResult.stderr} Deployment stopped because command success could not be verified.`);
+                    return;
+                }
+                if (!deployResult.success) {
+                    vscode.window.showErrorMessage(`Deploy failed with exit code ${deployResult.exitCode ?? 'unknown'}. See terminal output for details.`);
+                    return;
+                }
+            }
+
+            console.log('Deploy commands completed successfully');
+            vscode.window.showInformationMessage(`Successfully deployed ${binFiles.length} BIN file(s) to ${serialPath}`);
         } else {
             // Run build hidden with progress notification
             try {
@@ -812,7 +1121,7 @@ export class Dotnet {
                     let buildSuccess = false;
                     let buildResult: { success: boolean; stdout?: string; stderr?: string; exitCode?: number | null } | null = null;
 
-                    if (os.platform() === "win32") {
+                    if (isNativeWindowsBuild()) {
                         const nugetPath = await findOrDownloadWindowsNuget(toolPath);
                         
                         if (!nugetPath) {
@@ -828,14 +1137,14 @@ export class Dotnet {
                         }
                         
                         // Build the project and wait for completion - same args as regular build
-                        buildResult = await executeBuildWindows(fileUri, cliBuildArguments, nugetPath);
+                        buildResult = await executeBuildWindows(buildTarget, cliBuildArguments, nugetPath);
                         buildSuccess = !!(buildResult && buildResult.success);
                     }
                     else {
                         const msbuildPath = findUnixMsBuild();
                         const nugetPath = findUnixNuget();
                         
-                        if (!msbuildPath || !nugetPath) {
+                        if ((!metadataTaskPath && !msbuildPath) || (!nugetPath && !Executor.shouldUseWsl('build'))) {
                             vscode.window.showErrorMessage(
                                 'msbuild or nuget not found. Please install mono-complete from the Mono Project and nuget CLI.',
                                 'View Installation Guide'
@@ -848,7 +1157,13 @@ export class Dotnet {
                         }
                         
                         // Build the project and wait for completion - same args as regular build
-                        buildResult = await executeBuildUnix(fileUri, cliBuildArguments, msbuildPath, nugetPath);
+                        buildResult = await executeBuildUnix(
+                            buildTarget,
+                            cliBuildArguments,
+                            msbuildPath || 'msbuild',
+                            nugetPath || 'nuget',
+                            metadataTaskPath
+                        );
                         buildSuccess = !!(buildResult && buildResult.success);
                     }
 
@@ -894,6 +1209,32 @@ export class Dotnet {
                         return;
                     }
 
+                    if (getProjectFamily(buildTarget) === 2) {
+                        const assembliesPath = getAssembliesPath(buildTarget, configuration, deployProjectDir);
+                        if (!hasPeAssemblies(assembliesPath)) {
+                            const error = 'No .pe assemblies found after the Preview build finished.';
+                            outChannel.appendLine(error);
+                            outChannel.show(true);
+                            vscode.window.showErrorMessage(error);
+                            return;
+                        }
+
+                        progress.report({ message: 'Deploying Preview assemblies...' });
+                        const deploymentError = await deployPreviewAssemblies(assembliesPath, serialPath)
+                            || await deployContentFiles(fileUri, configuration, serialPath, deployProjectDir, false, outChannel);
+                        if (deploymentError) {
+                            outChannel.appendLine(`Deploy failed: ${deploymentError}`);
+                            outChannel.show(true);
+                            vscode.window.showErrorMessage(deploymentError);
+                            return;
+                        }
+
+                        outChannel.appendLine(`Preview assembly deployment succeeded to ${serialPath}.`);
+                        outChannel.show(true);
+                        vscode.window.showInformationMessage(`Successfully deployed Preview assemblies to ${serialPath}`);
+                        return;
+                    }
+
                     progress.report({ message: "Finding BIN files to deploy..." });
 
                     // Find all BIN files in project output directories
@@ -921,13 +1262,36 @@ export class Dotnet {
                     // Build the deploy command with all BIN files (using full paths)
                     // Deduplicate files (resolve to absolute paths to avoid duplicates)
                     const uniqueBinFiles = Array.from(new Set(binFiles.map(f => path.resolve(f))));
-                    const imageArgs = uniqueBinFiles.map(f => `--image "${f}"`).join(' ');
-                    let cliDeployArguments = `nanoff --nanodevice --deploy --serialport "${serialPath}" ${imageArgs}`;
-                    
+                    progress.report({ message: "Checking device library compatibility..." });
+                    const compatibilityError = await checkDeploymentCompatibility(uniqueBinFiles, serialPath);
+                    if (currentDeployId !== thisDeployId) {
+                        console.log(`Deploy #${thisDeployId} cancelled during compatibility check`);
+                        outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                        return;
+                    }
+                    if (compatibilityError) {
+                        outChannel.appendLine('Deployment blocked:');
+                        outChannel.appendLine(compatibilityError);
+                        outChannel.show(true);
+                        vscode.window.showErrorMessage(compatibilityError);
+                        return;
+                    }
+                    const nanoffMajorVersion = await getNanoffMajorVersion();
+                    if (currentDeployId !== thisDeployId) {
+                        console.log(`Deploy #${thisDeployId} cancelled during nanoff version detection`);
+                        outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                        return;
+                    }
+                    if (nanoffMajorVersion === null) {
+                        const error = 'Could not detect the installed nanoff version. Run "nanoff --version" to verify the installation.';
+                        outChannel.appendLine(error);
+                        outChannel.show(true);
+                        vscode.window.showErrorMessage(error);
+                        return;
+                    }
                     // Check for content files to deploy
                     const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
                     if (fileDeploymentJsonPath) {
-                        cliDeployArguments += ` --filedeployment "${fileDeploymentJsonPath}"`;
                         outChannel.appendLine('=== File Deployment ===');
                         outChannel.appendLine(`File deployment JSON: ${fileDeploymentJsonPath}`);
                         try {
@@ -938,37 +1302,53 @@ export class Dotnet {
                         }
                         outChannel.appendLine('');
                     }
+                    const deployCommands = buildNanoffDeployCommands(uniqueBinFiles, serialPath, nanoffMajorVersion, fileDeploymentJsonPath);
                     
-                    console.log(`Deploy command: ${cliDeployArguments}`);
+                    console.log(`Deploy commands: ${deployCommands.join('\n')}`);
                     outChannel.appendLine('=== Deploy ===');
-                    outChannel.appendLine(`Command: ${cliDeployArguments}`);
+                    deployCommands.forEach(command => outChannel.appendLine(`Command: ${command}`));
                     outChannel.appendLine('');
                     
-                    // Run deploy hidden as well
-                    const deployResult = await Executor.runHidden(cliDeployArguments);
-                    
-                    // Write deploy output to channel
-                    if (deployResult.stdout) {
-                        outChannel.appendLine('--- stdout ---');
-                        outChannel.appendLine(deployResult.stdout);
+                    let deploySucceeded = true;
+                    for (const command of deployCommands) {
+                        if (currentDeployId !== thisDeployId) {
+                            console.log(`Deploy #${thisDeployId} cancelled before command execution`);
+                            outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                            return;
+                        }
+
+                        const deployResult = await Executor.runHidden(command, 'deployment');
+
+                        if (currentDeployId !== thisDeployId) {
+                            console.log(`Deploy #${thisDeployId} cancelled during command execution`);
+                            outChannel.appendLine('Deploy cancelled - a newer deploy was started.');
+                            return;
+                        }
+
+                        if (deployResult.stdout) {
+                            outChannel.appendLine('--- stdout ---');
+                            outChannel.appendLine(deployResult.stdout);
+                        }
+                        if (deployResult.stderr) {
+                            outChannel.appendLine('--- stderr ---');
+                            outChannel.appendLine(deployResult.stderr);
+                        }
+                        outChannel.appendLine('');
+
+                        if (!deployResult.success) {
+                            deploySucceeded = false;
+                            console.error(`Deploy failed. stdout: ${deployResult.stdout}, stderr: ${deployResult.stderr}`);
+                            break;
+                        }
                     }
-                    if (deployResult.stderr) {
-                        outChannel.appendLine('--- stderr ---');
-                        outChannel.appendLine(deployResult.stderr);
-                    }
-                    outChannel.appendLine('');
                     
-                    if (deployResult.success) {
+                    if (deploySucceeded) {
                         outChannel.appendLine(`Deploy succeeded. ${uniqueBinFiles.length} BIN file(s) deployed to ${serialPath}`);
                         outChannel.show(true);
                         vscode.window.showInformationMessage(`Successfully deployed ${uniqueBinFiles.length} BIN file(s) to ${serialPath}`);
                     } else {
                         outChannel.appendLine('Deploy FAILED');
                         outChannel.show(true);
-                        // Show detailed error information
-                         
-                        const errorDetails = deployResult.stdout || deployResult.stderr || 'Unknown error';
-                        console.error(`Deploy failed. stdout: ${deployResult.stdout}, stderr: ${deployResult.stderr}`);
                         vscode.window.showErrorMessage(`Deploy failed. See Output panel for details.`);
                     }
                 });
@@ -988,17 +1368,23 @@ export class Dotnet {
             return;
         }
 
-        const cmd = `nanoff --update ${cliArguments}`;
+        const nanoffMajorVersion = await getNanoffMajorVersion();
+        if (nanoffMajorVersion === null) {
+            vscode.window.showErrorMessage('Could not detect the installed nanoff version. Run "nanoff --version" to verify the installation.');
+            return;
+        }
+
+        const cmd = buildNanoffFlashCommand(cliArguments, nanoffMajorVersion);
 
         if (Executor.shouldShowTerminal()) {
             // Running in visible terminal — parsing not possible here
-            Executor.runInTerminal(cmd);
+            Executor.runInTerminal(cmd, 'dotnet', 'deployment');
             vscode.window.showInformationMessage('Flash started in terminal. Output parsing is disabled when showing terminal output.');
             return;
         }
 
         // Run hidden and parse output for error codes
-        const result = await Executor.runHidden(cmd);
+        const result = await Executor.runHidden(cmd, 'deployment');
 
         const combinedOutput = `${result.stdout || ''}\n${result.stderr || ''}`;
 
@@ -1172,7 +1558,7 @@ export class Dotnet {
 /**
  * Function to run the build again and grab the binary file name.
  * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
- * @param fileUri absolute path to *.sln
+ * @param fileUri absolute path to *.sln or *.nfproj
  * @param cliBuildArguments CLI arguments passed to msbuild
  * @param unixMsBuildPath optional path to msbuild on Unix systems
  * @returns binary file name
@@ -1184,7 +1570,7 @@ export class Dotnet {
 function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: string, unixMsBuildPath?: string): Promise<string> {
     return new Promise(async (resolve, reject) => {
 
-        if (os.platform() === "win32") {
+        if (isNativeWindowsBuild()) {
             // Path to vswhere.exe
             const vswhereExe = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
                 'microsoft visual studio', 'installer', 'vswhere.exe');
@@ -1274,17 +1660,21 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
             }
             
             // Parse the build arguments into an array and run msbuild using execFile (safe)
-            const buildArgs = [fileUri, ...parseBuildArguments(cliBuildArguments)];
+            const buildArgs = [
+                fileUri,
+                ...parseBuildArguments(cliBuildArguments),
+                ...(Executor.shouldUseWsl('build') ? ['-p:LangVersion=latest'] : [])
+            ];
 
-            // Execute msbuild using execFile (safe)
-            cp.execFile(msbuildPath, buildArgs, (error, stdout, stderr) => {
-                if (error) {
-                    vscode.window.showErrorMessage(`Error rebuilding: ${error.message}`);
-                    reject(error);
+            Executor.runExecFile(msbuildPath, buildArgs, undefined, 'build').then(result => {
+                if (!result.success) {
+                    const error = result.stderr || `msbuild exited with code ${result.exitCode}`;
+                    vscode.window.showErrorMessage(`Error rebuilding: ${error}`);
+                    reject(new Error(error));
                     return;
                 }
                 // Parse stdout to find the binary file name
-                const binName = extractBinaryFileName(stdout);
+                const binName = extractBinaryFileName(result.stdout || '');
                 if (binName) {
                     resolve(binName);
                 } else {
@@ -1438,7 +1828,14 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
             console.log(`Found MSBuild at: ${msBuildPathTrimmed}`);
 
             // Run nuget restore using execFile (safe)
-            const nugetRestoreArgs = ['restore', fileUri];
+            const restoreTarget = resolveNugetRestoreTarget(fileUri);
+            const nugetRestoreArgs = [
+                'restore',
+                restoreTarget.target,
+                ...parseBuildArguments(restoreTarget.extraArgs),
+                '-MSBuildPath',
+                path.dirname(msBuildPathTrimmed)
+            ];
             console.log(`Running nuget restore: ${nugetPath} ${nugetRestoreArgs.join(' ')}`);
             
             cp.execFile(nugetPath, nugetRestoreArgs, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -1520,45 +1917,55 @@ function executeBuildWindows(fileUri: string, cliBuildArguments: string, nugetPa
 /**
  * Executes the build on Unix (macOS/Linux) and waits for completion.
  * Uses execFile with separate arguments to avoid shell injection vulnerabilities.
- * @param fileUri absolute path to *.sln
+ * @param fileUri absolute path to *.sln or *.nfproj
  * @param cliBuildArguments CLI arguments passed to msbuild
  * @param msbuildPath path to msbuild
  * @param nugetPath path to nuget
  * @returns true if build succeeded, false otherwise
  */
-function executeBuildUnix(fileUri: string, cliBuildArguments: string, msbuildPath: string, nugetPath: string): Promise<{ success: boolean; stdout?: string; stderr?: string; exitCode?: number | null }> {
-    return new Promise((resolve) => {
-        // Run nuget restore using execFile (safe)
-        const nugetRestoreArgs = ['restore', fileUri];
+async function executeBuildUnix(fileUri: string, cliBuildArguments: string, msbuildPath: string, nugetPath: string, metadataTaskPath?: string): Promise<{ success: boolean; stdout?: string; stderr?: string; exitCode?: number | null }> {
+    if (Executor.shouldUseWsl('build')) {
+        await restoreWslBuildPackages(fileUri);
+    } else {
+        const restoreTarget = resolveNugetRestoreTarget(fileUri);
+        const nugetRestoreArgs = [
+            'restore',
+            restoreTarget.target,
+            ...parseBuildArguments(restoreTarget.extraArgs)
+        ];
         console.log(`Running nuget restore: ${nugetPath} ${nugetRestoreArgs.join(' ')}`);
-        
-        cp.execFile(nugetPath, nugetRestoreArgs, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error) {
-                console.error(`Error restoring packages: ${error}`);
-                // Continue anyway, packages might already be restored
-            }
 
-            // Parse the build arguments into an array and run msbuild using execFile (safe)
-            const buildArgs = [fileUri, ...parseBuildArguments(cliBuildArguments)];
-            const buildCmdDisplay = `${msbuildPath} ${buildArgs.join(' ')}`;
-            console.log(`Running msbuild: ${buildCmdDisplay}`);
+        const restoreResult = await Executor.runExecFile(nugetPath, nugetRestoreArgs, undefined, 'build');
+        if (!restoreResult.success) {
+            console.error(`Error restoring packages: ${restoreResult.stderr}`);
+        }
+    }
 
-            // Execute msbuild using execFile (safe)
-            cp.execFile(msbuildPath, buildArgs, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-                const exitCode = (error && (error as any).code && typeof (error as any).code === 'number') ? (error as any).code : (error ? null : 0);
+    const buildArgs = [
+        ...(metadataTaskPath ? ['msbuild'] : []),
+        fileUri,
+        ...parseBuildArguments(cliBuildArguments),
+        ...(Executor.shouldUseWsl('build') && !metadataTaskPath ? ['-p:LangVersion=latest'] : [])
+    ];
+    const buildExecutable = metadataTaskPath ? 'dotnet' : msbuildPath;
+    const buildCmdDisplay = `${buildExecutable} ${buildArgs.join(' ')}`;
+    console.log(`Running msbuild: ${buildCmdDisplay}`);
 
-                if (error) {
-                    console.error(`Build error: ${error.message}`);
-                    console.error(`Build stderr: ${stderr}`);
-                    // don't return yet; we'll inspect output
-                }
+    const buildResult = await Executor.runExecFile(buildExecutable, buildArgs, undefined, 'build');
+    const stdout = buildResult.stdout;
+    const stderr = buildResult.stderr;
+    const exitCode = buildResult.exitCode;
+
+    if (!buildResult.success) {
+        console.error(`Build error: ${stderr}`);
+    }
 
                 // Detect build failures by looking for MSBuild error lines (e.g. ": error CS1003:")
                 const msbuildErrorRegex = /:\s*error\s+[A-Z0-9]+:/i;
                 const genericErrorRegex = /:\s*error\s/i;
-                const buildFailed = error || (stdout && (msbuildErrorRegex.test(stdout) || genericErrorRegex.test(stdout))) || (stderr && (msbuildErrorRegex.test(stderr) || genericErrorRegex.test(stderr)));
+    const buildFailed = !buildResult.success || (stdout && (msbuildErrorRegex.test(stdout) || genericErrorRegex.test(stdout))) || (stderr && (msbuildErrorRegex.test(stderr) || genericErrorRegex.test(stderr)));
 
-                if (buildFailed) {
+    if (buildFailed) {
                     console.error('Build failed.');
 
                     // Write detailed output and detected error lines to the OutputChannel
@@ -1594,14 +2001,10 @@ function executeBuildUnix(fileUri: string, cliBuildArguments: string, msbuildPat
                         console.error('Failed writing to OutputChannel', e);
                     }
 
-                    resolve({ success: false, stdout: stdout, stderr: stderr, exitCode: exitCode });
-                    return;
-                }
+        return { success: false, stdout: stdout, stderr: stderr, exitCode: exitCode };
+    }
 
-                resolve({ success: true, stdout: stdout, stderr: stderr, exitCode: exitCode });
-            });
-        });
-    });
+    return { success: true, stdout: stdout, stderr: stderr, exitCode: exitCode };
 }
 
 /**

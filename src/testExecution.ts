@@ -7,17 +7,20 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as cp from 'child_process';
 import * as os from 'os';
 import { parseTestOutput, TestRunResult } from './testResultParser';
 import type { NanoBridge } from './debugger/bridge/nanoBridge';
+import { getProjectFamily } from './dotnet';
+import { Executor } from './executor';
+import { NuGetService } from './nuget';
 
 /**
  * Builds the NanoFrameworkProjectSystemPath from the extension utils folder.
  * Uses forward slashes so MSBuild property quoting works on Windows.
  */
-function nfProjectSystemPath(extensionPath: string): string {
-    const nfPath = path.join(extensionPath, 'nanoFramework', 'v1.0');
+function nfProjectSystemPath(extensionPath: string, projectPath: string): string {
+    const family = getProjectFamily(projectPath);
+    const nfPath = path.join(extensionPath, 'nanoFramework', `v${family}.0`);
     return nfPath.replace(/\\/g, '/') + '/';
 }
 
@@ -63,12 +66,12 @@ async function findMSBuildWindows(): Promise<string | undefined> {
         'MSBuild\\**\\Bin\\MSBuild.exe'
     ]) {
         const found = await new Promise<string>((resolve) => {
-            cp.execFile(vsWherePath, [
+            Executor.runExecFile(vsWherePath, [
                 '-products', '*', '-all', '-prerelease',
                 '-requires', 'Microsoft.Component.MSBuild',
                 '-find', pattern
-            ], (_error, stdout) => {
-                const first = (stdout || '').trim().split(/\r?\n/)[0] || '';
+            ]).then(result => {
+                const first = (result.stdout || '').trim().split(/\r?\n/)[0] || '';
                 resolve(first);
             });
         });
@@ -91,14 +94,14 @@ function runBuildStep(
     return new Promise<boolean>((resolve) => {
         channel.appendLine(`> ${command} ${args.join(' ')}`);
 
-        const child = cp.execFile(command, args, {
-            timeout: 120000,
-            maxBuffer: 10 * 1024 * 1024
-        }, (error, stdout, stderr) => {
-            if (stdout) { channel.append(String(stdout)); }
-            if (stderr) { channel.append(String(stderr)); }
-            resolve(!error);
-        });
+        const child = Executor.spawnProcess(command, args, {
+            stdio: ['ignore', 'pipe', 'pipe']
+        }, 'test');
+
+        child.stdout?.on('data', data => channel.append(String(data)));
+        child.stderr?.on('data', data => channel.append(String(data)));
+        child.on('error', () => resolve(false));
+        child.on('close', code => resolve(code === 0));
 
         token?.onCancellationRequested(() => child.kill());
     });
@@ -128,12 +131,13 @@ export async function buildTestProject(
 
     if (token?.isCancellationRequested) { return false; }
 
-    const nfProjSysPath = nfProjectSystemPath(extensionPath);
+    const nfProjSysPath = nfProjectSystemPath(extensionPath, projectPath);
     const restore = resolveRestoreTarget(projectPath);
+    const previewWslBuild = Executor.shouldUseWsl('test') && nfProjSysPath.includes('/v2.0/');
 
     // Locate MSBuild
     let msbuildExe: string;
-    if (os.platform() === 'win32') {
+    if (os.platform() === 'win32' && !Executor.shouldUseWsl('test')) {
         const found = await findMSBuildWindows();
         if (!found) {
             channel.appendLine(
@@ -143,7 +147,7 @@ export async function buildTestProject(
         }
         msbuildExe = found;
     } else {
-        msbuildExe = 'msbuild';
+        msbuildExe = previewWslBuild ? 'dotnet' : 'msbuild';
     }
 
     if (token?.isCancellationRequested) { return false; }
@@ -153,24 +157,39 @@ export async function buildTestProject(
     if (restore.solutionDir) {
         nugetArgs.push('-SolutionDirectory', restore.solutionDir);
     }
-    if (os.platform() === 'win32') {
+    if (os.platform() === 'win32' && !Executor.shouldUseWsl('test')) {
         nugetArgs.push('-MSBuildPath', path.dirname(msbuildExe));
     }
 
-    const nugetOk = await runBuildStep('nuget', nugetArgs, channel, token);
-    if (!nugetOk) {
-        channel.appendLine(
-            'nuget restore failed (packages may already be restored). Continuing with build...'
-        );
+    if (Executor.shouldUseWsl('test')) {
+        const packagesConfig = path.join(path.dirname(projectPath), 'packages.config');
+        if (fs.existsSync(packagesConfig)) {
+            await NuGetService.restorePackagesConfigFiles(
+                [packagesConfig],
+                path.join(path.dirname(path.dirname(projectPath)), 'packages'),
+                'test'
+            );
+        }
+    } else {
+        const nugetOk = await runBuildStep('nuget', nugetArgs, channel, token);
+        if (!nugetOk) {
+            channel.appendLine(
+                'nuget restore failed (packages may already be restored). Continuing with build...'
+            );
+        }
     }
 
     if (token?.isCancellationRequested) { return false; }
 
     // MSBuild arguments as an array — avoids shell interpolation (CodeQL js/shell-command-constructed-from-input)
     const msbuildArgs = [
+        ...(previewWslBuild ? ['msbuild'] : []),
         projectPath,
         `-p:Configuration=${configuration}`,
         `-p:NanoFrameworkProjectSystemPath=${nfProjSysPath}`,
+        ...(previewWslBuild
+            ? [`-p:NF_MDP_MSBUILDTASK_PATH=${path.join(nfProjSysPath, 'mdp', 'net8.0').replace(/\\/g, '/')}`]
+            : Executor.shouldUseWsl('test') ? ['-p:LangVersion=latest'] : []),
         '-p:NFMDP_PE_Verbose=false',
         '-p:UseSharedCompilation=false',
         '-verbosity:minimal'
@@ -265,10 +284,10 @@ export async function runTestsOnEmulator(
             return;
         }
 
-        const child = cp.spawn('nanoclr', args, {
+        const child = Executor.spawnProcess('nanoclr', args, {
             env: { ...process.env },
             stdio: ['pipe', 'pipe', 'pipe']
-        });
+        }, 'test');
 
         let stdout = '';
         let stderr = '';
@@ -400,7 +419,7 @@ export async function runTestsOnHardware(
             return { completed: false, results: [], rawOutput: '', runError: 'Cancelled' };
         }
 
-        const bridge = new nanoBridgeClass();
+        const bridge = new nanoBridgeClass('test');
         let rawOutput = '';
 
         try {

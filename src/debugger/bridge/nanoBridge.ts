@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { EventEmitter } from 'events';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { ExecutionKind, Executor } from '../../executor';
+import { fromWslPathArgument, toWslPathArgument } from '../../wsl';
 import {
     INanoThread,
     INanoStackTrace,
@@ -35,6 +37,14 @@ interface BridgeResponse {
     error?: string;
 }
 
+export function toBridgePath(value: string, useWsl: boolean): string {
+    return useWsl ? toWslPathArgument(value) : value;
+}
+
+export function fromBridgePath(value: string, hostPlatform: NodeJS.Platform = process.platform): string {
+    return hostPlatform === 'win32' ? fromWslPathArgument(value) : value;
+}
+
 /**
  * NanoBridge
  * 
@@ -48,9 +58,15 @@ export class NanoBridge extends EventEmitter {
     private _pendingRequests = new Map<number, { resolve: (value: any) => void; reject: (error: any) => void }>();
     private _requestId = 1;
     private _verbose = false;
-    private _verbosity = 'information';
+    private _verbosity = 'none';
     private _buffer = '';
     private _device?: string;
+    private readonly _executionKind: ExecutionKind;
+
+    constructor(executionKind: ExecutionKind = 'debug') {
+        super();
+        this._executionKind = executionKind;
+    }
 
     /**
      * Initialize the bridge
@@ -60,7 +76,7 @@ export class NanoBridge extends EventEmitter {
      */
     public async initialize(device?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
-        this._verbosity = verbosity || (verbose ? 'debug' : 'information');
+        this._verbosity = verbosity || (verbose ? 'debug' : 'none');
         this._device = device;
 
         try {
@@ -78,7 +94,7 @@ export class NanoBridge extends EventEmitter {
 
             // Ensure executable permissions on macOS/Linux
             // This is needed because VSIX packaging may not preserve Unix permissions
-            if (process.platform !== 'win32') {
+            if (process.platform !== 'win32' && !Executor.shouldUseWsl(this._executionKind)) {
                 try {
                     fs.chmodSync(bridgePath, 0o755);
                 } catch (e) {
@@ -88,9 +104,9 @@ export class NanoBridge extends EventEmitter {
 
             // Start the bridge process
             // Self-contained executable - run directly on all platforms
-            this._process = spawn(bridgePath, [], {
+            this._process = Executor.spawnProcess(bridgePath, [], {
                 stdio: ['pipe', 'pipe', 'pipe']
-            });
+            }, this._executionKind);
             
             // Handle spawn error (e.g., permission denied)
             this._process.on('error', (err) => {
@@ -141,8 +157,22 @@ export class NanoBridge extends EventEmitter {
      * Deploy application
      */
     public async deploy(assembliesPath: string): Promise<boolean> {
-        const response = await this.sendCommand('deploy', { assembliesPath });
-        return response?.success || false;
+        return (await this.deployWithResult(assembliesPath)).success;
+    }
+
+    public async deployWithResult(assembliesPath: string): Promise<{ success: boolean; error?: string }> {
+        const response = await this.sendCommand('deploy', { assembliesPath: this.toBridgePath(assembliesPath) });
+        return { success: response?.success || false, error: response?.error };
+    }
+
+    /**
+     * Check deployment images against native libraries installed on the device
+     */
+    public async checkDeploymentCompatibility(imagePaths: string[]): Promise<{ success: boolean; error?: string }> {
+        const response = await this.sendCommand('checkDeploymentCompatibility', {
+            imagePaths: imagePaths.map(imagePath => this.toBridgePath(imagePath))
+        });
+        return { success: response?.success || false, error: response?.error };
     }
 
     /**
@@ -174,7 +204,7 @@ export class NanoBridge extends EventEmitter {
      * Set a breakpoint
      */
     public async setBreakpoint(path: string, line: number, id: number): Promise<boolean> {
-        const response = await this.sendCommand('setBreakpoint', { file: path, line, id });
+        const response = await this.sendCommand('setBreakpoint', { file: this.toBridgePath(path), line, id });
         return response?.data?.verified || false;
     }
 
@@ -248,7 +278,16 @@ export class NanoBridge extends EventEmitter {
      */
     public async getStackTrace(threadId: number, startFrame: number, maxLevels: number): Promise<INanoStackTrace> {
         const response = await this.sendCommand('getStackTrace', { threadId, startFrame, levels: maxLevels });
-        return response?.data || { frames: [], totalFrames: 0 };
+        const stackTrace = response?.data || { frames: [], totalFrames: 0 };
+        for (const frame of stackTrace.frames || []) {
+            if (frame.file) {
+                frame.file = this.fromBridgePath(frame.file);
+            }
+            if (frame.source?.path) {
+                frame.source.path = this.fromBridgePath(frame.source.path);
+            }
+        }
+        return stackTrace;
     }
 
     /**
@@ -300,7 +339,13 @@ export class NanoBridge extends EventEmitter {
      */
     public async getModules(): Promise<INanoModule[]> {
         const response = await this.sendCommand('getModules', {});
-        return response?.data?.modules || [];
+        const modules = response?.data?.modules || [];
+        for (const module of modules) {
+            if (module.path) {
+                module.path = this.fromBridgePath(module.path);
+            }
+        }
+        return modules;
     }
 
     /**
@@ -310,8 +355,20 @@ export class NanoBridge extends EventEmitter {
      * @param mainAssembly Optional: name of the main assembly (e.g., "Meteostanice.pe") for entry point resolution
      */
     public async loadSymbols(symbolPath: string, recursive: boolean = true, mainAssembly?: string): Promise<number> {
-        const response = await this.sendCommand('loadSymbols', { path: symbolPath, recursive, mainAssembly });
+        const response = await this.sendCommand('loadSymbols', {
+            path: this.toBridgePath(symbolPath),
+            recursive,
+            mainAssembly
+        });
         return response?.data?.symbolsLoaded || 0;
+    }
+
+    private toBridgePath(value: string): string {
+        return toBridgePath(value, Executor.shouldUseWsl(this._executionKind));
+    }
+
+    private fromBridgePath(value: string): string {
+        return fromBridgePath(value);
     }
 
     /**
@@ -346,7 +403,7 @@ export class NanoBridge extends EventEmitter {
     private getBridgePath(): string {
         // The bridge is expected to be in the extension's bin directory
         // Platform-specific self-contained executables
-        const platform = process.platform;
+        const platform = Executor.shouldUseWsl(this._executionKind) ? 'linux' : process.platform;
         const arch = process.arch;
         
         let platformFolder: string;

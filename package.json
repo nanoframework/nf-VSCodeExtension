@@ -19,7 +19,7 @@
     }
   ],
   "engines": {
-    "vscode": "^1.109.0"
+    "vscode": "^1.134.0"
   },
   "repository": {
     "type": "git",
@@ -108,7 +108,7 @@
                   "information",
                   "debug"
                 ],
-                "default": "information"
+                "default": "none"
               }
             }
           },
@@ -145,7 +145,7 @@
                   "information",
                   "debug"
                 ],
-                "default": "information"
+                "default": "none"
               }
             }
           }
@@ -158,7 +158,8 @@
             "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
             "device": "",
             "stopOnEntry": true,
-            "deployAssemblies": true
+            "deployAssemblies": true,
+            "verbosity": "none"
           }
         ],
         "configurationSnippets": [
@@ -172,7 +173,8 @@
               "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
               "device": "",
               "stopOnEntry": true,
-              "deployAssemblies": true
+              "deployAssemblies": true,
+              "verbosity": "none"
             }
           },
           {
@@ -183,7 +185,8 @@
               "request": "attach",
               "name": "nanoFramework: Attach",
               "device": "",
-              "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug"
+              "program": "${workspaceFolder}/${workspaceFolderBasename}/bin/Debug",
+              "verbosity": "none"
             }
           }
         ]
@@ -209,6 +212,10 @@
       {
         "command": "vscode-nanoframework.nfadd",
         "title": "nanoFramework: Add a Project to existing Solution"
+      },
+      {
+        "command": "vscode-nanoframework.nfmigrateproject",
+        "title": "nanoFramework: Switch Project Between v1 and Preview v2"
       },
       {
         "command": "vscode-nanoframework.selectDebugDevice",
@@ -266,6 +273,11 @@
           "group": "navigation@1"
         },
         {
+          "when": "resourceExtname == .nfproj",
+          "command": "vscode-nanoframework.nfmigrateproject",
+          "group": "navigation@2"
+        },
+        {
           "when": "resourceExtname == .sln || resourceExtname == .slnx || resourceExtname == .nfproj",
           "command": "vscode-nanoframework.nfaddnuget",
           "group": "navigation@2"
@@ -289,6 +301,31 @@
           "type": "boolean",
           "default": true,
           "description": "Show command output in the terminal. When disabled, commands run in the background and key elements are displayed in the Output window."
+        },
+        "nanoFramework.wsl.build": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run build and package restore commands in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.deployment": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run deployment and firmware flashing commands in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.test": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run test builds, nanoCLR, and hardware test commands in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the nanoFramework debug bridge in WSL instead of natively on Windows."
+        },
+        "nanoFramework.wsl.tooling": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run project creation, prerequisite checks, tool installation, and NuGet metadata requests in WSL. Only enabled sources from dotnet nuget list source are used; NuGet.org is the fallback when none are found. Requires curl in WSL."
         },
         "nanoFramework.test.sessionTimeout": {
           "type": "number",
@@ -342,7 +379,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "gulp build-debug-bridge && npm run compile",
     "build:prod": "npm run compile",
     "build:native": "pwsh scripts/build.ps1",
     "build:native:clean": "pwsh scripts/build.ps1 -Clean",
@@ -362,7 +399,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.4.0",
     "@types/semver": "^7.8.0",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.134.0",
     "@vscode/test-electron": "^3.1.0",
     "eslint": "^10.9.1",
     "glob": "^13.0.6",

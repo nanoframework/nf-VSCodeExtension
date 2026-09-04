@@ -195,6 +195,15 @@ public class DeployArgs
 }
 
 /// <summary>
+/// Arguments for checking deployment compatibility
+/// </summary>
+public class CheckDeploymentCompatibilityArgs
+{
+    [JsonPropertyName("imagePaths")]
+    public string[] ImagePaths { get; set; } = [];
+}
+
+/// <summary>
 /// Arguments for starting execution
 /// </summary>
 public class StartExecutionArgs

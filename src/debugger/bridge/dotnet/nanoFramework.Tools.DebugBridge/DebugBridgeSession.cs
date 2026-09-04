@@ -41,6 +41,11 @@ public class EvaluateResultData
 public record DeployResult(bool Success, string? Error = null);
 
 /// <summary>
+/// Result of a deployment compatibility check
+/// </summary>
+public record CompatibilityResult(bool Success, string? Error = null);
+
+/// <summary>
 /// Verbosity level for debug logging.
 /// </summary>
 public enum VerbosityLevel
@@ -3738,6 +3743,13 @@ public class DebugBridgeSession : IDisposable
         try
         {
             LogAlways($"Deploying assemblies from {assembliesPath}...");
+
+            if (!Directory.Exists(assembliesPath))
+            {
+                var error = $"Assembly directory '{assembliesPath}' does not exist. Update the debug configuration 'program' path to the project's bin output directory.";
+                LogError(error);
+                return new DeployResult(false, error);
+            }
             
             // Get all .pe files from the assemblies folder
             var peFiles = Directory.GetFiles(assembliesPath, "*.pe");
@@ -3749,6 +3761,13 @@ public class DebugBridgeSession : IDisposable
             }
             
             LogDebug($"Found {peFiles.Length} assembly file(s) to deploy");
+
+            var compatibility = CheckDeploymentCompatibility(peFiles);
+            if (!compatibility.Success)
+            {
+                LogError(compatibility.Error!);
+                return new DeployResult(false, compatibility.Error);
+            }
             
             // Load assemblies as byte arrays (word-aligned to 4 bytes)
             List<byte[]> assemblies = new List<byte[]>();
@@ -3817,6 +3836,27 @@ public class DebugBridgeSession : IDisposable
         {
             LogError($"Deploy error: {ex.Message}");
             return new DeployResult(false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Check deployment images against native assemblies in the connected device firmware
+    /// </summary>
+    public CompatibilityResult CheckDeploymentCompatibility(IEnumerable<string> imagePaths)
+    {
+        if (!_isConnected || _engine == null)
+        {
+            return new CompatibilityResult(false, "Not connected");
+        }
+
+        try
+        {
+            var error = DeploymentCompatibility.Check(imagePaths, _engine.Capabilities.NativeAssemblies);
+            return new CompatibilityResult(error == null, error);
+        }
+        catch (Exception ex)
+        {
+            return new CompatibilityResult(false, $"Could not verify deployment compatibility: {ex.Message}");
         }
     }
 

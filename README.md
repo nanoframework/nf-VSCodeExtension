@@ -74,6 +74,26 @@ Then select the type of project you want to add.
 
 ![type of project](docs/create-solution-step4.png)
 
+Finally, choose whether this is a normal stable project or a Preview (v2) project. Stable and Preview projects are created from separate Visual Studio extension templates. The build preparation script downloads pinned stable and Preview VSIX artifacts, verifies their SHA-256 hashes, and extracts each artifact's templates and project-system SDK into a separate family resource directory.
+
+The selected template is authoritative for the complete project family, including CoreLibrary, TestFramework, package references, runsettings, and build tooling. Preview projects must be used with preview v2 device firmware and compatible Preview libraries. Stable and Preview libraries cannot be mixed in the same project or solution build.
+
+To convert an existing project, right-click its `.nfproj` file and select `nanoFramework: Switch Project Between v1 and Preview v2`. The extension detects the CoreLibrary family and offers the opposite family. It applies the target template's exact framework packages, including TestFramework, resolves compatible versions for additional packages, and updates `.nfproj` references and `packages.config` together. Existing project content and customized runsettings are preserved, and changed files are restored if migration cannot be completed.
+
+## Command Execution
+
+On Windows, command execution can be moved to the selected WSL distribution independently by operation. All options are disabled by default.
+
+| Setting | Commands |
+| ------- | -------- |
+| `nanoFramework.wsl.build` | Project and deployment build/restore commands |
+| `nanoFramework.wsl.deployment` | Device deployment and firmware flashing |
+| `nanoFramework.wsl.test` | Test builds, nanoCLR, and hardware test execution |
+| `nanoFramework.wsl.debug` | Debug bridge sessions |
+| `nanoFramework.wsl.tooling` | Project creation, prerequisite checks, tool installation, and NuGet metadata requests |
+
+For example, enabling `wsl.build` and `wsl.test` while leaving `wsl.deployment` disabled builds and tests in WSL but deploys from the Windows host. Each enabled environment must provide its required tools, such as .NET, Mono MSBuild, NuGet, nanoff, or nanoCLR. Package operations use only the enabled sources reported by `dotnet nuget list source` in the environment where the operation runs. NuGet.org is used only when no enabled source can be discovered. WSL tooling also requires `curl` for NuGet API requests. Windows workspace paths are translated automatically. Hardware operations running in WSL require a WSL-visible device path such as `/dev/ttyS*`; native Windows operations continue to use `COM*` ports.
+
 ## Unit Testing
 
 The extension integrates with the VS Code **Test Explorer** to discover, run, and report results for [nanoFramework.TestFramework](https://github.com/nanoframework/nanoFramework.TestFramework) tests.
@@ -179,7 +199,7 @@ Create a `.vscode/launch.json` file in your workspace with the following configu
 | `device` | string | COM port (e.g., `"COM3"`) or IP address. Leave empty for auto-detect |
 | `stopOnEntry` | boolean | Pause at program entry point (default: `true`) |
 | `deployAssemblies` | boolean | Deploy assemblies before debugging (launch only) |
-| `verbosity` | string | Logging verbosity: `"none"`, `"information"` (default), or `"debug"` |
+| `verbosity` | string | Logging verbosity: `"none"` (default), `"information"`, or `"debug"` |
 
 ### Device Selection
 
@@ -221,6 +241,8 @@ You will need to make sure you'll have the following elements installed:
 - [nanoff](https://github.com/nanoframework/nanoFirmwareFlasher) - Install via: `dotnet tool install -g nanoff`
 - **Windows only:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with ".NET desktop build tools" workload
 - **Linux/macOS only:** [mono-complete](https://www.mono-project.com/docs/getting-started/install/) with msbuild, and [nuget CLI](https://www.nuget.org/downloads)
+
+After checking for `nanoff` updates at startup, the extension detects and caches the installed major version for the lifetime of that extension session. It supports both the v2 option-based CLI and the v3-or-newer verb-based CLI. Restart VS Code after changing the installed `nanoff` version so the extension detects the new version.
 
 > **Note:** The `.slnx` solution format is fully supported on Windows. On Linux/macOS,  
 > `.slnx` requires a recent Mono installation with an updated MSBuild. If your Mono  

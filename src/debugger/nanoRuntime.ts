@@ -141,7 +141,7 @@ export class NanoRuntime extends EventEmitter {
     private _isRunning = false;
     private _isPaused = false;
     private _verbose = false;
-    private _verbosity = 'information';
+    private _verbosity = 'none';
 
     /**
      * Normalize a file path for use as a breakpoint map key.
@@ -215,7 +215,7 @@ export class NanoRuntime extends EventEmitter {
      */
     public async start(program: string, device?: string, stopOnEntry?: boolean, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
-        this._verbosity = verbosity || (verbose ? 'debug' : 'information');
+        this._verbosity = verbosity || (verbose ? 'debug' : 'none');
         
         this.log(`Starting debug session for ${program}`);
         
@@ -283,7 +283,7 @@ export class NanoRuntime extends EventEmitter {
      */
     public async attach(device: string, program?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
         this._verbose = verbose || false;
-        this._verbosity = verbosity || (verbose ? 'debug' : 'information');
+        this._verbosity = verbosity || (verbose ? 'debug' : 'none');
         
         this.log(`Attaching to device: ${device}`);
         

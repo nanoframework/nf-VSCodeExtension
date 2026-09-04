@@ -402,9 +402,9 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 
 	// build the CLI arguments for the nanoFrameworkFlasher
 	// starts with the target name and version
-	cliArguments = `--target ${state.targetName} --fwversion ${state.imageVersion.label} `;
+	cliArguments = `--target ${state.targetName} --fwversion ${state.imageVersion.label}`;
 
-	// adds --preview for the nanoFrameworkFlasher when the imageVersion selected is in preview
+	// Select the preview repository for prerelease versions.
 	if (state.imageVersion.label && state.imageVersion.label.includes("preview")) {
 		cliArguments += " --preview";
 	}
@@ -429,7 +429,7 @@ export async function multiStepInput(_context: ExtensionContext, _toolPath: stri
 
 		default:
 			// ESP32 devices
-			cliArguments += ` --serialport ${state.devicePath}`;
+			cliArguments += ` --serialport "${state.devicePath}"`;
 			
 			// Only add baud rate if not using default (auto)
 			if (state.baudrate && !state.baudrate.startsWith('Default')) {
