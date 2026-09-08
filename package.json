@@ -401,7 +401,7 @@
     "@types/semver": "^7.8.0",
     "@types/vscode": "^1.134.0",
     "@vscode/test-electron": "^3.1.0",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "glob": "^13.0.6",
     "gulp": "^5.0.1",
     "mocha": "^12.0.0",
