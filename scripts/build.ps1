@@ -76,9 +76,8 @@ $vsExtensions = @(
     },
     @{
         Family = "v2"
-        Version = "v2022.14.2.31"
-        Url = "https://www.vsixgallery.com/extensions/bf694e17-fa5f-4877-9317-6d3664b2689a/.NET%20nanoFramework%20Extension%20v2022.14.2.31.vsix"
-        Sha256 = "0952DE812C59BBC107DCFE536CCF5E8ACBA49DC523A0A22847EC39CF3B810441"
+        GalleryId = "bf694e17-fa5f-4877-9317-6d3664b2689a"
+        VersionPrefix = "2022.14.2."
         SdkVersion = "v2.0"
     }
 )
@@ -126,6 +125,17 @@ try {
     }
 
     foreach ($extension in $vsExtensions) {
+        if ($extension.GalleryId) {
+            $galleryMetadata = Invoke-RestMethod -Uri "https://www.vsixgallery.com/api/$($extension.GalleryId)"
+            if ($galleryMetadata.id -ne $extension.GalleryId -or
+                -not $galleryMetadata.version.StartsWith($extension.VersionPrefix)) {
+                throw "VSIX Gallery returned unexpected metadata for $($extension.Family) VS2022 Extension."
+            }
+
+            $extension.Version = "v$($galleryMetadata.version)"
+            $extension.Url = [Uri]::new([Uri]"https://www.vsixgallery.com", $galleryMetadata.downloadLink).AbsoluteUri
+        }
+
         $archivePath = Join-Path $outputDirectory "$($extension.Family)-templates.zip"
         $extractPath = Join-Path $outputDirectory "$($extension.Family)-extension"
         $templateDestination = Join-Path $utilsDir "projectTemplates/$($extension.Family)"
@@ -137,13 +147,30 @@ try {
         Write-Host "Downloading $($extension.Family) VS2022 Extension ($($extension.Version))..." -ForegroundColor Green
         Invoke-Download -Uri $extension.Url -OutFile $archivePath
 
-        $actualHash = (Get-FileHash $archivePath -Algorithm SHA256).Hash
-        if ($actualHash -ne $extension.Sha256) {
-            throw "SHA-256 mismatch for $($extension.Family) VS2022 Extension. Expected $($extension.Sha256), got $actualHash."
+        if ($extension.Sha256) {
+            $actualHash = (Get-FileHash $archivePath -Algorithm SHA256).Hash
+            if ($actualHash -ne $extension.Sha256) {
+                throw "SHA-256 mismatch for $($extension.Family) VS2022 Extension. Expected $($extension.Sha256), got $actualHash."
+            }
         }
 
         Write-Host "Extracting $($extension.Family) VS2022 Extension..." -ForegroundColor Cyan
         Expand-Archive $archivePath -DestinationPath $extractPath -Force
+
+        if ($extension.GalleryId) {
+            $manifestPath = Get-ChildItem -Path $extractPath -Filter "extension.vsixmanifest" -File -Recurse |
+                Select-Object -First 1
+            if (-not $manifestPath) {
+                throw "The $($extension.Family) VS2022 Extension does not contain a VSIX manifest."
+            }
+
+            [xml]$manifest = Get-Content $manifestPath.FullName
+            $identity = $manifest.PackageManifest.Metadata.Identity
+            if ($identity.Id -ne $extension.GalleryId -or
+                $identity.Version -ne $galleryMetadata.version) {
+                throw "The downloaded $($extension.Family) VS2022 Extension does not match the VSIX Gallery metadata."
+            }
+        }
 
         $sdkSource = Get-ChildItem -Path $extractPath -Filter '$MSBuild' -Directory -Recurse |
             ForEach-Object { Join-Path $_.FullName "nanoFramework/v1.0" } |
