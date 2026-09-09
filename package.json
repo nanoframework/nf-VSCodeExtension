@@ -391,7 +391,7 @@
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
     "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
-    "deploy": "vsce publish --allow-star-activation"
+    "deploy": "vsce publish --packagePath ./vscode-nanoframework.vsix --skip-duplicate"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -411,13 +411,13 @@
     "typescript": "^5.9.3",
     "webpack": "^5.110.3",
     "typescript-eslint": "^8.69.0",
+    "@vscode/vsce": "^3.9.2",
     "webpack-cli": "^7.2.3"
   },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
     "@vscode/debugadapter": "^1.68.0",
     "@vscode/debugprotocol": "^1.68.0",
-    "@vscode/vsce": "^3.9.2",
     "axios": "^1.20.0",
     "extract-zip": "^2.0.1",
     "semver": "^7.8.5",

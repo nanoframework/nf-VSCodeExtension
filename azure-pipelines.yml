@@ -119,7 +119,19 @@ steps:
   
   - bash: |
       echo ">>> Publish"
-      npm run deploy
+      for attempt in 1 2 3; do
+        if npm run deploy; then
+          exit 0
+        fi
+
+        if [ "$attempt" -eq 3 ]; then
+          exit 1
+        fi
+
+        delay=$((attempt * 30))
+        echo "Publish attempt $attempt failed. Retrying in $delay seconds..."
+        sleep "$delay"
+      done
     displayName: Publish to marketplace
     condition: >-
       and(
