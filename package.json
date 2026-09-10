@@ -390,8 +390,9 @@
     "lint": "eslint src",
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
-    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
-    "deploy": "vsce publish --packagePath ./vscode-nanoframework.vsix --skip-duplicate"
+    "package": "npm run clean && nbgv-setversion && npm run package:platforms && nbgv cloud -a -c",
+    "package:platforms": "vsce package --target win32-x64 --ignore-other-target-folders --githubBranch develop --out ./vscode-nanoframework-win32-x64.vsix --allow-star-activation && vsce package --target win32-arm64 --ignore-other-target-folders --githubBranch develop --out ./vscode-nanoframework-win32-arm64.vsix --allow-star-activation && vsce package --target linux-x64 --ignore-other-target-folders --githubBranch develop --out ./vscode-nanoframework-linux-x64.vsix --allow-star-activation && vsce package --target linux-arm64 --ignore-other-target-folders --githubBranch develop --out ./vscode-nanoframework-linux-arm64.vsix --allow-star-activation && vsce package --target darwin-x64 --ignore-other-target-folders --githubBranch develop --out ./vscode-nanoframework-darwin-x64.vsix --allow-star-activation && vsce package --target darwin-arm64 --ignore-other-target-folders --githubBranch develop --out ./vscode-nanoframework-darwin-arm64.vsix --allow-star-activation",
+    "deploy": "vsce publish --skip-duplicate --packagePath ./vscode-nanoframework-win32-x64.vsix ./vscode-nanoframework-win32-arm64.vsix ./vscode-nanoframework-linux-x64.vsix ./vscode-nanoframework-linux-arm64.vsix ./vscode-nanoframework-darwin-x64.vsix ./vscode-nanoframework-darwin-arm64.vsix"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
