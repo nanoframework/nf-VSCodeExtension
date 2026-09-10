@@ -390,9 +390,8 @@
     "lint": "eslint src",
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
-    "package": "npm run clean && nbgv-setversion && npm run vscode:prepublish && npm run package:platforms && nbgv cloud -a -c",
-    "package:platforms": "node ./scripts/packagePlatforms.js",
-    "deploy": "vsce publish --skip-duplicate --packagePath ./vscode-nanoframework-win32-x64.vsix ./vscode-nanoframework-win32-arm64.vsix ./vscode-nanoframework-linux-x64.vsix ./vscode-nanoframework-linux-arm64.vsix ./vscode-nanoframework-darwin-x64.vsix ./vscode-nanoframework-darwin-arm64.vsix"
+    "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
+    "deploy": "vsce publish --packagePath ./vscode-nanoframework.vsix --skip-duplicate"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

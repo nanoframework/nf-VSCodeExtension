@@ -134,7 +134,7 @@ steps:
     inputs:
       sourceFolder: $(Build.SourcesDirectory)
       contents: |-
-        **\vscode-nanoframework-*.vsix
+        **\vscode-nanoframework.vsix
         **\package.json
         assets/marketplace/vscode-marketplace-overview.md
         assets/marketplace/nano-vs-code.gif
