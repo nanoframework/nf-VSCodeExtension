@@ -110,7 +110,6 @@ steps:
       --azure-key-vault-url "$(SignKeyVaultUrl)" `
       --timestamp-url http://timestamp.digicert.com
     displayName: Sign packages
-    continueOnError: true
     condition: >-
       and(
         succeeded(),

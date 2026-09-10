@@ -2,6 +2,8 @@
 .gitignore
 .yarnrc
 .github_changelog_generator
+.github/**
+.store/**
 .vscode/**
 .vscode-test/**
 assets/marketplace/**
@@ -11,14 +13,20 @@ docs/**
 src/**
 azure-pipelines.yml
 CHANGELOG.md
+eslint.config.mjs
 gulpfile.js
 installation.md
+nf-VSCodeExtension.sln
+pipeline-adjustment.md
+sign.exe
 version.json
 webpack.config.js
+work-debug-todo.md
 nanoFirmwareFlasher/**
 **/tsconfig.json
 **/.eslintrc.json
 **/*.map
+**/*.pdb
 **/*.ts
 
 !node_modules/axios
