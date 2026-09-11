@@ -90,7 +90,12 @@ export class NanoBridge extends EventEmitter {
                 return false;
             }
 
-            const runtimeResult = await Executor.runExecFile('dotnet', ['--list-runtimes'], undefined, this._executionKind);
+            const runtimeResult = await Executor.runExecFile(
+                'dotnet',
+                ['--list-runtimes'],
+                { timeout: 30_000 },
+                this._executionKind
+            );
             if (!runtimeResult.success || !/^Microsoft\.NETCore\.App 10\./m.test(runtimeResult.stdout || '')) {
                 this.logError(`.NET 10 runtime is not installed in the ${Executor.shouldUseWsl(this._executionKind) ? 'WSL' : 'native'} debug context.`);
                 return false;
