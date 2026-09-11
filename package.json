@@ -410,7 +410,7 @@
     "ts-loader": "^9.6.2",
     "typescript": "^5.9.3",
     "webpack": "^5.110.3",
-    "typescript-eslint": "^8.69.0",
+    "typescript-eslint": "^8.70.0",
     "@vscode/vsce": "^3.9.2",
     "webpack-cli": "^7.2.3"
   },
