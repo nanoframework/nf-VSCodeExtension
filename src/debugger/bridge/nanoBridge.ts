@@ -80,31 +80,28 @@ export class NanoBridge extends EventEmitter {
         this._device = device;
 
         try {
-            // Find the bridge executable path
             const bridgePath = this.getBridgePath();
             
-            this.log(`Starting bridge process: ${bridgePath}`);
+            this.log(`Starting bridge process: dotnet ${bridgePath}`);
             
-            // Check if the bridge executable exists
             if (!fs.existsSync(bridgePath)) {
-                this.logError(`Bridge executable not found at: ${bridgePath}`);
+                this.logError(`Bridge assembly not found at: ${bridgePath}`);
                 this.logError(`Please ensure the extension is properly built. Run 'npx gulp build-debug-bridge' to build the debug bridge.`);
                 return false;
             }
 
-            // Ensure executable permissions on macOS/Linux
-            // This is needed because VSIX packaging may not preserve Unix permissions
-            if (process.platform !== 'win32' && !Executor.shouldUseWsl(this._executionKind)) {
-                try {
-                    fs.chmodSync(bridgePath, 0o755);
-                } catch (e) {
-                    this.log(`Note: Could not set executable permission on bridge: ${e}`);
-                }
+            const runtimeResult = await Executor.runExecFile(
+                'dotnet',
+                ['--list-runtimes'],
+                { timeout: 30_000 },
+                this._executionKind
+            );
+            if (!runtimeResult.success || !/^Microsoft\.NETCore\.App 10\./m.test(runtimeResult.stdout || '')) {
+                this.logError(`.NET 10 runtime is not installed in the ${Executor.shouldUseWsl(this._executionKind) ? 'WSL' : 'native'} debug context.`);
+                return false;
             }
 
-            // Start the bridge process
-            // Self-contained executable - run directly on all platforms
-            this._process = Executor.spawnProcess(bridgePath, [], {
+            this._process = Executor.spawnProcess('dotnet', [bridgePath], {
                 stdio: ['pipe', 'pipe', 'pipe']
             }, this._executionKind);
             
@@ -398,30 +395,10 @@ export class NanoBridge extends EventEmitter {
     }
 
     /**
-     * Get the path to the bridge executable
+     * Get the path to the bridge assembly
      */
     private getBridgePath(): string {
-        // The bridge is expected to be in the extension's bin directory
-        // Platform-specific self-contained executables
-        const platform = Executor.shouldUseWsl(this._executionKind) ? 'linux' : process.platform;
-        const arch = process.arch;
-        
-        let platformFolder: string;
-        let fileName: string;
-        
-        if (platform === 'win32') {
-            platformFolder = arch === 'arm64' ? 'win32-arm64' : 'win32-x64';
-            fileName = 'nanoFramework.Tools.DebugBridge.exe';
-        } else if (platform === 'darwin') {
-            platformFolder = arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
-            fileName = 'nanoFramework.Tools.DebugBridge';
-        } else {
-            // Linux and others default to linux-x64
-            platformFolder = arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
-            fileName = 'nanoFramework.Tools.DebugBridge';
-        }
-        
-        return path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', platformFolder, fileName);
+        return path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', 'nanoFramework.Tools.DebugBridge.dll');
     }
 
     /**

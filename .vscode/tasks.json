@@ -4,8 +4,21 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "npm",
-			"script": "watch",
+			"label": "watch",
+			"type": "shell",
+			"command": "wsl.exe",
+			"args": [
+				"--distribution",
+				"Ubuntu-24.04",
+				"--cd",
+				"${workspaceFolder}",
+				"--exec",
+				"bash",
+				"--noprofile",
+				"--norc",
+				"-c",
+				"export PATH=\"$HOME/.local/bin:$PATH\" && npm run watch"
+			],
 			"problemMatcher": "$tsc-watch",
 			"isBackground": true,
 			"presentation": {
