@@ -35,7 +35,7 @@ export function getDocumentWorkspaceFolder(): string | undefined {
  * @param workspaceFolder absolute path to workspace
  * @returns absolute path to selected solution file
  */
-export async function chooseSolution(workspaceFolder: string) {
+export async function chooseSolution(_workspaceFolder: string) {
     // Use VS Code's built-in findFiles API instead of globby
     const [slnFiles, slnxFiles] = await Promise.all([
         vscode.workspace.findFiles('**/*.sln', '**/node_modules/**'),

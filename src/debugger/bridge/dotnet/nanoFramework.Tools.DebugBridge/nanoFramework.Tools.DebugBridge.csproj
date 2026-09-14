@@ -13,11 +13,8 @@
     <Company>nanoframework</Company>
     <Copyright>Copyright (c) .NET Foundation and Contributors</Copyright>
     
-    <!-- Publishing configuration for self-contained deployment -->
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SelfContained>false</SelfContained>
+    <UseAppHost>false</UseAppHost>
     
     <!-- Disable trimming - the nanoFramework debug library uses reflection extensively 
          for Wire Protocol communication and assembly inspection -->
