@@ -115,18 +115,6 @@ steps:
         succeeded(),
         startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
       )
-  
-  - bash: |
-      echo ">>> Publish"
-      npm run deploy
-    displayName: Publish to marketplace
-    condition: >-
-      and(
-        succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
-      )
-    env:
-      VSCE_PAT: $(VSCE_PAT)
 
   - task: CopyFiles@2
     displayName: Collecting deployable artifacts
@@ -149,6 +137,18 @@ steps:
       ArtifactName: git-mob-vs-code
       PathtoPublish: $(Build.ArtifactStagingDirectory)
       ArtifactType: Container
+
+  - bash: |
+      echo ">>> Publish"
+      npm run deploy
+    displayName: Publish to marketplace
+    condition: >-
+      and(
+        succeeded(),
+        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+      )
+    env:
+      VSCE_PAT: $(VSCE_PAT)
 
   # create or update GitHub release
   - task: GithubRelease@1

@@ -32,7 +32,7 @@ The VS Code extension provides full source-level debugging support for .NET nano
 
 ### Prerequisites
 
-1. **.NET 8.0 Runtime** - Required for the debug bridge
+1. **.NET 10.0 Runtime** - Required for the debug bridge
 2. **nanoFramework device** - Connected via USB/Serial with nanoFramework firmware
 3. **Built project** - Your project must be built with debug symbols
 
@@ -311,7 +311,7 @@ If breakpoints aren't working:
 
 **Solutions:**
 1. Check Debug Console for specific error messages
-2. Verify .NET 8.0 is installed: `dotnet --version`
+2. Verify .NET 10.0 is installed: `dotnet --list-runtimes`
 3. Ensure no other application is using the COM port
 4. Try restarting VS Code
 
