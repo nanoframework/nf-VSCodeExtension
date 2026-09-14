@@ -1118,8 +1118,8 @@ export class Dotnet {
                     outChannel.appendLine(`Configuration: ${configuration}`);
                     outChannel.appendLine('');
 
-                    let buildSuccess = false;
-                    let buildResult: { success: boolean; stdout?: string; stderr?: string; exitCode?: number | null } | null = null;
+                    let buildSuccess: boolean;
+                    let buildResult: { success: boolean; stdout?: string; stderr?: string; exitCode?: number | null } | null;
 
                     if (isNativeWindowsBuild()) {
                         const nugetPath = await findOrDownloadWindowsNuget(toolPath);
@@ -1593,10 +1593,10 @@ function executeMSBuildAndFindBinaryFile(fileUri: string, cliBuildArguments: str
                 }
 
                 // Split the output by new lines to get an array of paths
-                let paths = stdout.split(/\r?\n/);
+                const paths = stdout.split(/\r?\n/);
 
                 // Select the first non-empty path as the MSBuild path
-                let msBuildPath = paths.find(p => p.trim() !== '');
+                const msBuildPath = paths.find(p => p.trim() !== '');
 
                 if (!msBuildPath) {
                     // Fallback: try non-amd64 path

@@ -21,7 +21,7 @@ async function getSerialPortModule(): Promise<typeof import('serialport')> {
             serialportModule = await import('serialport');
         } catch (error) {
             console.error('Failed to load serialport module:', error);
-            throw new Error('Serial port support is not available. The native module may need to be rebuilt for your VS Code version.');
+            throw new Error('Serial port support is not available. The native module may need to be rebuilt for your VS Code version.', { cause: error });
         }
     }
     return serialportModule;
