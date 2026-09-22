@@ -17,7 +17,7 @@ public record ConnectResult(bool Success, string? Error = null);
 /// <summary>
 /// Result of setting a breakpoint
 /// </summary>
-public record SetBreakpointResult(bool Success, int BreakpointId = 0, string? Error = null);
+public record SetBreakpointResult(bool Success, int BreakpointId = 0, bool Verified = false, string? Error = null);
 
 /// <summary>
 /// Result of an evaluate operation
@@ -354,7 +354,7 @@ public class DebugBridgeSession : IDisposable
     /// <summary>
     /// Set a breakpoint at the specified location
     /// </summary>
-    public async Task<SetBreakpointResult> SetBreakpoint(string file, int line, string? condition = null)
+    public async Task<SetBreakpointResult> SetBreakpoint(string file, int line, int breakpointId, string? condition = null)
     {
         if (!_isConnected || _engine == null)
         {
@@ -364,8 +364,7 @@ public class DebugBridgeSession : IDisposable
         try
         {
             LogDebug($"SetBreakpoint: Requested breakpoint at {file}:{line}");
-            
-            var breakpointId = _nextBreakpointId++;
+            _nextBreakpointId = Math.Max(_nextBreakpointId, breakpointId + 1);
             
             // Try to resolve the source location to an IL offset using loaded symbols
             var bpLocation = _symbolResolver.GetBreakpointLocation(file, line);
@@ -468,7 +467,7 @@ public class DebugBridgeSession : IDisposable
                 Breakpoint = breakpoint
             });
             
-            return new SetBreakpointResult(true, breakpointId);
+            return new SetBreakpointResult(true, breakpointId, breakpoint.Verified);
         }
         catch (Exception ex)
         {

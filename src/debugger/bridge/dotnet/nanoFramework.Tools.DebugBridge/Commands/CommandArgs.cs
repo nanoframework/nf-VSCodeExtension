@@ -56,6 +56,12 @@ public class ConnectArgs
 public class SetBreakpointArgs
 {
     /// <summary>
+    /// Breakpoint ID assigned by the debug adapter
+    /// </summary>
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    /// <summary>
     /// Source file path
     /// </summary>
     [JsonPropertyName("file")]

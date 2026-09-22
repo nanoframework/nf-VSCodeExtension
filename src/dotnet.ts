@@ -15,7 +15,7 @@ import * as https from 'https';
 import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
-import { isSolutionFile } from './utils';
+import { isProjectFile, isSolutionFile } from './utils';
 import { NanoBridge } from './debugger/bridge/nanoBridge';
 import { NuGetService } from './nuget';
 
@@ -680,19 +680,62 @@ function getPackagesConfigPaths(filePath: string): string[] {
         return fs.existsSync(packagesConfig) ? [packagesConfig] : [];
     }
 
-    const solutionDir = path.dirname(filePath);
-    const solution = fs.readFileSync(filePath, 'utf8');
-    const projectPattern = /^Project\([^\r\n]+\)\s*=\s*[^,]+,\s*"([^"]+\.(?:nfproj|csproj))"/gmi;
-    const packageConfigs: string[] = [];
+    return getSolutionProjectPaths(filePath).flatMap(projectPath => {
+        const packagesConfig = path.join(path.dirname(projectPath), 'packages.config');
+        return fs.existsSync(packagesConfig) ? [packagesConfig] : [];
+    });
+}
+
+function getSolutionProjectPaths(solutionPath: string): string[] {
+    const solutionDir = path.dirname(solutionPath);
+    const solution = fs.readFileSync(solutionPath, 'utf8');
+    const projectPattern = solutionPath.toLowerCase().endsWith('.slnx')
+        ? /<Project\b[^>]*\bPath\s*=\s*["']([^"']+\.(?:nfproj|csproj))["']/gi
+        : /^Project\([^\r\n]+\)\s*=\s*[^,]+,\s*"([^"]+\.(?:nfproj|csproj))"/gmi;
+    const projectPaths: string[] = [];
     let match: RegExpExecArray | null;
     while ((match = projectPattern.exec(solution)) !== null) {
-        const projectPath = path.resolve(solutionDir, match[1].replace(/[\\/]/g, path.sep));
-        const packagesConfig = path.join(path.dirname(projectPath), 'packages.config');
-        if (fs.existsSync(packagesConfig)) {
-            packageConfigs.push(packagesConfig);
+        projectPaths.push(path.resolve(solutionDir, match[1].replace(/[\\/]/g, path.sep)));
+    }
+    return projectPaths;
+}
+
+export function validateNanoFrameworkBuildTarget(filePath: string): string | undefined {
+    if (!filePath || !fs.existsSync(filePath)) {
+        return `Build target does not exist: ${filePath || '(none)'}`;
+    }
+
+    let projectPaths: string[];
+    if (isSolutionFile(filePath)) {
+        try {
+            projectPaths = getSolutionProjectPaths(filePath)
+                .filter(projectPath => projectPath.toLowerCase().endsWith('.nfproj'));
+        } catch {
+            return `The solution is not valid or could not be read: ${filePath}`;
+        }
+
+        if (projectPaths.length === 0) {
+            return `No nanoFramework project was found in the solution: ${filePath}`;
+        }
+    } else if (filePath.toLowerCase().endsWith('.nfproj')) {
+        projectPaths = [filePath];
+    } else {
+        return `The selected build target is not a nanoFramework project or solution: ${filePath}`;
+    }
+
+    for (const projectPath of projectPaths) {
+        try {
+            const project = fs.readFileSync(projectPath, 'utf8');
+            if (!/<Project(?:\s[^>]*)?>[\s\S]*<\/Project\s*>/i.test(project) ||
+                !/NFProjectSystem\.CSharp\.targets/i.test(project)) {
+                return `The nanoFramework project is not valid: ${projectPath}`;
+            }
+        } catch {
+            return `The nanoFramework project is not valid or could not be read: ${projectPath}`;
         }
     }
-    return packageConfigs;
+
+    return undefined;
 }
 
 async function restoreWslBuildPackages(filePath: string): Promise<void> {
@@ -757,6 +800,12 @@ export class Dotnet {
             configuration = await vscode.window.showQuickPick(['Debug', 'Release'], { placeHolder: 'Select build configuration', canPickMany: false }) || 'Debug';
         }
         if (fileUri) {
+            const validationError = validateNanoFrameworkBuildTarget(fileUri);
+            if (validationError) {
+                vscode.window.showErrorMessage(validationError);
+                return;
+            }
+
             // Clean .bin files before building to avoid stale files
             cleanBinFiles(fileUri, configuration);
 
@@ -2076,7 +2125,7 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
 function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void {
     const projectDirs: string[] = [];
 
-    if (filePath.endsWith('.nfproj') || filePath.endsWith('.csproj')) {
+    if (isProjectFile(filePath)) {
         // Single project: clean its own bin and obj folders
         projectDirs.push(path.dirname(filePath));
     } else {
