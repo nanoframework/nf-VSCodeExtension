@@ -17,7 +17,16 @@ const axios = require('axios');
  * Checks whether the given file path points to a solution file (.sln or .slnx).
  */
 export function isSolutionFile(filePath: string): boolean {
-    return filePath.endsWith('.sln') || filePath.endsWith('.slnx');
+	const normalizedPath = filePath.toLowerCase();
+	return normalizedPath.endsWith('.sln') || normalizedPath.endsWith('.slnx');
+}
+
+/**
+ * Checks whether the given file path points to a project file (.nfproj or .csproj).
+ */
+export function isProjectFile(filePath: string): boolean {
+	const normalizedPath = filePath.toLowerCase();
+	return normalizedPath.endsWith('.nfproj') || normalizedPath.endsWith('.csproj');
 }
 
 /**

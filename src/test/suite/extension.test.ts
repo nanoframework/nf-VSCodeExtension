@@ -17,6 +17,7 @@ import { ExecutionKind, Executor } from '../../executor';
 import { NuGetManager, NuGetService, selectNugetSources } from '../../nuget';
 import { validatePrerequisites } from '../../prerequisites';
 import { getTemplatePackages } from '../../projectTemplates';
+import { isProjectFile, isSolutionFile } from '../../utils';
 import { convertWindowsPathsInCommand, fromWslPathArgument, toWslPathArgument } from '../../wsl';
 // import * as myExtension from '../../extension';
 
@@ -27,6 +28,13 @@ suite('Extension Test Suite', () => {
 	test('Sample test', () => {
 		assert.strictEqual(-1, [1, 2, 3].indexOf(5));
 		assert.strictEqual(-1, [1, 2, 3].indexOf(0));
+	});
+
+	test('Classifies solution and project extensions case-insensitively', () => {
+		assert.strictEqual(isSolutionFile('App.SLN'), true);
+		assert.strictEqual(isSolutionFile('App.SLNX'), true);
+		assert.strictEqual(isProjectFile('App.NFPROJ'), true);
+		assert.strictEqual(isProjectFile('App.CSPROJ'), true);
 	});
 
 	test('Defines independent opt-in WSL execution settings', () => {

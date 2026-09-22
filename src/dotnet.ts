@@ -15,7 +15,7 @@ import * as https from 'https';
 import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
-import { isSolutionFile } from './utils';
+import { isProjectFile, isSolutionFile } from './utils';
 import { NanoBridge } from './debugger/bridge/nanoBridge';
 import { NuGetService } from './nuget';
 
@@ -2125,7 +2125,7 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
 function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void {
     const projectDirs: string[] = [];
 
-    if (filePath.endsWith('.nfproj') || filePath.endsWith('.csproj')) {
+    if (isProjectFile(filePath)) {
         // Single project: clean its own bin and obj folders
         projectDirs.push(path.dirname(filePath));
     } else {
