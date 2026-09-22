@@ -32,23 +32,36 @@ class Program
         _session = new DebugBridgeSession();
         _session.OnEvent += SendEvent;
 
-        // Process commands from stdin
-        while (_running)
+        try
         {
-            try
+            // Process commands from stdin
+            while (_running)
             {
-                var line = await Console.In.ReadLineAsync();
-                if (string.IsNullOrEmpty(line))
+                try
                 {
-                    continue;
-                }
+                    var line = await Console.In.ReadLineAsync();
+                    if (line == null)
+                    {
+                        break;
+                    }
+                    if (line.Length == 0)
+                    {
+                        continue;
+                    }
 
-                await ProcessCommand(line);
+                    await ProcessCommand(line);
+                }
+                catch (Exception ex)
+                {
+                    SendError(-1, $"Error processing command: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                SendError(-1, $"Error processing command: {ex.Message}");
-            }
+        }
+        finally
+        {
+            _session.OnEvent -= SendEvent;
+            _session.Dispose();
+            _session = null;
         }
     }
 
@@ -256,12 +269,12 @@ class Program
             return new BridgeResponse { Id = request.Id, Success = false, Error = "Invalid breakpoint arguments" };
         }
 
-        var result = await _session.SetBreakpoint(args.File, args.Line, args.Condition);
+        var result = await _session.SetBreakpoint(args.File, args.Line, args.Id, args.Condition);
         return new BridgeResponse
         {
             Id = request.Id,
             Success = result.Success,
-            Data = result.BreakpointId,
+            Data = new { id = result.BreakpointId, verified = result.Verified },
             Error = result.Error
         };
     }

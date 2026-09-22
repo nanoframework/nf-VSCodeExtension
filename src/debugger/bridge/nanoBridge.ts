@@ -217,7 +217,7 @@ export class NanoBridge extends EventEmitter {
      * Clear a breakpoint
      */
     public async clearBreakpoint(id: number): Promise<void> {
-        await this.sendCommand('clearBreakpoint', { id });
+        await this.sendCommand('removeBreakpoint', { breakpointId: id });
     }
 
     /**

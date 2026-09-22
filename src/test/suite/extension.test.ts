@@ -11,8 +11,8 @@ import * as path from 'path';
 // as well as import your extension to test it
 import * as vscode from 'vscode';
 import { NfProject } from '../../createProject';
-import { fromBridgePath, toBridgePath } from '../../debugger/bridge/nanoBridge';
-import { getProjectFamily } from '../../dotnet';
+import { fromBridgePath, NanoBridge, toBridgePath } from '../../debugger/bridge/nanoBridge';
+import { getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
 import { ExecutionKind, Executor } from '../../executor';
 import { NuGetManager, NuGetService, selectNugetSources } from '../../nuget';
 import { validatePrerequisites } from '../../prerequisites';
@@ -83,6 +83,23 @@ suite('Extension Test Suite', () => {
 		assert.strictEqual(fromBridgePath(wslPath, 'win32'), windowsPath);
 		assert.strictEqual(fromBridgePath(windowsPath, 'win32'), windowsPath);
 		assert.strictEqual(fromBridgePath(wslPath, 'linux'), wslPath);
+	});
+
+	test('Uses the same breakpoint ID when setting and removing a breakpoint', async () => {
+		const bridge = new NanoBridge();
+		const commands: Array<{ command: string; args: unknown }> = [];
+		Reflect.set(bridge, 'sendCommand', async (command: string, args: unknown) => {
+			commands.push({ command, args });
+			return { id: commands.length, success: true, data: { verified: true } };
+		});
+
+		assert.strictEqual(await bridge.setBreakpoint('Program.cs', 86, 7), true);
+		await bridge.clearBreakpoint(7);
+
+		assert.deepStrictEqual(commands, [
+			{ command: 'setBreakpoint', args: { file: 'Program.cs', line: 86, id: 7 } },
+			{ command: 'removeBreakpoint', args: { breakpointId: 7 } }
+		]);
 	});
 
 	test('Uses only enabled dotnet NuGet sources with a default fallback', () => {
@@ -197,6 +214,48 @@ suite('Extension Test Suite', () => {
 
 		try {
 			assert.strictEqual(getProjectFamily(solutionPath), 2);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Rejects an invalid nanoFramework project build target', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-invalid-project-'));
+		const projectPath = path.join(directory, 'Invalid.nfproj');
+		fs.writeFileSync(projectPath, '<Project />', 'utf8');
+
+		try {
+			assert.match(validateNanoFrameworkBuildTarget(projectPath) || '', /project is not valid/i);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Rejects a solution without a nanoFramework project', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-empty-solution-'));
+		const solutionPath = path.join(directory, 'DesktopOnly.sln');
+		fs.writeFileSync(
+			solutionPath,
+			'Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Desktop", "Desktop.csproj", "{00000000-0000-0000-0000-000000000004}"',
+			'utf8'
+		);
+
+		try {
+			assert.match(validateNanoFrameworkBuildTarget(solutionPath) || '', /no nanoFramework project was found/i);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Accepts a valid nanoFramework project in an slnx solution', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-valid-slnx-'));
+		const solutionPath = path.join(directory, 'App.slnx');
+		const projectPath = createFamilyProject(directory, 'App', '1.17.11');
+		fs.writeFileSync(solutionPath, '<Solution><Project Path="App/App.nfproj" /></Solution>', 'utf8');
+
+		try {
+			assert.strictEqual(validateNanoFrameworkBuildTarget(solutionPath), undefined);
+			assert.strictEqual(validateNanoFrameworkBuildTarget(projectPath), undefined);
 		} finally {
 			fs.rmSync(directory, { recursive: true, force: true });
 		}
@@ -320,7 +379,11 @@ function createFamilyProject(root: string, name: string, coreLibraryVersion: str
 	const projectDirectory = path.join(root, name);
 	const projectPath = path.join(projectDirectory, `${name}.nfproj`);
 	fs.mkdirSync(projectDirectory, { recursive: true });
-	fs.writeFileSync(projectPath, '<Project />', 'utf8');
+	fs.writeFileSync(
+		projectPath,
+		'<Project><Import Project="$(NanoFrameworkProjectSystemPath)NFProjectSystem.CSharp.targets" /></Project>',
+		'utf8'
+	);
 	fs.writeFileSync(
 		path.join(projectDirectory, 'packages.config'),
 		`<packages><package id="nanoFramework.CoreLibrary" version="${coreLibraryVersion}" /></packages>`,
