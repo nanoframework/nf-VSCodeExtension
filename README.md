@@ -14,6 +14,10 @@ This extension allows you to use VS Code to flash, build and deploy your C# code
 
 This .NET nanoFramework VS Code extension allow you to flash, build and deploy your C# .NET nanoFramework application on an ESP32 or STM32 MCU.
 
+### GitHub Copilot agent
+
+The extension includes a **.NET nanoFramework Agent** for GitHub Copilot Chat. After installing the extension, select the agent from the agents dropdown in Chat to get nanoFramework-specific guidance for API compatibility, embedded coding constraints, builds, and testing. No workspace-specific agent file is required.
+
 ### Flashing the device
 
 Select `nanoFramework: Flash device` and follow the steps.
