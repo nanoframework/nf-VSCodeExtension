@@ -52,6 +52,11 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "chatAgents": [
+      {
+        "path": "./agents/nanoframework.agent.md"
+      }
+    ],
     "breakpoints": [
       {
         "language": "csharp"
