@@ -83,33 +83,103 @@ steps:
       PublicRelease: true
     displayName: Package extension
     condition: succeeded()
-  
-  - task: DotNetCoreCLI@2
-    displayName: Install Sign Client CLI
+
+  - pwsh: |
+      Add-Type -AssemblyName System.IO.Compression
+      Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+      $vsixPath = "$(Build.Repository.LocalPath)\vscode-nanoframework.vsix"
+      if (-not (Test-Path -LiteralPath $vsixPath)) {
+        throw "VSIX not found: $vsixPath"
+      }
+
+      $archive = [System.IO.Compression.ZipFile]::OpenRead($vsixPath)
+      try {
+        $entries = @($archive.Entries)
+        $duplicate = $entries |
+          Group-Object FullName -CaseSensitive:$false |
+          Where-Object Count -gt 1 |
+          Select-Object -First 1
+        if ($duplicate) {
+          throw "VSIX contains duplicate path: $($duplicate.Name)"
+        }
+
+        foreach ($requiredPath in @('[Content_Types].xml', 'extension.vsixmanifest', 'extension/package.json')) {
+          if (-not ($entries | Where-Object FullName -CEQ $requiredPath)) {
+            throw "VSIX is missing required entry: $requiredPath"
+          }
+        }
+
+        foreach ($entry in $entries) {
+          if ($entry.FullName.EndsWith('/')) {
+            continue
+          }
+
+          $entryStream = $entry.Open()
+          try {
+            $entryStream.CopyTo([System.IO.Stream]::Null)
+          }
+          finally {
+            $entryStream.Dispose()
+          }
+        }
+      }
+      finally {
+        $archive.Dispose()
+      }
+
+      Write-Host "Validated VSIX: $((Get-Item -LiteralPath $vsixPath).Length) bytes"
+    displayName: Validate VSIX package
+    condition: succeeded()
+
+  - script: dotnet build scripts/VsixSignTool/VsixSignTool.csproj -c Release
+    displayName: Build VSIX signing tool
     condition: >-
       and(
         succeeded(),
         startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
       )
-    inputs:
-      command: custom
-      custom: tool
-      arguments: install --tool-path . sign --version 0.9.1-beta.24312.3
-  
+
+  - script: >-
+      npx vsce generate-manifest
+      --packagePath .\vscode-nanoframework.vsix
+      --out .\vscode-nanoframework.signature.manifest
+    displayName: Generate VSIX signature manifest
+    condition: >-
+      and(
+        succeeded(),
+        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+      )
+
   - pwsh: |
-      .\sign code azure-key-vault `
-      "**/*.vsix" `
-      --base-directory "$(Build.Repository.LocalPath)" `
-      --file-list "$(Build.Repository.LocalPath)\config\filelist.txt" `
-      --description ".NET nanoFramework VS Code Extension" `
-      --description-url "https://github.com/$env:Build_Repository_Name" `
-      --azure-key-vault-tenant-id "$(SignTenantId)" `
-      --azure-key-vault-client-id "$(SignClientId)" `
-      --azure-key-vault-client-secret "$(SignClientSecret)" `
-      --azure-key-vault-certificate "$(SignKeyVaultCertificate)" `
-      --azure-key-vault-url "$(SignKeyVaultUrl)" `
-      --timestamp-url http://timestamp.digicert.com
-    displayName: Sign packages
+      .\scripts\sign-vsix.cmd `
+        .\vscode-nanoframework.signature.manifest `
+        .\vscode-nanoframework.signature.p7s
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to sign VSIX manifest."
+      }
+    displayName: Sign VSIX manifest with Azure Key Vault
+    condition: >-
+      and(
+        succeeded(),
+        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+      )
+    env:
+      AZURE_TENANT_ID: $(SignTenantId)
+      AZURE_CLIENT_ID: $(SignClientId)
+      AZURE_CLIENT_SECRET: $(SignClientSecret)
+      AZURE_KEY_VAULT_CERTIFICATE: $(SignKeyVaultCertificate)
+      AZURE_KEY_VAULT_URL: $(SignKeyVaultUrl)
+
+  - pwsh: |
+      npx vsce verify-signature `
+        --packagePath .\vscode-nanoframework.vsix `
+        --manifestPath .\vscode-nanoframework.signature.manifest `
+        --signaturePath .\vscode-nanoframework.signature.p7s
+      if ($LASTEXITCODE -ne 0) {
+        throw "VSIX signature verification failed."
+      }
+    displayName: Verify VSIX signature
     condition: >-
       and(
         succeeded(),
@@ -123,6 +193,8 @@ steps:
       sourceFolder: $(Build.SourcesDirectory)
       contents: |-
         **\vscode-nanoframework.vsix
+        **\vscode-nanoframework.signature.manifest
+        **\vscode-nanoframework.signature.p7s
         **\package.json
         assets/marketplace/vscode-marketplace-overview.md
         assets/marketplace/nano-vs-code.gif
@@ -140,7 +212,7 @@ steps:
 
   - bash: |
       echo ">>> Publish"
-      npm run deploy
+      npm run deploy:signed
     displayName: Publish to marketplace
     condition: >-
       and(
