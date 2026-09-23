@@ -4,6 +4,7 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
+using System.Net.Http.Headers;
 using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Certificates;
@@ -48,9 +49,62 @@ CmsSigner signer = new(SubjectIdentifierType.IssuerAndSerialNumber, certificate)
 };
 
 signedCms.ComputeSignature(signer, silent: true);
+await AddTimestampAsync(signedCms);
 File.WriteAllBytes(args[1], signedCms.Encode());
 Console.WriteLine($"Signed VSIX manifest with Azure Key Vault certificate '{certificateName}'.");
 return 0;
+
+static async Task AddTimestampAsync(SignedCms signedCms)
+{
+    const string TimestampAuthorityUrl = "http://timestamp.digicert.com";
+    const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
+    const string TimestampingEkuOid = "1.3.6.1.5.5.7.3.8";
+
+    SignerInfo signerInfo = signedCms.SignerInfos[0];
+    byte[] nonce = RandomNumberGenerator.GetBytes(16);
+    Rfc3161TimestampRequest timestampRequest = Rfc3161TimestampRequest.CreateFromSignerInfo(
+        signerInfo,
+        HashAlgorithmName.SHA256,
+        nonce: nonce,
+        requestSignerCertificates: true);
+
+    using HttpClient httpClient = new();
+    using ByteArrayContent requestContent = new(timestampRequest.Encode());
+    requestContent.Headers.ContentType = new MediaTypeHeaderValue("application/timestamp-query");
+    using HttpResponseMessage response = await httpClient.PostAsync(TimestampAuthorityUrl, requestContent);
+    response.EnsureSuccessStatusCode();
+
+    byte[] responseBytes = await response.Content.ReadAsByteArrayAsync();
+    Rfc3161TimestampToken timestampToken = timestampRequest.ProcessResponse(responseBytes, out int bytesConsumed);
+    if (bytesConsumed != responseBytes.Length)
+    {
+        throw new CryptographicException("The timestamp authority response contains trailing data.");
+    }
+
+    if (!timestampToken.VerifySignatureForSignerInfo(signerInfo, out X509Certificate2? timestampCertificate))
+    {
+        throw new CryptographicException("The timestamp token signature is invalid.");
+    }
+
+    using (timestampCertificate)
+    using (X509Chain chain = new())
+    {
+        chain.ChainPolicy.ExtraStore.AddRange(timestampToken.AsSignedCms().Certificates);
+        chain.ChainPolicy.ApplicationPolicy.Add(new Oid(TimestampingEkuOid));
+        chain.ChainPolicy.RevocationMode = X509RevocationMode.Online;
+        chain.ChainPolicy.VerificationTime = timestampToken.TokenInfo.Timestamp.UtcDateTime;
+
+        if (!chain.Build(timestampCertificate))
+        {
+            string errors = string.Join(", ", chain.ChainStatus.Select(status => status.StatusInformation.Trim()));
+            throw new CryptographicException($"The timestamp certificate is not trusted: {errors}");
+        }
+    }
+
+    signerInfo.AddUnsignedAttribute(new AsnEncodedData(
+        new Oid(TimestampTokenOid),
+        timestampToken.AsSignedCms().Encode()));
+}
 
 static string GetRequiredEnvironmentVariable(string name)
 {
