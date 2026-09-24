@@ -137,7 +137,10 @@ steps:
     condition: >-
       and(
         succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+        or(
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
+          eq(variables['Build.Reason'], 'PullRequest')
+        )
       )
 
   - script: >-
@@ -148,7 +151,10 @@ steps:
     condition: >-
       and(
         succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+        or(
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
+          eq(variables['Build.Reason'], 'PullRequest')
+        )
       )
 
   - pwsh: |
@@ -162,7 +168,10 @@ steps:
     condition: >-
       and(
         succeeded(),
-        startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+        or(
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
+          eq(variables['Build.Reason'], 'PullRequest')
+        )
       )
     env:
       AZURE_TENANT_ID: $(SignTenantId)
@@ -188,7 +197,7 @@ steps:
 
   - task: CopyFiles@2
     displayName: Collecting deployable artifacts
-    condition: succeeded()
+    condition: succeededOrFailed()
     inputs:
       sourceFolder: $(Build.SourcesDirectory)
       contents: |-
@@ -204,7 +213,7 @@ steps:
   # Publish files as an artifact
   - task: PublishBuildArtifacts@1
     displayName: Publish deployables artifacts
-    condition: succeeded()
+    condition: succeededOrFailed()
     inputs:
       ArtifactName: git-mob-vs-code
       PathtoPublish: $(Build.ArtifactStagingDirectory)
