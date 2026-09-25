@@ -138,8 +138,7 @@ steps:
       and(
         succeeded(),
         or(
-          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
-          eq(variables['Build.Reason'], 'PullRequest')
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
         )
       )
 
@@ -152,8 +151,7 @@ steps:
       and(
         succeeded(),
         or(
-          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
-          eq(variables['Build.Reason'], 'PullRequest')
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
         )
       )
 
@@ -169,8 +167,7 @@ steps:
       and(
         succeeded(),
         or(
-          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
-          eq(variables['Build.Reason'], 'PullRequest')
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
         )
       )
     env:
@@ -193,8 +190,7 @@ steps:
       and(
         succeeded(),
         or(
-          startsWith(variables['Build.SourceBranch'], 'refs/tags/v'),
-          eq(variables['Build.Reason'], 'PullRequest')
+          startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
         )
       )
 
