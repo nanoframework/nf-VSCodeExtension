@@ -17,6 +17,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "scripts", "scripts", "{C4AD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VsixSignTool", "scripts\VsixSignTool\VsixSignTool.csproj", "{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Probe", "..\..\..\Users\laurelle\AppData\Local\Temp\vsce-cms-probe\Probe.csproj", "{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -51,6 +53,18 @@ Global
 		{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}.Release|x64.Build.0 = Release|Any CPU
 		{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}.Release|x86.ActiveCfg = Release|Any CPU
 		{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}.Release|x86.Build.0 = Release|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Debug|x64.Build.0 = Debug|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Debug|x86.Build.0 = Debug|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Release|x64.ActiveCfg = Release|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Release|x64.Build.0 = Release|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Release|x86.ActiveCfg = Release|Any CPU
+		{F2A4134C-4B42-4A38-94AF-C0E7C34B25C5}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

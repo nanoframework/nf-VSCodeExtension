@@ -8,6 +8,10 @@ using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Certificates;
 using Azure.Security.KeyVault.Keys.Cryptography;
+using NuGet.Packaging.Signing;
+using NuGetHashAlgorithmName = NuGet.Common.HashAlgorithmName;
+
+const string TimestampUrl = "http://timestamp.digicert.com";
 
 if (args.Length != 2)
 {
@@ -40,17 +44,52 @@ using RSA signingKey = new KeyVaultRsa(cryptographyClient, publicKey.ExportParam
 // VSCE publishes the CMS signature separately from the signature manifest.
 ContentInfo content = new(File.ReadAllBytes(args[0]));
 SignedCms signedCms = new(content, detached: true);
-CmsSigner signer = new(SubjectIdentifierType.IssuerAndSerialNumber, certificate)
+SubjectIdentifierType identifierType = certificate.Extensions[Oids.SubjectKeyIdentifier] is null
+    ? SubjectIdentifierType.IssuerAndSerialNumber
+    : SubjectIdentifierType.SubjectKeyIdentifier;
+CmsSigner signer = new(identifierType, certificate)
 {
     DigestAlgorithm = new Oid("2.16.840.1.101.3.4.2.1"),
     IncludeOption = X509IncludeOption.EndCertOnly,
     PrivateKey = signingKey
 };
+signer.SignedAttributes.Add(new Pkcs9SigningTime());
+signer.SignedAttributes.Add(AttributeUtility.CreateCommitmentTypeIndication(SignatureType.Author));
+signer.SignedAttributes.Add(
+    AttributeUtility.CreateSigningCertificateV2(certificate, NuGetHashAlgorithmName.SHA256));
 
 signedCms.ComputeSignature(signer, silent: true);
+await AddTimestampAsync(signedCms.SignerInfos[0], new Uri(TimestampUrl));
 File.WriteAllBytes(args[1], signedCms.Encode());
 Console.WriteLine($"Signed VSIX manifest with Azure Key Vault certificate '{certificateName}'.");
 return 0;
+
+static async Task AddTimestampAsync(SignerInfo signerInfo, Uri timestampUri)
+{
+    Rfc3161TimestampRequest request = Rfc3161TimestampRequest.CreateFromSignerInfo(
+        signerInfo,
+        HashAlgorithmName.SHA256,
+        requestSignerCertificates: true);
+
+    using HttpClient client = new();
+    using ByteArrayContent content = new(request.Encode());
+    content.Headers.ContentType = new("application/timestamp-query");
+    using HttpResponseMessage response = await client.PostAsync(timestampUri, content);
+    response.EnsureSuccessStatusCode();
+
+    byte[] responseBytes = await response.Content.ReadAsByteArrayAsync();
+    Rfc3161TimestampToken token = request.ProcessResponse(responseBytes, out int bytesConsumed);
+    if (bytesConsumed != responseBytes.Length)
+    {
+        throw new CryptographicException("The timestamp response contains trailing data.");
+    }
+
+    const string signatureTimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
+    Oid oid = new(signatureTimestampTokenOid);
+    AsnEncodedData value = new(oid, token.AsSignedCms().Encode());
+    signerInfo.UnsignedAttributes.Add(
+        new CryptographicAttributeObject(oid, new AsnEncodedDataCollection(value)));
+}
 
 static string GetRequiredEnvironmentVariable(string name)
 {
