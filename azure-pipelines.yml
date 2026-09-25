@@ -212,7 +212,7 @@ steps:
 
   - bash: |
       echo ">>> Publish"
-      npm run deploy:signed
+      npm run deploy
     displayName: Publish to marketplace
     condition: >-
       and(
