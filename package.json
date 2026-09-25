@@ -396,8 +396,7 @@
     "test": "node ./out/test/runTest.js",
     "clean": "rimraf ./out ./coverage",
     "package": "npm run clean && nbgv-setversion && vsce package --githubBranch develop --out ./vscode-nanoframework.vsix --allow-star-activation && nbgv cloud -a -c",
-    "deploy": "vsce publish --packagePath ./vscode-nanoframework.vsix --skip-duplicate",
-    "deploy:signed": "vsce publish --packagePath ./vscode-nanoframework.vsix --manifestPath ./vscode-nanoframework.signature.manifest --signaturePath ./vscode-nanoframework.signature.p7s --skip-duplicate"
+    "deploy": "vsce publish --packagePath ./vscode-nanoframework.vsix --skip-duplicate"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
