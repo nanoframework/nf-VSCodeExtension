@@ -188,7 +188,7 @@ steps:
 
   - task: CopyFiles@2
     displayName: Collecting deployable artifacts
-    condition: succeeded()
+    condition: succeededOrFailed()
     inputs:
       sourceFolder: $(Build.SourcesDirectory)
       contents: |-
@@ -204,7 +204,7 @@ steps:
   # Publish files as an artifact
   - task: PublishBuildArtifacts@1
     displayName: Publish deployables artifacts
-    condition: succeeded()
+    condition: succeededOrFailed()
     inputs:
       ArtifactName: git-mob-vs-code
       PathtoPublish: $(Build.ArtifactStagingDirectory)
