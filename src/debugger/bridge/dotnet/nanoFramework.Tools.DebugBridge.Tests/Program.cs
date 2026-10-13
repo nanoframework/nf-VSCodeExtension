@@ -11,6 +11,7 @@ var tests = new (string Name, Action Run)[]
     ("managed-only assembly", ManagedOnlyAssembly),
     ("concatenated deployment image", ConcatenatedDeploymentImage),
     ("preview v2 assembly", PreviewV2Assembly),
+    ("v2 firmware rejects v1 assembly", V2FirmwareRejectsV1Assembly),
     ("preview v2 JSON symbols", PreviewV2JsonSymbols)
 };
 
@@ -44,7 +45,7 @@ static void MissingNativeAssembly()
     using var image = CreateImage(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
     var error = DeploymentCompatibility.Check(imagePaths: [image.Name], deviceAssemblies: []);
 
-    Assert(error?.Contains("not present", StringComparison.Ordinal) == true, error);
+    Assert(error?.Contains("does not have support", StringComparison.Ordinal) == true, error);
 }
 
 static void MismatchedNativeChecksum()
@@ -84,7 +85,20 @@ static void PreviewV2Assembly()
 
     Assert(assembly.Name == "System.Device.Gpio", assembly.Name);
     Assert(assembly.Version == new Version(2, 0, 0, 0), assembly.Version.ToString());
-    Assert(assembly.Checksum == 0x12345678, $"0x{assembly.Checksum:X8}");
+    Assert(assembly.NativeContractHash == 0x12345678, $"0x{assembly.NativeContractHash:X8}");
+    Assert(assembly.Format == PeFormat.V2, assembly.Format.ToString());
+}
+
+static void V2FirmwareRejectsV1Assembly()
+{
+    using var image = CreateImage(("Legacy.Library", new Version(1, 0, 0, 0), 0));
+    var error = DeploymentCompatibility.Check(
+        [image.Name],
+        deviceAssemblies: [],
+        nanoClrVersion: new Version(2, 0, 0, 0));
+
+    Assert(error?.Contains("V1 (NFMRK1)", StringComparison.Ordinal) == true, error);
+    Assert(error?.Contains("V2 (NFMRK2)", StringComparison.Ordinal) == true, error);
 }
 
 static void PreviewV2JsonSymbols()
@@ -123,15 +137,21 @@ static void PreviewV2JsonSymbols()
 }
 
 static TemporaryImage CreateImage(params (string Name, Version Version, uint Checksum)[] assemblies)
-    => CreateImageFile("NFMRK1", 28, 36, assemblies);
+    => CreateImageFile("NFMRK1", 28, 36, 40, 16, 108, 124, 11, 15, assemblies);
 
 static TemporaryImage CreatePreviewImage(params (string Name, Version Version, uint Checksum)[] assemblies)
-    => CreateImageFile("NFMRK2", 24, 32, assemblies);
+    => CreateImageFile("NFMRK2", 24, 32, 36, 18, 108, 128, 13, 17, assemblies);
 
 static TemporaryImage CreateImageFile(
     string marker,
     int versionOffset,
     int assemblyNameOffset,
+    int tablesOffset,
+    int tableCount,
+    int tablePaddingOffset,
+    int headerSize,
+    int stringsTableIndex,
+    int endOfAssemblyTableIndex,
     params (string Name, Version Version, uint Checksum)[] assemblies)
 {
     var path = Path.Combine(Path.GetTempPath(), $"nf-deployment-{Guid.NewGuid():N}.bin");
@@ -139,7 +159,9 @@ static TemporaryImage CreateImageFile(
 
     foreach (var assembly in assemblies)
     {
-        var data = new byte[160];
+        var name = Encoding.UTF8.GetBytes(assembly.Name);
+        var assemblySize = headerSize + name.Length + 1;
+        var data = new byte[assemblySize];
         Encoding.ASCII.GetBytes(marker).CopyTo(data, 0);
         BitConverter.GetBytes(assembly.Checksum).CopyTo(data, 20);
         BitConverter.GetBytes((ushort)assembly.Version.Major).CopyTo(data, versionOffset);
@@ -147,10 +169,21 @@ static TemporaryImage CreateImageFile(
         BitConverter.GetBytes((ushort)assembly.Version.Build).CopyTo(data, versionOffset + 4);
         BitConverter.GetBytes((ushort)assembly.Version.Revision).CopyTo(data, versionOffset + 6);
         BitConverter.GetBytes((ushort)0).CopyTo(data, assemblyNameOffset);
-        BitConverter.GetBytes((uint)120).CopyTo(data, 40 + 11 * sizeof(uint));
-        BitConverter.GetBytes((uint)data.Length).CopyTo(data, 40 + 15 * sizeof(uint));
-        Encoding.UTF8.GetBytes(assembly.Name).CopyTo(data, 120);
+        for (var tableIndex = 0; tableIndex < tableCount; tableIndex++)
+        {
+            var tableStart = tableIndex <= stringsTableIndex ? headerSize : assemblySize;
+            BitConverter.GetBytes((uint)tableStart).CopyTo(data, tablesOffset + tableIndex * sizeof(uint));
+        }
+        BitConverter.GetBytes((uint)assemblySize).CopyTo(
+            data,
+            tablesOffset + endOfAssemblyTableIndex * sizeof(uint));
+        data[tablePaddingOffset + stringsTableIndex] = 0;
+        name.CopyTo(data, headerSize);
         output.Write(data);
+        while (output.Position % sizeof(uint) != 0)
+        {
+            output.WriteByte(0);
+        }
     }
 
     return new TemporaryImage(path);
