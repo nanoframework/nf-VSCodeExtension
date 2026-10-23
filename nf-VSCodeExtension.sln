@@ -17,6 +17,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "scripts", "scripts", "{C4AD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VsixSignTool", "scripts\VsixSignTool\VsixSignTool.csproj", "{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nanoFramework.Tools.DebugBridge.Tests", "src\debugger\bridge\dotnet\nanoFramework.Tools.DebugBridge.Tests\nanoFramework.Tools.DebugBridge.Tests.csproj", "{99E159DA-0FC8-4877-A717-6DA22614B0A7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -51,6 +53,18 @@ Global
 		{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}.Release|x64.Build.0 = Release|Any CPU
 		{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}.Release|x86.ActiveCfg = Release|Any CPU
 		{764F81EB-707D-4A0C-AE6A-9E5078A0B66B}.Release|x86.Build.0 = Release|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Debug|x64.Build.0 = Debug|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Debug|x86.Build.0 = Debug|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Release|x64.ActiveCfg = Release|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Release|x64.Build.0 = Release|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Release|x86.ActiveCfg = Release|Any CPU
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -61,6 +75,7 @@ Global
 		{0294C6F0-A09A-D114-B68B-5519099D683E} = {DEA41E56-61F9-DABC-70F0-4C631C843DE7}
 		{91E4E126-0931-012A-B132-E37DBC30528C} = {0294C6F0-A09A-D114-B68B-5519099D683E}
 		{764F81EB-707D-4A0C-AE6A-9E5078A0B66B} = {C4AD9936-F0DF-1090-6077-3D4A6324E662}
+		{99E159DA-0FC8-4877-A717-6DA22614B0A7} = {0294C6F0-A09A-D114-B68B-5519099D683E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F3836D8F-B175-4CD0-BD0C-B701F6CDC036}
