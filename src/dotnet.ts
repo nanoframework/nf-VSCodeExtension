@@ -16,7 +16,7 @@ import { Executor } from "./executor";
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
 import { isProjectFile, isSolutionFile } from './utils';
-import { NanoBridge } from './debugger/bridge/nanoBridge';
+import { detectBridgeFamilyFromPaths, NanoBridge } from './debugger/bridge/nanoBridge';
 import { NuGetService } from './nuget';
 
 const mdpBuildProperties = ' -p:NFMDP_PE_Verbose=false -p:NFMDP_PE_VerboseMinimize=false -p:UseSharedCompilation=false';
@@ -39,7 +39,7 @@ function getBuildOutputChannel(): vscode.OutputChannel {
 }
 
 async function checkDeploymentCompatibility(imagePaths: string[], serialPath: string): Promise<string | null> {
-    const bridge = new NanoBridge('deployment');
+    const bridge = new NanoBridge('deployment', detectBridgeFamilyFromPaths(imagePaths));
     try {
         if (!await bridge.initialize(serialPath, false, 'information')) {
             return 'Could not start the nanoFramework debug bridge to verify device compatibility.';
@@ -86,7 +86,7 @@ async function waitForPeAssemblies(
 }
 
 async function deployPreviewAssemblies(assembliesPath: string, serialPath: string): Promise<string | null> {
-    const bridge = new NanoBridge('deployment');
+    const bridge = new NanoBridge('deployment', 2);
     try {
         if (!await bridge.initialize(serialPath, false, 'information')) {
             return 'Could not start the nanoFramework debug bridge for deployment.';

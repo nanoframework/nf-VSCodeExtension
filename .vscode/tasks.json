@@ -4,21 +4,17 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "watch",
+			"label": "build debug bridges",
 			"type": "shell",
-			"command": "wsl.exe",
-			"args": [
-				"--distribution",
-				"Ubuntu-24.04",
-				"--cd",
-				"${workspaceFolder}",
-				"--exec",
-				"bash",
-				"--noprofile",
-				"--norc",
-				"-c",
-				"export PATH=\"$HOME/.local/bin:$PATH\" && npm run watch"
-			],
+			"command": "npx gulp build-debug-bridge",
+			"problemMatcher": []
+		},
+		{
+			"label": "watch",
+			"type": "npm",
+			"script": "watch",
+			"dependsOn": "build debug bridges",
+			"dependsOrder": "sequence",
 			"problemMatcher": "$tsc-watch",
 			"isBackground": true,
 			"presentation": {

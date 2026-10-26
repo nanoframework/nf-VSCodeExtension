@@ -1,5 +1,6 @@
 using System.Text;
 using nanoFramework.Tools.Debugger;
+using nanoFramework.Tools.Debugger.Compatibility;
 using nanoFramework.Tools.DebugBridge;
 using nanoFramework.Tools.DebugBridge.Symbols;
 
@@ -7,11 +8,10 @@ var tests = new (string Name, Action Run)[]
 {
     ("compatible native assembly", CompatibleNativeAssembly),
     ("missing native assembly", MissingNativeAssembly),
-    ("mismatched native checksum", MismatchedNativeChecksum),
+    ("mismatched native contract hash", MismatchedNativeContractHash),
     ("managed-only assembly", ManagedOnlyAssembly),
     ("concatenated deployment image", ConcatenatedDeploymentImage),
-    ("preview v2 assembly", PreviewV2Assembly),
-    ("v2 firmware rejects v1 assembly", V2FirmwareRejectsV1Assembly),
+    ("v2 assembly", V2Assembly),
     ("preview v2 JSON symbols", PreviewV2JsonSymbols)
 };
 
@@ -32,73 +32,70 @@ if (args.Length > 0)
 
 static void CompatibleNativeAssembly()
 {
-    using var image = CreateImage(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var error = DeploymentCompatibility.Check(
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
+    var result = DeploymentCompatibility.Check(
         [image.Name],
-        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x12345678, new Version(1, 2, 3, 4))]);
+        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x12345678, null)],
+        PeFormat.V2);
 
-    Assert(error == null, error);
+    Assert(result.IsCompatible, result.FormatMessage());
 }
 
 static void MissingNativeAssembly()
 {
-    using var image = CreateImage(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var error = DeploymentCompatibility.Check(imagePaths: [image.Name], deviceAssemblies: []);
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
+    var result = DeploymentCompatibility.Check(
+        [image.Name],
+        Array.Empty<CLRCapabilities.NativeAssemblyProperties>(),
+        PeFormat.V2);
 
-    Assert(error?.Contains("does not have support", StringComparison.Ordinal) == true, error);
+    Assert(result.FormatMessage().Contains("does not have support", StringComparison.Ordinal), result.FormatMessage());
 }
 
-static void MismatchedNativeChecksum()
+static void MismatchedNativeContractHash()
 {
-    using var image = CreateImage(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var error = DeploymentCompatibility.Check(
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
+    var result = DeploymentCompatibility.Check(
         [image.Name],
-        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x87654321, new Version(1, 0, 0, 0))]);
+        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x87654321, null)],
+        PeFormat.V2);
+    var message = result.FormatMessage();
 
-    Assert(error?.Contains("0x12345678", StringComparison.Ordinal) == true, error);
-    Assert(error?.Contains("0x87654321", StringComparison.Ordinal) == true, error);
+    Assert(message.Contains("0x12345678", StringComparison.Ordinal), message);
+    Assert(message.Contains("0x87654321", StringComparison.Ordinal), message);
 }
 
 static void ManagedOnlyAssembly()
 {
-    using var image = CreateImage(("MyApplication", new Version(1, 0, 0, 0), 0));
-    var error = DeploymentCompatibility.Check(imagePaths: [image.Name], deviceAssemblies: []);
+    using var image = CreateV2Image(("MyApplication", new Version(1, 0, 0, 0), 0));
+    var result = DeploymentCompatibility.Check(
+        [image.Name],
+        Array.Empty<CLRCapabilities.NativeAssemblyProperties>(),
+        PeFormat.V2);
 
-    Assert(error == null, error);
+    Assert(result.IsCompatible, result.FormatMessage());
 }
 
 static void ConcatenatedDeploymentImage()
 {
-    using var image = CreateImage(
+    using var image = CreateV2Image(
         ("MyApplication", new Version(1, 0, 0, 0), 0),
         ("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var assemblies = DeploymentCompatibility.ReadAssemblies(image.Name).ToArray();
+    var assemblies = PeFileReader.ReadFile(image.Name);
 
-    Assert(assemblies.Length == 2, $"Expected 2 assemblies, found {assemblies.Length}.");
+    Assert(assemblies.Count == 2, $"Expected 2 assemblies, found {assemblies.Count}.");
     Assert(assemblies[1].Name == "System.Device.Gpio", assemblies[1].Name);
 }
 
-static void PreviewV2Assembly()
+static void V2Assembly()
 {
-    using var image = CreatePreviewImage(("System.Device.Gpio", new Version(2, 0, 0, 0), 0x12345678));
-    var assembly = DeploymentCompatibility.ReadAssemblies(image.Name).Single();
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(2, 0, 0, 0), 0x12345678));
+    var assembly = PeFileReader.ReadFile(image.Name).Single();
 
     Assert(assembly.Name == "System.Device.Gpio", assembly.Name);
     Assert(assembly.Version == new Version(2, 0, 0, 0), assembly.Version.ToString());
-    Assert(assembly.NativeContractHash == 0x12345678, $"0x{assembly.NativeContractHash:X8}");
+    Assert(assembly.NativeHash == 0x12345678, $"0x{assembly.NativeHash:X8}");
     Assert(assembly.Format == PeFormat.V2, assembly.Format.ToString());
-}
-
-static void V2FirmwareRejectsV1Assembly()
-{
-    using var image = CreateImage(("Legacy.Library", new Version(1, 0, 0, 0), 0));
-    var error = DeploymentCompatibility.Check(
-        [image.Name],
-        deviceAssemblies: [],
-        nanoClrVersion: new Version(2, 0, 0, 0));
-
-    Assert(error?.Contains("V1 (NFMRK1)", StringComparison.Ordinal) == true, error);
-    Assert(error?.Contains("V2 (NFMRK2)", StringComparison.Ordinal) == true, error);
 }
 
 static void PreviewV2JsonSymbols()
@@ -136,10 +133,7 @@ static void PreviewV2JsonSymbols()
             "Windows and WSL source paths should match.");
 }
 
-static TemporaryImage CreateImage(params (string Name, Version Version, uint Checksum)[] assemblies)
-    => CreateImageFile("NFMRK1", 28, 36, 40, 16, 108, 124, 11, 15, assemblies);
-
-static TemporaryImage CreatePreviewImage(params (string Name, Version Version, uint Checksum)[] assemblies)
+static TemporaryImage CreateV2Image(params (string Name, Version Version, uint Checksum)[] assemblies)
     => CreateImageFile("NFMRK2", 24, 32, 36, 18, 108, 128, 13, 17, assemblies);
 
 static TemporaryImage CreateImageFile(

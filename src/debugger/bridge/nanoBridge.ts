@@ -20,6 +20,56 @@ import {
 } from '../nanoRuntime';
 import { DebugProtocol } from '@vscode/debugprotocol';
 
+export type BridgeFamily = 1 | 2;
+
+function readBridgeFamily(inputPath: string | undefined): BridgeFamily | undefined {
+    if (!inputPath || !fs.existsSync(inputPath)) {
+        return undefined;
+    }
+
+    const candidates = fs.statSync(inputPath).isDirectory()
+        ? fs.readdirSync(inputPath)
+            .filter(file => file.toLowerCase().endsWith('.pe'))
+            .map(file => path.join(inputPath, file))
+        : [inputPath];
+
+    for (const candidate of candidates) {
+        if (!fs.statSync(candidate).isFile()) {
+            continue;
+        }
+        const descriptor = fs.openSync(candidate, 'r');
+        try {
+            const marker = Buffer.alloc(6);
+            if (fs.readSync(descriptor, marker, 0, marker.length, 0) === marker.length) {
+                if (marker.equals(Buffer.from('NFMRK2'))) {
+                    return 2;
+                }
+                if (marker.equals(Buffer.from('NFMRK1'))) {
+                    return 1;
+                }
+            }
+        } finally {
+            fs.closeSync(descriptor);
+        }
+    }
+
+    return undefined;
+}
+
+export function detectBridgeFamily(inputPath: string | undefined, fallback: BridgeFamily = 1): BridgeFamily {
+    return readBridgeFamily(inputPath) ?? fallback;
+}
+
+export function detectBridgeFamilyFromPaths(paths: string[], fallback: BridgeFamily = 1): BridgeFamily {
+    const families = new Set(paths
+        .map(readBridgeFamily)
+        .filter((family): family is BridgeFamily => family !== undefined));
+    if (families.size > 1) {
+        throw new Error('Cannot use a mixture of nanoFramework v1 and v2 assemblies.');
+    }
+    return families.values().next().value ?? fallback;
+}
+
 /**
  * Message types for bridge communication
  */
@@ -62,10 +112,19 @@ export class NanoBridge extends EventEmitter {
     private _buffer = '';
     private _device?: string;
     private readonly _executionKind: ExecutionKind;
+    private _family: BridgeFamily;
 
-    constructor(executionKind: ExecutionKind = 'debug') {
+    constructor(executionKind: ExecutionKind = 'debug', family: BridgeFamily = 1) {
         super();
         this._executionKind = executionKind;
+        this._family = family;
+    }
+
+    public setFamily(family: BridgeFamily): void {
+        if (this._process) {
+            throw new Error('Cannot change debug bridge family after the process has started.');
+        }
+        this._family = family;
     }
 
     /**
@@ -398,7 +457,15 @@ export class NanoBridge extends EventEmitter {
      * Get the path to the bridge assembly
      */
     private getBridgePath(): string {
-        return path.join(__dirname, '..', '..', '..', 'bin', 'nanoDebugBridge', 'nanoFramework.Tools.DebugBridge.dll');
+        return path.join(
+            __dirname,
+            '..',
+            '..',
+            '..',
+            'bin',
+            'nanoDebugBridge',
+            `v${this._family}`,
+            'nanoFramework.Tools.DebugBridge.dll');
     }
 
     /**

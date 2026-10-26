@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>nanoFramework.Tools.DebugBridge</RootNamespace>
+    <AssemblyName>nanoFramework.Tools.DebugBridge</AssemblyName>
+    <Description>Debug bridge process for VS Code nanoFramework v1 debugging</Description>
+    <Authors>.NET Foundation and Contributors</Authors>
+    <Company>nanoframework</Company>
+    <Copyright>Copyright (c) .NET Foundation and Contributors</Copyright>
+    <SelfContained>false</SelfContained>
+    <UseAppHost>false</UseAppHost>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="2.5.28" />
+    <PackageReference Include="System.IO.Ports" Version="9.*" />
+    <PackageReference Include="System.Text.Json" Version="9.*" />
+    <PackageReference Include="System.Reflection.Metadata" Version="9.*" />
+    <PackageReference Include="Mono.Cecil" Version="0.11.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="DeploymentCompatibilityService.cs" />
+  </ItemGroup>
+
+  <Import Project="..\nanoFramework.Tools.DebugBridge.Shared\nanoFramework.Tools.DebugBridge.Shared.projitems" />
+
+</Project>

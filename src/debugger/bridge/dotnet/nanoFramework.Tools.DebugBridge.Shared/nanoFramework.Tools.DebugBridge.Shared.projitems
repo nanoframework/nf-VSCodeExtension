@@ -1,0 +1,13 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <DebugBridgeSharedRoot>$(MSBuildThisFileDirectory)</DebugBridgeSharedRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(DebugBridgeSharedRoot)Program.cs" Link="Program.cs" />
+    <Compile Include="$(DebugBridgeSharedRoot)DebugBridgeSession.cs" Link="DebugBridgeSession.cs" />
+    <Compile Include="$(DebugBridgeSharedRoot)Commands\**\*.cs" Link="Commands\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(DebugBridgeSharedRoot)Protocol\**\*.cs" Link="Protocol\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(DebugBridgeSharedRoot)Symbols\**\*.cs" Link="Symbols\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

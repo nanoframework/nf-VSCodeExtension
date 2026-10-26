@@ -3850,11 +3850,7 @@ public class DebugBridgeSession : IDisposable
 
         try
         {
-            var error = DeploymentCompatibility.Check(
-                imagePaths,
-                _engine.Capabilities.NativeAssemblies,
-                _engine.Capabilities.ClrInfo.clrVersion);
-            return new CompatibilityResult(error == null, error);
+            return DeploymentCompatibilityService.Check(imagePaths, _engine);
         }
         catch (Exception ex)
         {

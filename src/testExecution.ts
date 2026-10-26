@@ -419,7 +419,7 @@ export async function runTestsOnHardware(
             return { completed: false, results: [], rawOutput: '', runError: 'Cancelled' };
         }
 
-        const bridge = new nanoBridgeClass('test');
+        const bridge = new nanoBridgeClass('test', getProjectFamily(projectDir));
         let rawOutput = '';
 
         try {

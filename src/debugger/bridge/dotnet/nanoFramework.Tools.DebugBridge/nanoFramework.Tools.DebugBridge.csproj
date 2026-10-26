@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RootNamespace>nanoFramework.Tools.DebugBridge</RootNamespace>
     <AssemblyName>nanoFramework.Tools.DebugBridge</AssemblyName>
     <Description>Debug bridge process for VS Code nanoFramework debugging</Description>
@@ -23,7 +24,7 @@
 
   <ItemGroup>
     <!-- Reference to nf-debugger library -->
-    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="*" />
+    <PackageReference Include="nanoFramework.Tools.Debugger.Net" Version="3.0.0-preview.28" />
     <PackageReference Include="System.IO.Ports" Version="9.*" />
     <PackageReference Include="System.Text.Json" Version="9.*" />
     <!-- For parsing portable PDB files to extract source line information -->
@@ -33,7 +34,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Compatibility\DeploymentCompatibilityService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="nanoFramework.Tools.DebugBridge.Tests" />
   </ItemGroup>
+
+  <Import Project="..\nanoFramework.Tools.DebugBridge.Shared\nanoFramework.Tools.DebugBridge.Shared.projitems" />
 
 </Project>
