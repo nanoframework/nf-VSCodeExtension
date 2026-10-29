@@ -109,7 +109,12 @@ suite('Extension Test Suite', () => {
 		try {
 			assert.strictEqual(detectBridgeFamily(v1Assembly), 1);
 			assert.strictEqual(detectBridgeFamily(v2Assembly), 2);
+			assert.throws(
+				() => detectBridgeFamily(directory),
+				/cannot use a mixture of nanoFramework v1 and v2/i);
+			fs.rmSync(v2Assembly);
 			assert.strictEqual(detectBridgeFamily(directory, 2), 1);
+			fs.writeFileSync(v2Assembly, Buffer.from('NFMRK2'));
 			assert.throws(
 				() => detectBridgeFamilyFromPaths([v1Assembly, v2Assembly]),
 				/cannot use a mixture of nanoFramework v1 and v2/i);

@@ -389,7 +389,10 @@ export async function runTestsOnHardware(
 ): Promise<TestRunResult> {
     // Lazy-import NanoBridge to avoid circular dependency on the debugger module
     // at file-parse time.
-    const { NanoBridge: nanoBridgeClass } = await import('./debugger/bridge/nanoBridge');
+    const {
+        NanoBridge: nanoBridgeClass,
+        detectBridgeFamilyFromPaths
+    } = await import('./debugger/bridge/nanoBridge');
 
     const assembliesPath = path.join(projectDir, 'bin', configuration);
     const peFiles = findPeFiles(projectDir, configuration);
@@ -399,6 +402,18 @@ export async function runTestsOnHardware(
             results: [],
             rawOutput: '',
             runError: `No .pe files found in ${assembliesPath}. Build may have failed.`
+        };
+    }
+
+    let bridgeFamily: 1 | 2;
+    try {
+        bridgeFamily = detectBridgeFamilyFromPaths(peFiles);
+    } catch (error) {
+        return {
+            completed: false,
+            results: [],
+            rawOutput: '',
+            runError: error instanceof Error ? error.message : String(error)
         };
     }
 
@@ -419,7 +434,7 @@ export async function runTestsOnHardware(
             return { completed: false, results: [], rawOutput: '', runError: 'Cancelled' };
         }
 
-        const bridge = new nanoBridgeClass('test', getProjectFamily(projectDir));
+        const bridge = new nanoBridgeClass('test', bridgeFamily);
         let rawOutput = '';
 
         try {

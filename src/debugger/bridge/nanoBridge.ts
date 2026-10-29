@@ -33,6 +33,7 @@ function readBridgeFamily(inputPath: string | undefined): BridgeFamily | undefin
             .map(file => path.join(inputPath, file))
         : [inputPath];
 
+    const families = new Set<BridgeFamily>();
     for (const candidate of candidates) {
         if (!fs.statSync(candidate).isFile()) {
             continue;
@@ -42,10 +43,10 @@ function readBridgeFamily(inputPath: string | undefined): BridgeFamily | undefin
             const marker = Buffer.alloc(6);
             if (fs.readSync(descriptor, marker, 0, marker.length, 0) === marker.length) {
                 if (marker.equals(Buffer.from('NFMRK2'))) {
-                    return 2;
+                    families.add(2);
                 }
                 if (marker.equals(Buffer.from('NFMRK1'))) {
-                    return 1;
+                    families.add(1);
                 }
             }
         } finally {
@@ -53,7 +54,10 @@ function readBridgeFamily(inputPath: string | undefined): BridgeFamily | undefin
         }
     }
 
-    return undefined;
+    if (families.size > 1) {
+        throw new Error('Cannot use a mixture of nanoFramework v1 and v2 assemblies.');
+    }
+    return families.values().next().value;
 }
 
 export function detectBridgeFamily(inputPath: string | undefined, fallback: BridgeFamily = 1): BridgeFamily {

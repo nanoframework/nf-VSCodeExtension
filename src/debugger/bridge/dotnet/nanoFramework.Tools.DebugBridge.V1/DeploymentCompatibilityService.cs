@@ -57,7 +57,7 @@ internal static class DeploymentCompatibilityService
         return new CompatibilityResult(false, message);
     }
 
-    private static IEnumerable<V1AssemblyInfo> ReadAssemblies(string imagePath)
+    internal static IEnumerable<V1AssemblyInfo> ReadAssemblies(string imagePath)
     {
         var data = File.ReadAllBytes(imagePath);
         var offset = 0;
@@ -89,13 +89,35 @@ internal static class DeploymentCompatibilityService
                 name,
                 version,
                 BitConverter.ToUInt32(data, offset + NativeChecksumOffset));
-            offset = (offset + totalSize + 3) & ~3;
+
+            var assemblyEnd = offset + totalSize;
+            var alignedEnd = Math.Min((assemblyEnd + 3) & ~3, data.Length);
+            if (data.AsSpan(assemblyEnd, alignedEnd - assemblyEnd).IndexOfAnyExcept((byte)0) >= 0)
+            {
+                throw new InvalidDataException(
+                    $"Non-zero alignment padding after a nanoFramework v1 assembly in '{imagePath}'.");
+            }
+
+            offset = alignedEnd;
         }
 
         if (offset == 0)
         {
             throw new InvalidDataException($"'{imagePath}' is not a nanoFramework v1 deployment image.");
         }
+
+        if (offset < data.Length && !IsFiller(data.AsSpan(offset)))
+        {
+            throw new InvalidDataException(
+                $"Unexpected data after the last nanoFramework v1 assembly in '{imagePath}'.");
+        }
+    }
+
+    private static bool IsFiller(ReadOnlySpan<byte> data)
+    {
+        var filler = data[0];
+        return (filler == 0x00 || filler == 0xFF)
+            && data.IndexOfAnyExcept(filler) < 0;
     }
 
     private static string ReadAssemblyName(
@@ -135,5 +157,5 @@ internal static class DeploymentCompatibilityService
         return Encoding.UTF8.GetString(data, nameOffset, terminator - nameOffset);
     }
 
-    private sealed record V1AssemblyInfo(string Name, Version Version, uint Checksum);
+    internal sealed record V1AssemblyInfo(string Name, Version Version, uint Checksum);
 }

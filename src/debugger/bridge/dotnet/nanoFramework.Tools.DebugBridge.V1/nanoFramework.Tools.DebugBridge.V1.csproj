@@ -30,6 +30,10 @@
     <Compile Include="DeploymentCompatibilityService.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="nanoFramework.Tools.DebugBridge.V1.Tests" />
+  </ItemGroup>
+
   <Import Project="..\nanoFramework.Tools.DebugBridge.Shared\nanoFramework.Tools.DebugBridge.Shared.projitems" />
 
 </Project>
