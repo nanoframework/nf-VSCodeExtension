@@ -11,7 +11,13 @@ import * as path from 'path';
 // as well as import your extension to test it
 import * as vscode from 'vscode';
 import { NfProject } from '../../createProject';
-import { fromBridgePath, NanoBridge, toBridgePath } from '../../debugger/bridge/nanoBridge';
+import {
+	detectBridgeFamily,
+	detectBridgeFamilyFromPaths,
+	fromBridgePath,
+	NanoBridge,
+	toBridgePath
+} from '../../debugger/bridge/nanoBridge';
 import { getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
 import { ExecutionKind, Executor } from '../../executor';
 import { NuGetManager, NuGetService, selectNugetSources } from '../../nuget';
@@ -91,6 +97,30 @@ suite('Extension Test Suite', () => {
 		assert.strictEqual(fromBridgePath(wslPath, 'win32'), windowsPath);
 		assert.strictEqual(fromBridgePath(windowsPath, 'win32'), windowsPath);
 		assert.strictEqual(fromBridgePath(wslPath, 'linux'), wslPath);
+	});
+
+	test('Selects the debug bridge from assembly format', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-bridge-family-'));
+		const v1Assembly = path.join(directory, 'v1.pe');
+		const v2Assembly = path.join(directory, 'v2.pe');
+		fs.writeFileSync(v1Assembly, Buffer.from('NFMRK1'));
+		fs.writeFileSync(v2Assembly, Buffer.from('NFMRK2'));
+
+		try {
+			assert.strictEqual(detectBridgeFamily(v1Assembly), 1);
+			assert.strictEqual(detectBridgeFamily(v2Assembly), 2);
+			assert.throws(
+				() => detectBridgeFamily(directory),
+				/cannot use a mixture of nanoFramework v1 and v2/i);
+			fs.rmSync(v2Assembly);
+			assert.strictEqual(detectBridgeFamily(directory, 2), 1);
+			fs.writeFileSync(v2Assembly, Buffer.from('NFMRK2'));
+			assert.throws(
+				() => detectBridgeFamilyFromPaths([v1Assembly, v2Assembly]),
+				/cannot use a mixture of nanoFramework v1 and v2/i);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	test('Uses the same breakpoint ID when setting and removing a breakpoint', async () => {

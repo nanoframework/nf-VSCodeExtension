@@ -114,6 +114,14 @@
                   "debug"
                 ],
                 "default": "none"
+              },
+              "runtimeVersion": {
+                "type": "number",
+                "description": "nanoCLR major version. Usually inferred from deployed assemblies; set this when attaching without a program path.",
+                "enum": [
+                  1,
+                  2
+                ]
               }
             }
           },
@@ -151,6 +159,14 @@
                   "debug"
                 ],
                 "default": "none"
+              },
+              "runtimeVersion": {
+                "type": "number",
+                "description": "nanoCLR major version. Usually inferred from the program assemblies; set this when they are unavailable.",
+                "enum": [
+                  1,
+                  2
+                ]
               }
             }
           }

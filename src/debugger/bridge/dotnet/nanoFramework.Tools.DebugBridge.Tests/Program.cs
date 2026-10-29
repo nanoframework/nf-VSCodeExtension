@@ -1,5 +1,6 @@
 using System.Text;
 using nanoFramework.Tools.Debugger;
+using nanoFramework.Tools.Debugger.Compatibility;
 using nanoFramework.Tools.DebugBridge;
 using nanoFramework.Tools.DebugBridge.Symbols;
 
@@ -7,10 +8,10 @@ var tests = new (string Name, Action Run)[]
 {
     ("compatible native assembly", CompatibleNativeAssembly),
     ("missing native assembly", MissingNativeAssembly),
-    ("mismatched native checksum", MismatchedNativeChecksum),
+    ("mismatched native contract hash", MismatchedNativeContractHash),
     ("managed-only assembly", ManagedOnlyAssembly),
     ("concatenated deployment image", ConcatenatedDeploymentImage),
-    ("preview v2 assembly", PreviewV2Assembly),
+    ("v2 assembly", V2Assembly),
     ("preview v2 JSON symbols", PreviewV2JsonSymbols)
 };
 
@@ -31,60 +32,70 @@ if (args.Length > 0)
 
 static void CompatibleNativeAssembly()
 {
-    using var image = CreateImage(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var error = DeploymentCompatibility.Check(
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
+    var result = DeploymentCompatibility.Check(
         [image.Name],
-        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x12345678, new Version(1, 2, 3, 4))]);
+        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x12345678, null)],
+        PeFormat.V2);
 
-    Assert(error == null, error);
+    Assert(result.IsCompatible, result.FormatMessage());
 }
 
 static void MissingNativeAssembly()
 {
-    using var image = CreateImage(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var error = DeploymentCompatibility.Check(imagePaths: [image.Name], deviceAssemblies: []);
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
+    var result = DeploymentCompatibility.Check(
+        [image.Name],
+        Array.Empty<CLRCapabilities.NativeAssemblyProperties>(),
+        PeFormat.V2);
 
-    Assert(error?.Contains("not present", StringComparison.Ordinal) == true, error);
+    Assert(result.FormatMessage().Contains("does not have support", StringComparison.Ordinal), result.FormatMessage());
 }
 
-static void MismatchedNativeChecksum()
+static void MismatchedNativeContractHash()
 {
-    using var image = CreateImage(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var error = DeploymentCompatibility.Check(
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
+    var result = DeploymentCompatibility.Check(
         [image.Name],
-        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x87654321, new Version(1, 0, 0, 0))]);
+        [new CLRCapabilities.NativeAssemblyProperties("System.Device.Gpio", 0x87654321, null)],
+        PeFormat.V2);
+    var message = result.FormatMessage();
 
-    Assert(error?.Contains("0x12345678", StringComparison.Ordinal) == true, error);
-    Assert(error?.Contains("0x87654321", StringComparison.Ordinal) == true, error);
+    Assert(message.Contains("0x12345678", StringComparison.Ordinal), message);
+    Assert(message.Contains("0x87654321", StringComparison.Ordinal), message);
 }
 
 static void ManagedOnlyAssembly()
 {
-    using var image = CreateImage(("MyApplication", new Version(1, 0, 0, 0), 0));
-    var error = DeploymentCompatibility.Check(imagePaths: [image.Name], deviceAssemblies: []);
+    using var image = CreateV2Image(("MyApplication", new Version(1, 0, 0, 0), 0));
+    var result = DeploymentCompatibility.Check(
+        [image.Name],
+        Array.Empty<CLRCapabilities.NativeAssemblyProperties>(),
+        PeFormat.V2);
 
-    Assert(error == null, error);
+    Assert(result.IsCompatible, result.FormatMessage());
 }
 
 static void ConcatenatedDeploymentImage()
 {
-    using var image = CreateImage(
+    using var image = CreateV2Image(
         ("MyApplication", new Version(1, 0, 0, 0), 0),
         ("System.Device.Gpio", new Version(1, 2, 3, 4), 0x12345678));
-    var assemblies = DeploymentCompatibility.ReadAssemblies(image.Name).ToArray();
+    var assemblies = PeFileReader.ReadFile(image.Name);
 
-    Assert(assemblies.Length == 2, $"Expected 2 assemblies, found {assemblies.Length}.");
+    Assert(assemblies.Count == 2, $"Expected 2 assemblies, found {assemblies.Count}.");
     Assert(assemblies[1].Name == "System.Device.Gpio", assemblies[1].Name);
 }
 
-static void PreviewV2Assembly()
+static void V2Assembly()
 {
-    using var image = CreatePreviewImage(("System.Device.Gpio", new Version(2, 0, 0, 0), 0x12345678));
-    var assembly = DeploymentCompatibility.ReadAssemblies(image.Name).Single();
+    using var image = CreateV2Image(("System.Device.Gpio", new Version(2, 0, 0, 0), 0x12345678));
+    var assembly = PeFileReader.ReadFile(image.Name).Single();
 
     Assert(assembly.Name == "System.Device.Gpio", assembly.Name);
     Assert(assembly.Version == new Version(2, 0, 0, 0), assembly.Version.ToString());
-    Assert(assembly.Checksum == 0x12345678, $"0x{assembly.Checksum:X8}");
+    Assert(assembly.NativeHash == 0x12345678, $"0x{assembly.NativeHash:X8}");
+    Assert(assembly.Format == PeFormat.V2, assembly.Format.ToString());
 }
 
 static void PreviewV2JsonSymbols()
@@ -122,16 +133,19 @@ static void PreviewV2JsonSymbols()
             "Windows and WSL source paths should match.");
 }
 
-static TemporaryImage CreateImage(params (string Name, Version Version, uint Checksum)[] assemblies)
-    => CreateImageFile("NFMRK1", 28, 36, assemblies);
-
-static TemporaryImage CreatePreviewImage(params (string Name, Version Version, uint Checksum)[] assemblies)
-    => CreateImageFile("NFMRK2", 24, 32, assemblies);
+static TemporaryImage CreateV2Image(params (string Name, Version Version, uint Checksum)[] assemblies)
+    => CreateImageFile("NFMRK2", 24, 32, 36, 18, 108, 128, 13, 17, assemblies);
 
 static TemporaryImage CreateImageFile(
     string marker,
     int versionOffset,
     int assemblyNameOffset,
+    int tablesOffset,
+    int tableCount,
+    int tablePaddingOffset,
+    int headerSize,
+    int stringsTableIndex,
+    int endOfAssemblyTableIndex,
     params (string Name, Version Version, uint Checksum)[] assemblies)
 {
     var path = Path.Combine(Path.GetTempPath(), $"nf-deployment-{Guid.NewGuid():N}.bin");
@@ -139,7 +153,9 @@ static TemporaryImage CreateImageFile(
 
     foreach (var assembly in assemblies)
     {
-        var data = new byte[160];
+        var name = Encoding.UTF8.GetBytes(assembly.Name);
+        var assemblySize = headerSize + name.Length + 1;
+        var data = new byte[assemblySize];
         Encoding.ASCII.GetBytes(marker).CopyTo(data, 0);
         BitConverter.GetBytes(assembly.Checksum).CopyTo(data, 20);
         BitConverter.GetBytes((ushort)assembly.Version.Major).CopyTo(data, versionOffset);
@@ -147,10 +163,21 @@ static TemporaryImage CreateImageFile(
         BitConverter.GetBytes((ushort)assembly.Version.Build).CopyTo(data, versionOffset + 4);
         BitConverter.GetBytes((ushort)assembly.Version.Revision).CopyTo(data, versionOffset + 6);
         BitConverter.GetBytes((ushort)0).CopyTo(data, assemblyNameOffset);
-        BitConverter.GetBytes((uint)120).CopyTo(data, 40 + 11 * sizeof(uint));
-        BitConverter.GetBytes((uint)data.Length).CopyTo(data, 40 + 15 * sizeof(uint));
-        Encoding.UTF8.GetBytes(assembly.Name).CopyTo(data, 120);
+        for (var tableIndex = 0; tableIndex < tableCount; tableIndex++)
+        {
+            var tableStart = tableIndex <= stringsTableIndex ? headerSize : assemblySize;
+            BitConverter.GetBytes((uint)tableStart).CopyTo(data, tablesOffset + tableIndex * sizeof(uint));
+        }
+        BitConverter.GetBytes((uint)assemblySize).CopyTo(
+            data,
+            tablesOffset + endOfAssemblyTableIndex * sizeof(uint));
+        data[tablePaddingOffset + stringsTableIndex] = 0;
+        name.CopyTo(data, headerSize);
         output.Write(data);
+        while (output.Position % sizeof(uint) != 0)
+        {
+            output.WriteByte(0);
+        }
     }
 
     return new TemporaryImage(path);

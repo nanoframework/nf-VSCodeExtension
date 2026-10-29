@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { EventEmitter } from 'events';
-import { NanoBridge } from './bridge/nanoBridge';
+import { BridgeFamily, detectBridgeFamily, NanoBridge } from './bridge/nanoBridge';
 import { DebugProtocol } from '@vscode/debugprotocol';
 import * as os from 'os';
 import * as nodePath from 'path';
@@ -213,13 +213,22 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Start debugging - deploy and run
      */
-    public async start(program: string, device?: string, stopOnEntry?: boolean, verbose?: boolean, verbosity?: string): Promise<boolean> {
+    public async start(
+        program: string,
+        device?: string,
+        stopOnEntry?: boolean,
+        verbose?: boolean,
+        verbosity?: string,
+        runtimeVersion?: BridgeFamily
+    ): Promise<boolean> {
         this._verbose = verbose || false;
         this._verbosity = verbosity || (verbose ? 'debug' : 'none');
         
         this.log(`Starting debug session for ${program}`);
         
         try {
+            this._bridge.setFamily(runtimeVersion ?? detectBridgeFamily(program));
+
             // Initialize the bridge
             if (!await this._bridge.initialize(device, verbose, verbosity)) {
                 this.log('Failed to initialize bridge');
@@ -281,13 +290,21 @@ export class NanoRuntime extends EventEmitter {
     /**
      * Attach to a running device
      */
-    public async attach(device: string, program?: string, verbose?: boolean, verbosity?: string): Promise<boolean> {
+    public async attach(
+        device: string,
+        program?: string,
+        verbose?: boolean,
+        verbosity?: string,
+        runtimeVersion?: BridgeFamily
+    ): Promise<boolean> {
         this._verbose = verbose || false;
         this._verbosity = verbosity || (verbose ? 'debug' : 'none');
         
         this.log(`Attaching to device: ${device}`);
         
         try {
+            this._bridge.setFamily(runtimeVersion ?? detectBridgeFamily(program));
+
             // Initialize the bridge
             if (!await this._bridge.initialize(device, verbose, verbosity)) {
                 this.log('Failed to initialize bridge');

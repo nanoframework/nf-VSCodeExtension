@@ -356,7 +356,7 @@ The debugging system consists of three main components:
 │  └──────────────────────┬───────────────────────────────┘   │
 │                         │ JSON-RPC                           │
 │  ┌──────────────────────┴───────────────────────────────┐   │
-│  │ .NET Bridge (DebugBridgeSession, SymbolResolver)     │   │
+│  │ .NET Bridge v1 or v2 (shared session and symbols)    │   │
 │  └──────────────────────┬───────────────────────────────┘   │
 │                         │ Wire Protocol                      │
 └─────────────────────────┼────────────────────────────────────┘
@@ -373,7 +373,7 @@ The debugging system consists of three main components:
 ### Components
 
 1. **TypeScript Debug Adapter**: Handles DAP communication with VS Code
-2. **.NET Debug Bridge**: Uses nf-debugger library to communicate with device
+2. **.NET Debug Bridges**: The v1 bridge uses nf-debugger 2.x and the v2 bridge uses nf-debugger 3.x. Both compile the same shared bridge session, protocol, and symbol sources. The adapter selects a bridge from the deployed PE format. For attach sessions without accessible assemblies, set `runtimeVersion` to `1` or `2` in the debug configuration.
 3. **Symbol Resolver**: Maps source locations to IL offsets using .pdbx and .pdb files
 4. **Wire Protocol**: Low-level communication with the nanoFramework device
 

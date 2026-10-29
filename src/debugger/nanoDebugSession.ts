@@ -21,6 +21,7 @@ import { DebugProtocol } from '@vscode/debugprotocol';
 import { NanoRuntime, INanoBreakpoint } from './nanoRuntime';
 import { Subject } from './utils/subject';
 import * as path from 'path';
+import { BridgeFamily } from './bridge/nanoBridge';
 
 /**
  * Launch request arguments for nanoFramework debugging
@@ -36,6 +37,8 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     verbose?: boolean;
     /** Verbosity level: 'none', 'information', or 'debug' */
     verbosity?: string;
+    /** nanoCLR major version used to choose the compatible debug bridge */
+    runtimeVersion?: BridgeFamily;
     /** Working directory */
     cwd?: string;
 }
@@ -52,6 +55,8 @@ interface IAttachRequestArguments extends DebugProtocol.AttachRequestArguments {
     verbose?: boolean;
     /** Verbosity level: 'none', 'information', or 'debug' */
     verbosity?: string;
+    /** nanoCLR major version used when the program path cannot be inspected */
+    runtimeVersion?: BridgeFamily;
 }
 
 /**
@@ -260,7 +265,8 @@ export class NanoDebugSession extends LoggingDebugSession {
                 args.device,
                 !!args.stopOnEntry,
                 args.verbose || false,
-                args.verbosity
+                args.verbosity,
+                args.runtimeVersion
             );
 
             if (!success) {
@@ -303,7 +309,8 @@ export class NanoDebugSession extends LoggingDebugSession {
                 args.device,
                 args.program,
                 args.verbose || false,
-                args.verbosity
+                args.verbosity,
+                args.runtimeVersion
             );
 
             if (!success) {
