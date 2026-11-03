@@ -21,13 +21,8 @@ internal static class DeploymentCompatibilityService
 
         foreach (var imagePath in imagePaths)
         {
-            foreach (var assembly in ReadAssemblies(imagePath))
+            foreach (var assembly in ReadNativeAssemblies(imagePath))
             {
-                if (assembly.Checksum == 0)
-                {
-                    continue;
-                }
-
                 if (!deviceByName.TryGetValue(assembly.Name, out var nativeAssembly))
                 {
                     errors.Add(
@@ -57,7 +52,7 @@ internal static class DeploymentCompatibilityService
         return new CompatibilityResult(false, message);
     }
 
-    internal static IEnumerable<V1AssemblyInfo> ReadAssemblies(string imagePath)
+    internal static IEnumerable<V1AssemblyInfo> ReadNativeAssemblies(string imagePath)
     {
         var data = File.ReadAllBytes(imagePath);
         var offset = 0;
@@ -73,22 +68,24 @@ internal static class DeploymentCompatibilityService
                 throw new InvalidDataException($"Invalid nanoFramework v1 assembly size in '{imagePath}'.");
             }
 
-            var version = new Version(
-                BitConverter.ToUInt16(data, offset + VersionOffset),
-                BitConverter.ToUInt16(data, offset + VersionOffset + 2),
-                BitConverter.ToUInt16(data, offset + VersionOffset + 4),
-                BitConverter.ToUInt16(data, offset + VersionOffset + 6));
-            var name = ReadAssemblyName(
-                data,
-                offset,
-                totalSize,
-                BitConverter.ToUInt16(data, offset + AssemblyNameOffset),
-                imagePath);
+            var checksum = BitConverter.ToUInt32(data, offset + NativeChecksumOffset);
+            // Managed-only assemblies need no native compatibility check or name resolution.
+            if (checksum != 0)
+            {
+                var version = new Version(
+                    BitConverter.ToUInt16(data, offset + VersionOffset),
+                    BitConverter.ToUInt16(data, offset + VersionOffset + 2),
+                    BitConverter.ToUInt16(data, offset + VersionOffset + 4),
+                    BitConverter.ToUInt16(data, offset + VersionOffset + 6));
+                var name = ReadAssemblyName(
+                    data,
+                    offset,
+                    totalSize,
+                    BitConverter.ToUInt16(data, offset + AssemblyNameOffset),
+                    imagePath);
 
-            yield return new V1AssemblyInfo(
-                name,
-                version,
-                BitConverter.ToUInt32(data, offset + NativeChecksumOffset));
+                yield return new V1AssemblyInfo(name, version, checksum);
+            }
 
             var assemblyEnd = offset + totalSize;
             var alignedEnd = Math.Min((assemblyEnd + 3) & ~3, data.Length);

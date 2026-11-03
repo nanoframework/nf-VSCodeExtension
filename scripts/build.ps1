@@ -83,8 +83,8 @@ $vsExtensions = @(
 )
 $templates = @('CS.BlankApplication-vs2022', 'CS.ClassLibrary-vs2022', 'CS.TestApplication-vs2022')
 $previewMetadataTask = @{
-    Version = "4.0.0-preview.101"
-    Sha256 = "3DE4B40135D7FA13C11C74AA97C4D08439C63080588C8F338924D3F94EAF4B53"
+    Version = "4.0.0-preview.108"
+    Sha256 = "4C77A080E8054648AA944242C7F4081CD307211A4D7775C7CD11787E026EE928"
 }
 $previewMetadataTask.Url = "https://api.nuget.org/v3-flatcontainer/nanoframework.tools.metadataprocessor.msbuildtask/$($previewMetadataTask.Version)/nanoframework.tools.metadataprocessor.msbuildtask.$($previewMetadataTask.Version).nupkg"
 
