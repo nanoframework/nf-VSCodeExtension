@@ -778,8 +778,8 @@ function buildNanoFrameworkProjectSystemPath(toolPath: string, fileUri: string):
     return nfPath.replace(/\\/g, '/') + '/';
 }
 
-function getPreviewWslMetadataTaskPath(fileUri: string, nfProjectSystemPath: string): string | undefined {
-    if (!Executor.shouldUseWsl('build') || getProjectFamily(fileUri) !== 2) {
+export function getPreviewMetadataTaskPath(fileUri: string, nfProjectSystemPath: string): string | undefined {
+    if (isNativeWindowsBuild() || getProjectFamily(fileUri) !== 2) {
         return undefined;
     }
     return path.join(nfProjectSystemPath, 'mdp', 'net8.0').replace(/\\/g, '/');
@@ -844,7 +844,7 @@ export class Dotnet {
             else {
                 const msbuildPath = findUnixMsBuild();
                 const nugetPath = findUnixNuget();
-                const metadataTaskPath = getPreviewWslMetadataTaskPath(fileUri, nfProjectSystemPath);
+                const metadataTaskPath = getPreviewMetadataTaskPath(fileUri, nfProjectSystemPath);
                 
                 if (!metadataTaskPath && !msbuildPath) {
                     vscode.window.showErrorMessage(
@@ -944,7 +944,7 @@ export class Dotnet {
         }
 
         // Use the same build arguments as the regular build command (no custom OutDir)
-        const metadataTaskPath = getPreviewWslMetadataTaskPath(buildTarget, nfProjectSystemPath);
+        const metadataTaskPath = getPreviewMetadataTaskPath(buildTarget, nfProjectSystemPath);
         const metadataTaskArgument = metadataTaskPath ? ` "-p:NF_MDP_MSBUILDTASK_PATH=${metadataTaskPath}"` : '';
         const cliBuildArguments = `-p:platform="Any CPU" -p:Configuration="${configuration}" "-p:NanoFrameworkProjectSystemPath=${nfProjectSystemPath}"${metadataTaskArgument} ${mdpBuildProperties} -verbosity:minimal`;
 
