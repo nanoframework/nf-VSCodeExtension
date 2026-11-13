@@ -209,7 +209,7 @@ steps:
       gitHubConnection: 'github.com_nano-$(System.TeamProject)'
       tagSource: userSpecifiedTag
       tag: v$(NBGV_SimpleVersion)
-      title: '.NET nanoFramework VS Code extension v$(NBGV_SimpleVersion)'
+      title: 'v$(NBGV_SimpleVersion)'
       assets: '$(Build.ArtifactStagingDirectory)/*.vsix'
       isPreRelease: false
       addChangeLog: true
