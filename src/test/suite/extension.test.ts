@@ -4,7 +4,7 @@
 
 import * as assert from 'assert';
 import * as fs from 'fs';
-import * as os from 'os';
+import os from 'os';
 import * as path from 'path';
 
 // You can import and use all API from the 'vscode' module
@@ -18,7 +18,7 @@ import {
 	NanoBridge,
 	toBridgePath
 } from '../../debugger/bridge/nanoBridge';
-import { getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
+import { getPreviewMetadataTaskPath, getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
 import { ExecutionKind, Executor } from '../../executor';
 import { NuGetManager, NuGetService, selectNugetSources } from '../../nuget';
 import { validatePrerequisites } from '../../prerequisites';
@@ -253,6 +253,35 @@ suite('Extension Test Suite', () => {
 		try {
 			assert.strictEqual(getProjectFamily(solutionPath), 2);
 		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Selects the preview metadata task on macOS, Linux, and WSL only for v2', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-preview-build-'));
+		const stableProject = createFamilyProject(directory, 'StableApp', '1.17.11');
+		const previewProject = createFamilyProject(directory, 'PreviewApp', '2.0.0-preview.63');
+		const sdkPath = path.join(directory, 'v2.0');
+		const expectedPath = path.join(sdkPath, 'mdp', 'net8.0').replace(/\\/g, '/');
+		const originalPlatform = os.platform;
+		const originalShouldUseWsl = Executor.shouldUseWsl;
+
+		try {
+			for (const platform of ['darwin', 'linux', 'win32'] as const) {
+				os.platform = () => platform;
+				for (const useWsl of platform === 'win32' ? [false, true] : [false]) {
+					Executor.shouldUseWsl = kind => useWsl && kind === 'build';
+					assert.strictEqual(
+						getPreviewMetadataTaskPath(previewProject, sdkPath),
+						platform === 'win32' && !useWsl ? undefined : expectedPath,
+						`${platform}, WSL=${useWsl}`
+					);
+					assert.strictEqual(getPreviewMetadataTaskPath(stableProject, sdkPath), undefined);
+				}
+			}
+		} finally {
+			os.platform = originalPlatform;
+			Executor.shouldUseWsl = originalShouldUseWsl;
 			fs.rmSync(directory, { recursive: true, force: true });
 		}
 	});

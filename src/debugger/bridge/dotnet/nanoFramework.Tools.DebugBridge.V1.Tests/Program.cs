@@ -8,7 +8,12 @@ var tests = new (string Name, Action Run)[]
     ("erased trailing filler", ErasedTrailingFiller),
     ("appended v2 assembly", AppendedV2Assembly),
     ("invalid trailing data", InvalidTrailingData),
-    ("non-zero alignment padding", NonZeroAlignmentPadding)
+    ("non-zero alignment padding", NonZeroAlignmentPadding),
+    ("managed-only shared name", ManagedOnlySharedName),
+    ("native assembly after managed-only assembly", NativeAssemblyAfterManagedOnlyAssembly),
+    ("native shared core library name", NativeSharedCoreLibraryName),
+    ("unsupported native shared name", UnsupportedNativeSharedName),
+    ("managed-only alignment padding", ManagedOnlyAlignmentPadding)
 };
 
 foreach (var test in tests)
@@ -20,22 +25,23 @@ foreach (var test in tests)
 static void ValidV1Image()
 {
     using var image = CreateImage(CreateAssembly("NFMRK1", "App"));
-    var assemblies = DeploymentCompatibilityService.ReadAssemblies(image.Name).ToArray();
+    var assemblies = DeploymentCompatibilityService.ReadNativeAssemblies(image.Name).ToArray();
 
     Assert(assemblies.Length == 1, $"Expected one assembly, found {assemblies.Length}.");
     Assert(assemblies[0].Name == "App", assemblies[0].Name);
+    Assert(assemblies[0].Checksum == 0x12345678, "Native checksum was not preserved.");
 }
 
 static void ZeroTrailingFiller()
 {
     using var image = CreateImage(CreateAssembly("NFMRK1", "App"), new byte[16]);
-    Assert(DeploymentCompatibilityService.ReadAssemblies(image.Name).Count() == 1, "Zero filler was rejected.");
+    Assert(DeploymentCompatibilityService.ReadNativeAssemblies(image.Name).Count() == 1, "Zero filler was rejected.");
 }
 
 static void ErasedTrailingFiller()
 {
     using var image = CreateImage(CreateAssembly("NFMRK1", "App"), Enumerable.Repeat((byte)0xFF, 16).ToArray());
-    Assert(DeploymentCompatibilityService.ReadAssemblies(image.Name).Count() == 1, "Erased filler was rejected.");
+    Assert(DeploymentCompatibilityService.ReadNativeAssemblies(image.Name).Count() == 1, "Erased filler was rejected.");
 }
 
 static void AppendedV2Assembly()
@@ -60,7 +66,43 @@ static void NonZeroAlignmentPadding()
     AssertInvalid(image.Name, "alignment padding");
 }
 
-static byte[] CreateAssembly(string marker, string name)
+static void ManagedOnlySharedName()
+{
+    using var image = CreateImage(CreateAssembly("NFMRK1", "System.Threading", 0, 0xFE28));
+    Assert(!DeploymentCompatibilityService.ReadNativeAssemblies(image.Name).Any(), "Managed-only assembly was not skipped.");
+}
+
+static void NativeAssemblyAfterManagedOnlyAssembly()
+{
+    using var image = CreateImage(
+        CreateAssembly("NFMRK1", "System.Threading", 0, 0xFE28),
+        CreateAssembly("NFMRK1", "System.Net"));
+    var assemblies = DeploymentCompatibilityService.ReadNativeAssemblies(image.Name).ToArray();
+    Assert(assemblies.Length == 1 && assemblies[0].Name == "System.Net", "Native assembly was skipped.");
+}
+
+static void NativeSharedCoreLibraryName()
+{
+    using var image = CreateImage(CreateAssembly("NFMRK1", "Unused", 0x12345678, 0xFCD2));
+    Assert(DeploymentCompatibilityService.ReadNativeAssemblies(image.Name).Single().Name == "mscorlib", "Core library name was not resolved.");
+}
+
+static void UnsupportedNativeSharedName()
+{
+    using var image = CreateImage(CreateAssembly("NFMRK1", "Unused", 0x12345678, 0xFE28));
+    AssertInvalid(image.Name, "Unsupported shared assembly-name token");
+}
+
+static void ManagedOnlyAlignmentPadding()
+{
+    var assembly = CreateAssembly("NFMRK1", "Even", 0, 0xFE28);
+    Array.Resize(ref assembly, assembly.Length + 1);
+    assembly[^1] = 0x7F;
+    using var image = CreateImage(assembly);
+    AssertInvalid(image.Name, "alignment padding");
+}
+
+static byte[] CreateAssembly(string marker, string name, uint checksum = 0x12345678, ushort nameToken = 0)
 {
     const int headerSize = 124;
     const int tablesOffset = 40;
@@ -70,8 +112,9 @@ static byte[] CreateAssembly(string marker, string name)
     var data = new byte[headerSize + nameBytes.Length + 1];
 
     Encoding.ASCII.GetBytes(marker).CopyTo(data, 0);
+    BitConverter.GetBytes(checksum).CopyTo(data, 20);
     BitConverter.GetBytes((ushort)1).CopyTo(data, 28);
-    BitConverter.GetBytes((ushort)0).CopyTo(data, 36);
+    BitConverter.GetBytes(nameToken).CopyTo(data, 36);
     for (var tableIndex = 0; tableIndex < 16; tableIndex++)
     {
         var tableStart = tableIndex <= stringsTableIndex ? headerSize : data.Length;
@@ -107,7 +150,7 @@ static void AssertInvalid(string path, string expectedMessage)
 {
     try
     {
-        _ = DeploymentCompatibilityService.ReadAssemblies(path).ToArray();
+        _ = DeploymentCompatibilityService.ReadNativeAssemblies(path).ToArray();
         throw new InvalidOperationException("Expected InvalidDataException.");
     }
     catch (InvalidDataException exception)

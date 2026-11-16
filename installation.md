@@ -93,6 +93,19 @@ The following packages/tools/frameworks are required on all platforms:
 
 > **Note:** If you're running into a `langversion:9` error, try installing the latest mono-nightly.
 
+### Preview v2 project builds
+
+On macOS, Linux, and WSL, projects using `nanoFramework.CoreLibrary` 2.x use
+`dotnet msbuild` instead of Mono MSBuild. Install a .NET SDK supporting C# 13
+(.NET 9 or newer) and the NuGet CLI for native macOS/Linux package restore.
+The extension selects its bundled `v2.0/mdp/net8.0` metadata task for both
+Build and Deploy, including terminal and background builds. Native Windows
+builds continue to use Visual Studio MSBuild; v1 builds on Unix still use Mono.
+
+The preview metadata task pinned in [build.ps1](scripts/build.ps1) must support
+the outputs used by the preview SDK targets, including `NativeContractHash`.
+Do not downgrade it to `4.0.0-preview.101`, which lacks that output.
+
 ### Verify PowerShell Installation
 
 Before proceeding, verify PowerShell is installed correctly:
