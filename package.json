@@ -441,7 +441,7 @@
     "@vscode/debugprotocol": "^1.68.0",
     "axios": "^1.21.0",
     "extract-zip": "^2.0.1",
-    "semver": "^7.8.5",
+    "semver": "^7.8.6",
     "serialport": "^13.0.0",
     "typed-rest-client": "^3.1.2"
   }
