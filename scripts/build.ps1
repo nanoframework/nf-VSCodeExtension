@@ -87,6 +87,11 @@ $previewMetadataTask = @{
     Sha256 = "4C77A080E8054648AA944242C7F4081CD307211A4D7775C7CD11787E026EE928"
 }
 $previewMetadataTask.Url = "https://api.nuget.org/v3-flatcontainer/nanoframework.tools.metadataprocessor.msbuildtask/$($previewMetadataTask.Version)/nanoframework.tools.metadataprocessor.msbuildtask.$($previewMetadataTask.Version).nupkg"
+$previewBuildTasks = @{
+    Commit = "20cee067f1023b14d19ad7c45f81ea4e4cbb5f52"
+    Sha256 = "DF6C7CD857E78F9BED1F6483FF1E77B1650BBEC85B22513C54CE0B7F9CE95DBD"
+}
+$previewBuildTasks.Url = "https://codeload.github.com/nanoframework/nanoFramework.NET.Sdk/zip/$($previewBuildTasks.Commit)"
 
 # Clean if requested
 if ($Clean -and (Test-Path $outputDirectory)) {
@@ -196,6 +201,62 @@ try {
             $metadataDestination = Join-Path $sdkDestination "mdp/net8.0"
             New-Item -ItemType Directory -Path $metadataDestination -Force | Out-Null
             Copy-Item -Path (Join-Path $metadataExtractPath "lib/net8.0/*") -Destination $metadataDestination -Force
+
+            # The published BuildTasks package has no assemblies. Build a pinned modern-.NET version.
+            $buildTasksArchive = Join-Path $outputDirectory "build-tasks.zip"
+            $buildTasksExtractPath = Join-Path $outputDirectory "build-tasks"
+            Invoke-Download -Uri $previewBuildTasks.Url -OutFile $buildTasksArchive
+            $actualHash = (Get-FileHash $buildTasksArchive -Algorithm SHA256).Hash
+            if ($actualHash -ne $previewBuildTasks.Sha256) {
+                throw "SHA-256 mismatch for BuildTasks sources. Expected $($previewBuildTasks.Sha256), got $actualHash."
+            }
+            Expand-Archive $buildTasksArchive -DestinationPath $buildTasksExtractPath -Force
+            $buildTasksRoot = Join-Path $buildTasksExtractPath "nanoFramework.NET.Sdk-$($previewBuildTasks.Commit)"
+            $buildTasksProject = Join-Path $buildTasksRoot "nanoFramework.Tools.BuildTasks"
+
+            # Normalize Windows-authored ResXFileRef paths for reading and incremental dependency checks.
+            # Remove these source patches when the pinned upstream includes the fix for Home#1949.
+            $sourcePatches = @(
+                @{
+                    File = "ProcessResourceFiles.CrossPlatform.cs"
+                    Old = "string path = parts[0].Trim();"
+                    New = "string path = parts[0].Trim().Replace('\\', Path.DirectorySeparatorChar);"
+                },
+                @{
+                    File = "GenerateNanoResourceTask.cs"
+                    Old = "retVal.Add(path);"
+                    New = "retVal.Add(path.Replace('\\', Path.DirectorySeparatorChar));"
+                }
+            )
+            foreach ($patch in $sourcePatches) {
+                $sourcePath = Join-Path $buildTasksProject $patch.File
+                $source = [IO.File]::ReadAllText($sourcePath)
+                if (-not $source.Contains($patch.Old)) {
+                    throw "BuildTasks source patch no longer matches $($patch.File)."
+                }
+                [IO.File]::WriteAllText($sourcePath, $source.Replace($patch.Old, $patch.New))
+            }
+
+            $buildTasksDestination = Join-Path $sdkDestination "buildTasks/net8.0"
+            & dotnet build (Join-Path $buildTasksProject "nanoFramework.Tools.BuildTasks.csproj") `
+                -c Release -p:TargetFrameworks=net8.0 -o $buildTasksDestination
+            if ($LASTEXITCODE -ne 0) {
+                throw "Building modern .NET nanoFramework BuildTasks failed."
+            }
+            Copy-Item (Join-Path $buildTasksRoot "LICENSE.md") -Destination $buildTasksDestination
+
+            # Select by MSBuild host, preserving full-framework Windows tasks and explicit overrides.
+            $targetsPath = Join-Path $sdkDestination "NFProjectSystem.MDP.targets"
+            $targets = New-Object System.Xml.XmlDocument
+            $targets.PreserveWhitespace = $true
+            $targets.Load([IO.Path]::GetFullPath($targetsPath))
+            $propertyGroup = $targets.CreateElement("PropertyGroup", $targets.DocumentElement.NamespaceURI)
+            $propertyGroup.SetAttribute("Condition", "'`$(MSBuildRuntimeType)' == 'Core' and '`$(NF_MSBUILDTASK_PATH)' == ''")
+            $taskPathProperty = $targets.CreateElement("NF_MSBUILDTASK_PATH", $targets.DocumentElement.NamespaceURI)
+            $taskPathProperty.InnerText = '$(MSBuildThisFileDirectory)buildTasks/net8.0'
+            $propertyGroup.AppendChild($taskPathProperty) | Out-Null
+            $targets.DocumentElement.PrependChild($propertyGroup) | Out-Null
+            $targets.Save([IO.Path]::GetFullPath($targetsPath))
         }
 
         New-Item -ItemType Directory -Path $templateDestination -Force | Out-Null
@@ -240,4 +301,6 @@ try {
     }
     Remove-Item (Join-Path $outputDirectory "metadata-processor-task.zip") -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $outputDirectory "metadata-processor-task") -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $outputDirectory "build-tasks.zip") -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $outputDirectory "build-tasks") -Recurse -Force -ErrorAction SilentlyContinue
 }
