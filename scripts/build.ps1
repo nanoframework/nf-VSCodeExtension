@@ -237,13 +237,41 @@ try {
                 [IO.File]::WriteAllText($sourcePath, $source.Replace($patch.Old, $patch.New))
             }
 
+            $crossPlatformPath = Join-Path $buildTasksProject "ProcessResourceFiles.CrossPlatform.cs"
+            $crossPlatformSource = [IO.File]::ReadAllText($crossPlatformPath)
+            $bitmapStart = $crossPlatformSource.IndexOf("    internal static class CrossPlatformBitmap")
+            if ($bitmapStart -lt 0) {
+                throw "Cannot find the upstream bitmap implementation to replace."
+            }
+            $bitmapCommentStart = $crossPlatformSource.LastIndexOf("    /// <summary>", $bitmapStart)
+            if ($bitmapCommentStart -lt 0) {
+                throw "Cannot find the boundary of the upstream bitmap implementation."
+            }
+            $crossPlatformSource = $crossPlatformSource.Substring(0, $bitmapCommentStart) + "}`n#endif`n"
+            $crossPlatformSource = $crossPlatformSource -replace '(?m)^using SixLabors\.ImageSharp(?:\.Formats|\.PixelFormats)?;\r?\n', ''
+            $crossPlatformSource = $crossPlatformSource.Replace("via ImageSharp", "via StbImageSharp")
+            [IO.File]::WriteAllText($crossPlatformPath, $crossPlatformSource)
+            Copy-Item (Join-Path $PSScriptRoot "build-tasks/CrossPlatformBitmap.cs") -Destination $buildTasksProject
+
+            $buildTasksProjectPath = Join-Path $buildTasksProject "nanoFramework.Tools.BuildTasks.csproj"
+            $buildTasksXml = New-Object System.Xml.XmlDocument
+            $buildTasksXml.Load([IO.Path]::GetFullPath($buildTasksProjectPath))
+            $imagePackage = $buildTasksXml.SelectSingleNode("//PackageReference[@Include='SixLabors.ImageSharp']")
+            if (-not $imagePackage) {
+                throw "Cannot find the upstream image decoder dependency to replace."
+            }
+            $imagePackage.SetAttribute("Include", "StbImageSharp")
+            $imagePackage.SetAttribute("Version", "2.30.16")
+            $buildTasksXml.Save([IO.Path]::GetFullPath($buildTasksProjectPath))
+
             $buildTasksDestination = Join-Path $sdkDestination "buildTasks/net8.0"
-            & dotnet build (Join-Path $buildTasksProject "nanoFramework.Tools.BuildTasks.csproj") `
+            & dotnet build $buildTasksProjectPath `
                 -c Release -p:TargetFrameworks=net8.0 -o $buildTasksDestination
             if ($LASTEXITCODE -ne 0) {
                 throw "Building modern .NET nanoFramework BuildTasks failed."
             }
             Copy-Item (Join-Path $buildTasksRoot "LICENSE.md") -Destination $buildTasksDestination
+            Copy-Item (Join-Path $PSScriptRoot "build-tasks/StbImageSharp.LICENSE.txt") -Destination $buildTasksDestination
 
             # Select by MSBuild host, preserving full-framework Windows tasks and explicit overrides.
             $targetsPath = Join-Path $sdkDestination "NFProjectSystem.MDP.targets"

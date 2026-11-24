@@ -110,12 +110,12 @@ a checksum-pinned nanoFramework.NET.Sdk source snapshot because the published
 BuildTasks package currently contains no assemblies. Its runtime dependencies
 and license are shipped alongside the task assembly.
 
-The pinned tasks use ImageSharp 3.2.0, whose Release build validates a license.
-Configure `SixLaborsLicenseFile` in the build environment with the absolute path
-to a valid `sixlabors.lic` file (also required in CI). Do not commit the license.
-See [Six Labors licensing](https://sixlabors.com/pricing/) for license options.
-Do not downgrade to ImageSharp 3.1.x to avoid this requirement: those versions
-have known vulnerabilities.
+The dependency build replaces the upstream ImageSharp dependency with
+[StbImageSharp](https://www.nuget.org/packages/StbImageSharp), available under
+the Unlicense or MIT license. Its managed decoder requires no native libraries
+or license key, locally or in CI. BMP resources retain the upstream RGB565
+conversion; JPEG and GIF resources retain their encoded bytes and bitmap
+headers. Other formats remain binary resources.
 
 The preview metadata task pinned in [build.ps1](scripts/build.ps1) must support
 the outputs used by the preview SDK targets, including `NativeContractHash`.
