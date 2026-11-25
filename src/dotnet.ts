@@ -2116,13 +2116,13 @@ async function findDeployableBinFiles(solutionPath: string, configuration: strin
 }
 
 /**
- * Cleans (deletes) all .bin files for a specific configuration.
+ * Cleans build output and intermediate files for a specific configuration.
  * When given a .sln file, cleans across all project subdirectories.
- * When given a .nfproj file, cleans only that project's bin folder.
+ * When given a .nfproj file, cleans only that project's output and intermediates.
  * @param filePath The path to the solution or project file
  * @param configuration The build configuration to clean (Debug|Release)
  */
-function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void {
+export function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void {
     const projectDirs: string[] = [];
 
     if (isProjectFile(filePath)) {
@@ -2146,9 +2146,13 @@ function cleanBinFiles(filePath: string, configuration: string = 'Debug'): void 
     console.log(`Cleaning build output for configuration: ${configuration} (${projectDirs.length} project folder(s))`);
 
     for (const projectDir of projectDirs) {
-        // Clean bin/<configuration> and obj/<configuration> folders entirely
-        for (const folder of ['bin', 'obj']) {
-            const configDir = path.join(projectDir, folder, configuration);
+        // Builds pass Platform="Any CPU", so MSBuild can include it in the intermediate path.
+        const configDirs = [
+            path.join(projectDir, 'bin', configuration),
+            path.join(projectDir, 'obj', configuration),
+            path.join(projectDir, 'obj', 'Any CPU', configuration)
+        ];
+        for (const configDir of configDirs) {
             if (fs.existsSync(configDir)) {
                 try {
                     fs.rmSync(configDir, { recursive: true, force: true });

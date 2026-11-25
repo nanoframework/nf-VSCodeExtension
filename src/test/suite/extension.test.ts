@@ -18,7 +18,7 @@ import {
 	NanoBridge,
 	toBridgePath
 } from '../../debugger/bridge/nanoBridge';
-import { getPreviewMetadataTaskPath, getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
+import { cleanBinFiles, getPreviewMetadataTaskPath, getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
 import { ExecutionKind, Executor } from '../../executor';
 import { NuGetManager, NuGetService, selectNugetSources } from '../../nuget';
 import { validatePrerequisites } from '../../prerequisites';
@@ -293,6 +293,87 @@ suite('Extension Test Suite', () => {
 
 		try {
 			assert.match(validateNanoFrameworkBuildTarget(projectPath) || '', /project is not valid/i);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Cleans platform-qualified intermediates for v1 and v2 without touching other configurations or projects', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-clean-project-'));
+		const projects = [
+			createFamilyProject(directory, 'StableApp', '1.17.11'),
+			createFamilyProject(directory, 'PreviewApp', '2.0.0-preview.63')
+		];
+		const outputFolders = [
+			['bin'],
+			['obj'],
+			['obj', 'Any CPU']
+		];
+
+		try {
+			for (const project of projects) {
+				const projectDir = path.dirname(project);
+				for (const configuration of ['Debug', 'Release']) {
+					for (const folders of outputFolders) {
+						const outputDir = path.join(projectDir, ...folders, configuration);
+						fs.mkdirSync(outputDir, { recursive: true });
+						fs.writeFileSync(path.join(outputDir, 'App.pe'), 'stale build output');
+					}
+				}
+				fs.writeFileSync(path.join(projectDir, 'obj', 'restore.cache'), 'shared restore state');
+			}
+
+			for (const [index, project] of projects.entries()) {
+				const configuration = index === 0 ? 'Debug' : 'Release';
+				const otherConfiguration = index === 0 ? 'Release' : 'Debug';
+				const projectDir = path.dirname(project);
+				const otherProjectDir = path.dirname(projects[1 - index]);
+				cleanBinFiles(project, configuration);
+				cleanBinFiles(project, configuration);
+
+				for (const folders of outputFolders) {
+					assert.strictEqual(fs.existsSync(path.join(projectDir, ...folders, configuration)), false);
+					assert.strictEqual(
+						fs.readFileSync(path.join(projectDir, ...folders, otherConfiguration, 'App.pe'), 'utf8'),
+						'stale build output'
+					);
+					assert.strictEqual(fs.existsSync(path.join(otherProjectDir, ...folders, configuration)), true);
+				}
+				assert.strictEqual(
+					fs.readFileSync(path.join(projectDir, 'obj', 'restore.cache'), 'utf8'),
+					'shared restore state'
+				);
+				assert.strictEqual(fs.existsSync(project), true);
+			}
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('Cleans platform-qualified intermediates across solution projects while preserving packages', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-clean-solution-'));
+		const solutionPath = path.join(directory, 'App.sln');
+		const projectPaths = [
+			createFamilyProject(directory, 'App', '1.17.11'),
+			createFamilyProject(directory, 'Library', '1.17.11')
+		];
+		const packageDir = path.join(directory, 'packages', 'obj', 'Any CPU', 'Debug');
+
+		try {
+			for (const project of projectPaths) {
+				const intermediateDir = path.join(path.dirname(project), 'obj', 'Any CPU', 'Debug');
+				fs.mkdirSync(intermediateDir, { recursive: true });
+				fs.writeFileSync(path.join(intermediateDir, 'App.pe'), 'stale intermediate');
+			}
+			fs.mkdirSync(packageDir, { recursive: true });
+			fs.writeFileSync(path.join(packageDir, 'package.pe'), 'package content');
+
+			cleanBinFiles(solutionPath);
+
+			for (const project of projectPaths) {
+				assert.strictEqual(fs.existsSync(path.join(path.dirname(project), 'obj', 'Any CPU', 'Debug')), false);
+			}
+			assert.strictEqual(fs.readFileSync(path.join(packageDir, 'package.pe'), 'utf8'), 'package content');
 		} finally {
 			fs.rmSync(directory, { recursive: true, force: true });
 		}
