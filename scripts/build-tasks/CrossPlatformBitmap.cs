@@ -4,6 +4,7 @@
 //
 
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using StbImageSharp;
 using BitmapDescription = nanoFramework.Tools.ProcessResourceFiles.NanoResourceFile.CLR_GFX_BitmapDescription;
@@ -39,6 +40,10 @@ namespace nanoFramework.Tools
                 {
                     throw new ArgumentException("bitmap dimensions out of range");
                 }
+                if (type == BitmapDescription.c_TypeBitmap)
+                {
+                    ValidateBmpPixelData(data, info.Value.Width, height);
+                }
             }
 
             ImageResult image = ImageResult.FromMemory(data, ColorComponents.RedGreenBlueAlpha);
@@ -53,6 +58,26 @@ namespace nanoFramework.Tools
                 description.Serialize(writer);
                 writer.Write(payload);
                 return output.ToArray();
+            }
+        }
+
+        private static void ValidateBmpPixelData(byte[] data, int width, long height)
+        {
+            uint headerSize = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(14, 4));
+            int bitDepthOffset = headerSize == 12 ? 24 : 28;
+            long headerEnd = 14L + headerSize;
+            if (data.Length < bitDepthOffset + 2 || data.LongLength < headerEnd)
+            {
+                throw new InvalidDataException("BMP header is truncated.");
+            }
+
+            uint pixelOffset = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(10, 4));
+            ushort bitsPerPixel = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(bitDepthOffset, 2));
+            // BMP scanlines are padded to a four-byte boundary, regardless of their orientation.
+            long rowStride = ((long)width * bitsPerPixel + 31) / 32 * 4;
+            if (pixelOffset < headerEnd || pixelOffset + rowStride * height > data.LongLength)
+            {
+                throw new InvalidDataException("BMP pixel data is truncated or has an invalid offset.");
             }
         }
 

@@ -116,6 +116,8 @@ the Unlicense or MIT license. Its managed decoder requires no native libraries
 or license key, locally or in CI. BMP resources retain the upstream RGB565
 conversion; JPEG and GIF resources retain their encoded bytes and bitmap
 headers. Other formats remain binary resources.
+BMP inputs must contain all pixel rows, including four-byte row padding;
+truncated pixel data fails the build rather than generating a damaged bitmap.
 
 The preview metadata task pinned in [build.ps1](scripts/build.ps1) must support
 the outputs used by the preview SDK targets, including `NativeContractHash`.

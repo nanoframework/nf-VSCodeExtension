@@ -182,6 +182,17 @@ try {
     Assert-ResourceBuildFailure "Cannot read bitmap dimensions"
     [IO.File]::WriteAllBytes($bitmapPath, $bmp)
 
+    foreach ($fixture in @(
+        @{ Path = $bitmapPath; Data = $bmp },
+        @{ Path = (Join-Path $testDirectory "Resources/top-down.bmp"); Data = $topDownBmp }
+    )) {
+        foreach ($length in @(54, 77)) {
+            [IO.File]::WriteAllBytes($fixture.Path, [byte[]]$fixture.Data[0..($length - 1)])
+            Assert-ResourceBuildFailure "BMP pixel data is truncated"
+        }
+        [IO.File]::WriteAllBytes($fixture.Path, $fixture.Data)
+    }
+
     Remove-Item $linkedFile
     Assert-ResourceBuildFailure "Cannot read linked resource file"
 
