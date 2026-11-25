@@ -102,9 +102,30 @@ The extension selects its bundled `v2.0/mdp/net8.0` metadata task for both
 Build and Deploy, including terminal and background builds. Native Windows
 builds continue to use Visual Studio MSBuild; v1 builds on Unix still use Mono.
 
+For resource generation, the bundled v2 targets select `v2.0/buildTasks/net8.0`
+when hosted by modern .NET MSBuild, unless `NF_MSBUILDTASK_PATH` is explicitly
+set. These tasks support Windows-style linked file paths in `.resx` files on
+macOS and Linux without modifying the project. The dependency build compiles
+a checksum-pinned nanoFramework.NET.Sdk source snapshot because the published
+BuildTasks package currently contains no assemblies. Its runtime dependencies
+and license are shipped alongside the task assembly.
+
+The dependency build replaces the upstream ImageSharp dependency with
+[StbImageSharp](https://www.nuget.org/packages/StbImageSharp), available under
+the Unlicense or MIT license. Its managed decoder requires no native libraries
+or license key, locally or in CI. BMP resources retain the upstream RGB565
+conversion; JPEG and GIF resources retain their encoded bytes and bitmap
+headers. Other formats remain binary resources.
+BMP inputs must contain all pixel rows, including four-byte row padding;
+truncated pixel data fails the build rather than generating a damaged bitmap.
+
 The preview metadata task pinned in [build.ps1](scripts/build.ps1) must support
 the outputs used by the preview SDK targets, including `NativeContractHash`.
 Do not downgrade it to `4.0.0-preview.101`, which lacks that output.
+
+After building dependencies, run `pwsh scripts/test-build-resources.ps1` to
+check resource generation, linked-file incremental rebuilds, and missing-file
+errors against the bundled v2 targets.
 
 ### Verify PowerShell Installation
 

@@ -54,6 +54,9 @@ steps:
   - pwsh: scripts/build.ps1
     displayName: Download and build dependencies for .NET nanoFramework
 
+  - pwsh: scripts/test-build-resources.ps1
+    displayName: Test bundled resource generation tasks
+
   - task: DeleteFiles@1
     displayName: Remove source folders
     condition: succeeded()
