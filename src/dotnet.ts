@@ -85,20 +85,82 @@ async function waitForPeAssemblies(
     return false;
 }
 
-async function deployPreviewAssemblies(assembliesPath: string, serialPath: string): Promise<string | null> {
-    const bridge = new NanoBridge('deployment', 2);
-    try {
-        if (!await bridge.initialize(serialPath, false, 'information')) {
-            return 'Could not start the nanoFramework debug bridge for deployment.';
+type DeploymentOutput = Pick<vscode.OutputChannel, 'appendLine'>;
+
+function createDeploymentTerminal(): DeploymentOutput {
+    const writeEmitter = new vscode.EventEmitter<string>();
+    let opened = false;
+    let pending = '';
+    const terminal = vscode.window.createTerminal({
+        name: 'nanoFramework Deploy',
+        pty: {
+            onDidWrite: writeEmitter.event,
+            open: () => {
+                opened = true;
+                writeEmitter.fire(pending);
+                pending = '';
+            },
+            close: () => {
+                pending = '';
+                writeEmitter.dispose();
+            }
         }
+    });
+    terminal.show(true);
+    return {
+        appendLine: text => {
+            const line = text.replace(/\r?\n/g, '\r\n') + '\r\n';
+            if (opened) {
+                writeEmitter.fire(line);
+            } else {
+                pending += line;
+            }
+        }
+    };
+}
+
+export async function deployPreviewAssemblies(
+    assembliesPath: string,
+    serialPath: string,
+    output: DeploymentOutput
+): Promise<string | null> {
+    const bridge = new NanoBridge('deployment', 2);
+    const onOutput = (text: string) => {
+        if (text) {
+            output.appendLine(text.trimEnd());
+        }
+    };
+    const failure = (message: string): string => {
+        output.appendLine(`Deployment failed: ${message}`);
+        return message;
+    };
+    bridge.on('output', onOutput);
+    try {
+        output.appendLine(`Deploying Preview assemblies from ${assembliesPath} to ${serialPath}`);
+        output.appendLine('Starting nanoFramework deployment bridge...');
+        if (!await bridge.initialize(serialPath, false, 'information')) {
+            return failure('Could not start the nanoFramework debug bridge for deployment.');
+        }
+        output.appendLine(`Connecting to ${serialPath}...`);
         if (!await bridge.connect()) {
-            return `Could not connect to ${serialPath} for deployment.`;
+            return failure(`Could not connect to ${serialPath} for deployment.`);
         }
 
+        output.appendLine('Deploying managed application...');
         const result = await bridge.deployWithResult(assembliesPath);
-        return result.success ? null : result.error || 'Deployment failed.';
+        if (!result.success) {
+            return failure(result.error || 'Deployment failed.');
+        }
+        output.appendLine('Preview assembly deployment succeeded.');
+        return null;
+    } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error));
     } finally {
-        await bridge.terminate();
+        try {
+            await bridge.terminate();
+        } finally {
+            bridge.off('output', onOutput);
+        }
     }
 }
 
@@ -152,7 +214,7 @@ async function deployContentFiles(
     serialPath: string,
     deployProjectDir: string | undefined,
     visible: boolean,
-    output?: vscode.OutputChannel
+    output?: DeploymentOutput
 ): Promise<string | null> {
     const fileDeploymentJsonPath = createFileDeploymentJson(fileUri, configuration, deployProjectDir);
     if (!fileDeploymentJsonPath) {
@@ -1056,13 +1118,16 @@ export class Dotnet {
                     return;
                 }
 
-                const deploymentError = await deployPreviewAssemblies(assembliesPath, serialPath)
-                    || await deployContentFiles(fileUri, configuration, serialPath, deployProjectDir, true);
+                const output = createDeploymentTerminal();
+                const deploymentError = await deployPreviewAssemblies(assembliesPath, serialPath, output)
+                    || await deployContentFiles(fileUri, configuration, serialPath, deployProjectDir, true, output);
                 if (deploymentError) {
+                    output.appendLine(`Deploy failed: ${deploymentError}`);
                     vscode.window.showErrorMessage(deploymentError);
                     return;
                 }
 
+                output.appendLine(`Successfully deployed Preview assemblies to ${serialPath}`);
                 vscode.window.showInformationMessage(`Successfully deployed Preview assemblies to ${serialPath}`);
                 return;
             }
@@ -1269,7 +1334,7 @@ export class Dotnet {
                         }
 
                         progress.report({ message: 'Deploying Preview assemblies...' });
-                        const deploymentError = await deployPreviewAssemblies(assembliesPath, serialPath)
+                        const deploymentError = await deployPreviewAssemblies(assembliesPath, serialPath, outChannel)
                             || await deployContentFiles(fileUri, configuration, serialPath, deployProjectDir, false, outChannel);
                         if (deploymentError) {
                             outChannel.appendLine(`Deploy failed: ${deploymentError}`);

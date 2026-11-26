@@ -252,6 +252,14 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.debug.registerDebugAdapterDescriptorFactory('nanoframework', debugAdapterFactory)
     );
 
+    context.subscriptions.push(vscode.debug.onDidStartDebugSession(session => {
+        if (session.type === 'nanoframework' && session.configuration.internalConsoleOptions !== 'neverOpen') {
+            vscode.commands.executeCommand('workbench.debug.action.focusRepl').then(undefined, error => {
+                vscode.window.showErrorMessage(`Could not focus the nanoFramework Debug Console: ${error}`);
+            });
+        }
+    }));
+
     // Register test runner (Test Explorer integration)
     activateTestRunner(context);
 
