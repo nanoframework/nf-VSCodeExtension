@@ -168,6 +168,8 @@ The extension provides full debugging support for .NET nanoFramework application
 | **Debug Console** | See `Debug.WriteLine` output and evaluate expressions |
 | **Exception Handling** | Break on exceptions (configurable) |
 
+The **Debug Console** is focused automatically when a nanoFramework launch or attach session starts. Set `"internalConsoleOptions": "neverOpen"` in your debug configuration to disable this behavior.
+
 ### launch.json Configuration
 
 Create a `.vscode/launch.json` file in your workspace with the following configurations:
