@@ -60,6 +60,8 @@ Deploy builds the selected project automatically; running Build first is not req
 
 You'll get as well the status of the deployment happening in the Terminal.
 
+Preview (v2) deployments stream bridge progress and diagnostic messages to the **nanoFramework Deploy** terminal, where errors can be copied for troubleshooting. When `nanoFramework.showTerminalOutput` is disabled, these messages appear in the **nanoFramework Build** Output channel instead. V1 deployments continue to show `nanoff` output.
+
 ### Create solutions and projects
 
 To create a solution, you can select any folder on your workspace, right click and select the create solution option.

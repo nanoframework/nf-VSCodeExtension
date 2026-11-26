@@ -18,7 +18,7 @@ import {
 	NanoBridge,
 	toBridgePath
 } from '../../debugger/bridge/nanoBridge';
-import { cleanBinFiles, getPreviewMetadataTaskPath, getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
+import { cleanBinFiles, deployPreviewAssemblies, getPreviewMetadataTaskPath, getProjectFamily, validateNanoFrameworkBuildTarget } from '../../dotnet';
 import { ExecutionKind, Executor } from '../../executor';
 import { NuGetManager, NuGetService, selectNugetSources } from '../../nuget';
 import { validatePrerequisites } from '../../prerequisites';
@@ -139,6 +139,101 @@ suite('Extension Test Suite', () => {
 			{ command: 'removeBreakpoint', args: { breakpointId: 7 } }
 		]);
 	});
+
+		test('Streams Preview deployment progress and diagnostics through bridge shutdown', async () => {
+			const originalInitialize = NanoBridge.prototype.initialize;
+			const originalConnect = NanoBridge.prototype.connect;
+			const originalDeploy = NanoBridge.prototype.deployWithResult;
+			const originalTerminate = NanoBridge.prototype.terminate;
+			const lines: string[] = [];
+			const bridges: NanoBridge[] = [];
+			NanoBridge.prototype.initialize = async function () {
+				bridges.push(this);
+				this.emit('output', 'Device details\n');
+				return true;
+			};
+			NanoBridge.prototype.connect = async () => true;
+			NanoBridge.prototype.deployWithResult = async function () {
+				this.emit('output', '[Deploy] Erasing deployment area\n');
+				this.emit('output', '[Deploy] Writing assemblies\n');
+				return { success: true };
+			};
+			NanoBridge.prototype.terminate = async function () {
+				this.emit('output', 'Bridge shutdown\n');
+			};
+
+			try {
+				assert.strictEqual(await deployPreviewAssemblies('/app/bin/Debug', '/dev/board', {
+					appendLine: line => lines.push(line)
+				}), null);
+				assert.deepStrictEqual(lines, [
+					'Deploying Preview assemblies from /app/bin/Debug to /dev/board',
+					'Starting nanoFramework deployment bridge...',
+					'Device details',
+					'Connecting to /dev/board...',
+					'Deploying managed application...',
+					'[Deploy] Erasing deployment area',
+					'[Deploy] Writing assemblies',
+					'Preview assembly deployment succeeded.',
+					'Bridge shutdown'
+				]);
+				assert.strictEqual(bridges[0].listenerCount('output'), 0);
+			} finally {
+				NanoBridge.prototype.initialize = originalInitialize;
+				NanoBridge.prototype.connect = originalConnect;
+				NanoBridge.prototype.deployWithResult = originalDeploy;
+				NanoBridge.prototype.terminate = originalTerminate;
+			}
+		});
+
+		test('Keeps Preview deployment failures in the transcript and terminates the bridge', async () => {
+			const originalInitialize = NanoBridge.prototype.initialize;
+			const originalConnect = NanoBridge.prototype.connect;
+			const originalDeploy = NanoBridge.prototype.deployWithResult;
+			const originalTerminate = NanoBridge.prototype.terminate;
+
+			try {
+				for (const stage of ['initialize', 'connect', 'deploy', 'exception']) {
+					const lines: string[] = [];
+					let terminated = false;
+					let deployed = false;
+					NanoBridge.prototype.initialize = async function () {
+						this.emit('output', 'Runtime diagnostic', 'stderr');
+						return stage !== 'initialize';
+					};
+					NanoBridge.prototype.connect = async () => stage !== 'connect';
+					NanoBridge.prototype.deployWithResult = async () => {
+						deployed = true;
+						if (stage === 'exception') {
+							throw new Error('Device disconnected');
+						}
+						return { success: false, error: 'Native library mismatch' };
+					};
+					NanoBridge.prototype.terminate = async () => { terminated = true; };
+
+					const error = await deployPreviewAssemblies('/app/bin/Debug', '/dev/board', {
+						appendLine: line => lines.push(line)
+					});
+					assert.ok(error);
+					assert.ok(lines.includes('Runtime diagnostic'));
+					assert.ok(lines.includes(`Deployment failed: ${error}`));
+					assert.strictEqual(lines.includes('Preview assembly deployment succeeded.'), false);
+					assert.strictEqual(terminated, true);
+					assert.strictEqual(deployed, stage === 'deploy' || stage === 'exception');
+					if (stage === 'deploy') {
+						assert.strictEqual(error, 'Native library mismatch');
+					}
+					if (stage === 'exception') {
+						assert.strictEqual(error, 'Device disconnected');
+					}
+				}
+			} finally {
+				NanoBridge.prototype.initialize = originalInitialize;
+				NanoBridge.prototype.connect = originalConnect;
+				NanoBridge.prototype.deployWithResult = originalDeploy;
+				NanoBridge.prototype.terminate = originalTerminate;
+			}
+		});
 
 	test('Uses only enabled dotnet NuGet sources with a default fallback', () => {
 		const defaultSource = 'https://api.nuget.org/v3/index.json';
