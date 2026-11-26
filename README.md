@@ -54,6 +54,8 @@ Select `nanoFramework: Deploy Project` and follow the steps.
 
 Similar as building the project, you'll have to select the project to deploy. The code will be built and the deployment will start:
 
+Deploy builds the selected project automatically; running Build first is not required. Build and Deploy clean the selected configuration's output and intermediate files, including `obj/Any CPU/<configuration>`, so incremental build state cannot suppress regeneration of the v1 deployment image. Preview (v2) deployment uses `.pe` assemblies instead of a `.bin` image.
+
 ![select options](docs/step-by-step17.png)
 
 You'll get as well the status of the deployment happening in the Terminal.
